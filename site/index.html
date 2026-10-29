@@ -17,8 +17,17 @@
 <meta name="twitter:site" content="@spellspeedapp">
 <link rel="preload" href="fonts/sora.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="style.css">
+<script src="deck.js" defer></script>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- Spellspeed's own card-type icons; deliberately not Konami's property icons. -->
+  <symbol id="orb" viewBox="0 0 64 64"><g transform="translate(5 0) skewX(-10)"><rect x="15" y="7" width="34" height="50" rx="5" fill="#e9f6f3"/><path d="M23 21 L33 32 L23 43 M34 21 L44 32 L34 43" stroke="#0b3c66" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g></symbol>
+  <symbol id="i-cont" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.5A7 7 0 1 0 19 13"/><path d="M14.5 8.5H19V4"/></g></symbol>
+  <symbol id="i-quick" viewBox="0 0 24 24"><path d="M5 6l6 6-6 6M12 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-field" viewBox="0 0 24 24"><g fill="currentColor"><rect x="3" y="5" width="5" height="6" rx="1"/><rect x="9.5" y="5" width="5" height="6" rx="1"/><rect x="16" y="5" width="5" height="6" rx="1"/><rect x="3" y="13" width="5" height="6" rx="1" opacity=".55"/><rect x="9.5" y="13" width="5" height="6" rx="1" opacity=".55"/><rect x="16" y="13" width="5" height="6" rx="1" opacity=".55"/></g></symbol>
+  <symbol id="i-equip" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M10 14l4-4"/><path d="M8.5 11.5l-2 2a3.5 3.5 0 0 0 5 5l2-2"/><path d="M15.5 12.5l2-2a3.5 3.5 0 0 0-5-5l-2 2"/></g></symbol>
+</svg>
 
 <header class="top">
   <div class="wrap">
@@ -55,73 +64,89 @@
   <section id="deck">
     <div class="wrap">
       <div class="section-head">
-        <h2>Main Deck <span class="count">6 cards</span></h2>
-        <p>Six Spells for DuelingBook. Every action they take is one of DuelingBook's own; they just resolve faster.</p>
+        <h2>Six Spells for DuelingBook</h2>
+        <p>Every action they take is one of DuelingBook's own; they just resolve faster. Pick a card to read it.</p>
       </div>
-
-      <div class="feature">
-        <article class="spell">
-          <h3 class="spell-name">Drag and Drop</h3>
-          <div class="spell-text">
-            <p class="spell-type">[Continuous Spell]</p>
-            <p>Drag a card to a zone to Summon, Set, attack, send it to the GY, banish it or return it to the Deck. Hold <span class="kbd">Shift</span> for Defense Position, <span class="kbd">Alt</span> to Set, or <span class="kbd">Ctrl</span> to Normal Summon. You can also right-click a card to open its full action menu, or keep DuelingBook's hover menu.</p>
-            <p class="negate">You can negate this card's effects in the settings.</p>
-          </div>
-        </article>
-        <figure class="shot"><img src="assets/card-actions.webp" width="1002" height="592" loading="lazy" alt="The right-click action menu on a monster in hand: Normal Summon, Set, Special Summon, to Graveyard, Banish and more."></figure>
+      <div class="deckview" data-deck>
+        <div class="deck-preview" aria-live="polite"></div>
+        <div class="deck-side">
+          <div class="deck-bar"><b>Main Deck</b><span class="count">6 cards</span></div>
+          <div class="deck-grid" role="group" aria-label="Main Deck"></div>
+        </div>
       </div>
-
-      <div class="feature flip">
-        <article class="spell">
-          <h3 class="spell-name">Card Fans</h3>
-          <div class="spell-text">
-            <p class="spell-type">[Continuous Spell]</p>
-            <p>Your Deck, Extra Deck, GY and banished cards open as fans or grids you can search, sort, move and resize. When card text names a card, an archetype or a stat ("Level 4 or lower"), you can click it to list every card that matches.</p>
-            <p class="negate">You can negate this card's effects in the settings.</p>
-          </div>
+      <noscript><p class="note">Drag and Drop · Card Fans · Deck Builder · Replay Timeline · Four Themes · Android app</p></noscript>
+      <template data-card="Drag and Drop">
+        <article class="ycard" aria-label="Drag and Drop, Continuous Spell">
+          <h3 class="ycard-name">Drag and Drop</h3>
+          <span class="ycard-orb"><svg aria-hidden="true"><use href="#orb"/></svg></span>
+          <p class="ycard-type">[Spell Card <svg aria-hidden="true"><use href="#i-cont"/></svg>]</p>
+          <div class="ycard-art"><img src="assets/card-actions.webp" width="1002" height="592" alt="The right-click action menu on a monster in hand" style="object-position:78% 60%"></div>
+          <span class="ycard-code">SPSD-001</span>
+          <div class="ycard-text"><p>Drag a card to a zone to Summon, Set, attack, send it to the GY, banish it or return it to the Deck. Hold Shift, Alt or Ctrl to change how it is played. <span class="negate">You can negate this card's effects in the settings.</span></p></div>
+          <span class="ycard-foot">Spellspeed 0.9</span>
         </article>
-        <figure class="shot"><img src="assets/play-faster.webp" width="962" height="592" loading="lazy" alt="The Extra Deck opened as a grid over the field, with each player's action history on the right."></figure>
-      </div>
-
-      <div class="feature">
-        <article class="spell">
-          <h3 class="spell-name">Deck Builder</h3>
-          <div class="spell-text">
-            <p class="spell-type">[Normal Spell]</p>
-            <p>Search by type, frame, Attribute, ATK/DEF and effect, such as hand traps, searchers and negation. <b>Access</b>: list the cards that can add this card from your Deck. <b>Summon Lab</b>: list what your monsters can Summon, and what each recipe still needs. Undo with <span class="kbd">Ctrl Z</span>.</p>
-            <p class="negate">You can negate this card's effects in the settings.</p>
-          </div>
+        <ul class="deck-details"><li><b>Continuous Spell</b></li><li><span class="kbd">Shift</span> Defense Position · <span class="kbd">Alt</span> Set · <span class="kbd">Ctrl</span> Normal Summon</li><li>A right-click menu with every action, or DuelingBook's hover menu</li><li>Shortcut keys you can remap</li><li>Mill or banish several cards from the top of the Deck at once</li></ul>
+      </template>
+      <template data-card="Card Fans">
+        <article class="ycard" aria-label="Card Fans, Continuous Spell">
+          <h3 class="ycard-name">Card Fans</h3>
+          <span class="ycard-orb"><svg aria-hidden="true"><use href="#orb"/></svg></span>
+          <p class="ycard-type">[Spell Card <svg aria-hidden="true"><use href="#i-cont"/></svg>]</p>
+          <div class="ycard-art"><img src="assets/card-fans.webp" width="962" height="592" alt="The Deck opened as a fan of cards above the field" style="object-position:center 40%"></div>
+          <span class="ycard-code">SPSD-002</span>
+          <div class="ycard-text"><p>Your Deck, Extra Deck, GY and banished cards open as fans or grids. Search and sort them, or click a name in card text to list every card that matches. <span class="negate">You can negate this card's effects in the settings.</span></p></div>
+          <span class="ycard-foot">Spellspeed 0.9</span>
         </article>
-        <figure class="shot"><img src="assets/deck-builder.webp" width="1060" height="592" loading="lazy" alt="The deck constructor with Spellspeed's card search and filters on the right."></figure>
-      </div>
-
-      <div class="spells">
-        <article class="spell">
-          <h3 class="spell-name">Replay Timeline</h3>
-          <div class="spell-text">
-            <p class="spell-type">[Quick-Play Spell]</p>
-            <p>During any replay: slide to any play, step back one play or one turn, or play at 1× to 4×. Moving back to a play you have already seen is instant.</p>
-            <p class="negate">You can negate this card's effects in the settings.</p>
-          </div>
+        <ul class="deck-details"><li><b>Continuous Spell</b></li><li>Fan or Grid view, with search and sorting</li><li>Move and resize the viewer; it stays where you put it</li><li>Click names, archetypes and stats like "Level 4 or lower" in card text</li><li>Action history for both players</li></ul>
+      </template>
+      <template data-card="Deck Builder">
+        <article class="ycard" aria-label="Deck Builder, Normal Spell">
+          <h3 class="ycard-name">Deck Builder</h3>
+          <span class="ycard-orb"><svg aria-hidden="true"><use href="#orb"/></svg></span>
+          <p class="ycard-type">[Spell Card]</p>
+          <div class="ycard-art"><img src="assets/deck-builder.webp" width="1060" height="592" alt="The deck constructor with the card search and filters" style="object-position:center"></div>
+          <span class="ycard-code">SPSD-003</span>
+          <div class="ycard-text"><p>Search by type, frame, Attribute, ATK/DEF and effect. Access: list the cards that can add this card from the Deck. Summon Lab: list what your monsters can Summon. <span class="negate">You can negate this card's effects in the settings.</span></p></div>
+          <span class="ycard-foot">Spellspeed 0.9</span>
         </article>
-        <article class="spell">
-          <h3 class="spell-name">Four Themes</h3>
-          <div class="spell-text">
-            <p class="spell-type">[Field Spell]</p>
-            <p>The field becomes Night, Classic, Abyss or Ember. Card artwork is never tinted. Prefer DuelingBook as you know it? Choose the Classic look and keep the shortcuts.</p>
-            <div class="themes" aria-label="The four themes"><span class="th-night">Night</span><span class="th-classic">Classic</span><span class="th-abyss">Abyss</span><span class="th-ember">Ember</span></div>
-            <p class="negate">You can negate this card's effects in the settings.</p>
-          </div>
+        <ul class="deck-details"><li><b>Normal Spell</b></li><li>Effect filters: hand traps, searchers, negation and more</li><li><b>Access</b>: every card that can get this one out of the Deck</li><li><b>Summon Lab</b>: Fusion, Synchro, Xyz and Link recipes from the monsters you pick</li><li>Undo with <span class="kbd">Ctrl Z</span>, and Solo with a chosen opening hand</li></ul>
+      </template>
+      <template data-card="Replay Timeline">
+        <article class="ycard" aria-label="Replay Timeline, Quick-Play Spell">
+          <h3 class="ycard-name">Replay Timeline</h3>
+          <span class="ycard-orb"><svg aria-hidden="true"><use href="#orb"/></svg></span>
+          <p class="ycard-type">[Spell Card <svg aria-hidden="true"><use href="#i-quick"/></svg>]</p>
+          <div class="ycard-art"><img src="assets/timeline-art.svg" width="400" height="400" alt="The replay timeline: a slider with turn marks and playback buttons"></div>
+          <span class="ycard-code">SPSD-004</span>
+          <div class="ycard-text"><p>During any replay: slide to any play, step back one play or one turn, or play at up to 4×. Plays you have already seen are instant. <span class="negate">You can negate this card's effects in the settings.</span></p></div>
+          <span class="ycard-foot">Spellspeed 0.9</span>
         </article>
-        <article class="spell">
-          <h3 class="spell-name">In Your Pocket</h3>
-          <div class="spell-text">
-            <p class="spell-type">[Equip Spell]</p>
-            <p>Equip only to an Android phone. Buttons are sized for a finger, the replay timeline follows your thumb, and DuelingBook links from Discord open in the app. <a href="android.html">Get the app</a></p>
-            <p class="negate">You can negate this card's effects in the settings.</p>
-          </div>
+        <ul class="deck-details"><li><b>Quick-Play Spell</b></li><li>Slide to any play, or click a turn mark</li><li>One play or one turn back and forward</li><li>1×, 2× and 4×, with the duel's sounds</li><li><span class="kbd">Space</span> or <span class="kbd">K</span> to play and pause</li></ul>
+      </template>
+      <template data-card="Four Themes">
+        <article class="ycard" aria-label="Four Themes, Field Spell">
+          <h3 class="ycard-name">Four Themes</h3>
+          <span class="ycard-orb"><svg aria-hidden="true"><use href="#orb"/></svg></span>
+          <p class="ycard-type">[Spell Card <svg aria-hidden="true"><use href="#i-field"/></svg>]</p>
+          <div class="ycard-art"><div class="theme-art" role="img" aria-label="The four themes: Night, Classic, Abyss and Ember"><span class="th-night">Night</span><span class="th-classic">Classic</span><span class="th-abyss">Abyss</span><span class="th-ember">Ember</span></div></div>
+          <span class="ycard-code">SPSD-005</span>
+          <div class="ycard-text"><p>The field becomes Night, Classic, Abyss or Ember. Card artwork is never tinted. You can also keep DuelingBook's own look and use only the shortcuts. <span class="negate">You can negate this card's effects in the settings.</span></p></div>
+          <span class="ycard-foot">Spellspeed 0.9</span>
         </article>
-      </div>
+        <ul class="deck-details"><li><b>Field Spell</b></li><li>Night, Classic, Abyss and Ember</li><li>The Classic look: DuelingBook's own layout, with the shortcuts kept</li><li>Panels, menus and the deck constructor follow the theme</li></ul>
+      </template>
+      <template data-card="In Your Pocket">
+        <article class="ycard" aria-label="In Your Pocket, Equip Spell">
+          <h3 class="ycard-name">In Your Pocket</h3>
+          <span class="ycard-orb"><svg aria-hidden="true"><use href="#orb"/></svg></span>
+          <p class="ycard-type">[Spell Card <svg aria-hidden="true"><use href="#i-equip"/></svg>]</p>
+          <div class="ycard-art"><img src="assets/phone-art.svg" width="400" height="400" alt="A phone held sideways running Spellspeed"></div>
+          <span class="ycard-code">SPSD-006</span>
+          <div class="ycard-text"><p>Equip only to an Android phone. Buttons are sized for a finger, the replay timeline follows your thumb, and DuelingBook links open in the app. <span class="negate">You can negate this card's effects in the settings.</span></p></div>
+          <span class="ycard-foot">Spellspeed 0.9</span>
+        </article>
+        <ul class="deck-details"><li><b>Equip Spell</b></li><li>Buttons sized for a finger</li><li>A replay timeline you slide with your thumb</li><li>Replay links from Discord open in the app</li><li>Android 8 or newer · <a href="android.html">Get the app</a></li></ul>
+      </template>
     </div>
   </section>
 

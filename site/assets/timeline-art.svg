@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -50 400 400">
+  <!-- Illustration of Spellspeed's own replay timeline bar -->
+  <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#6ff5dc"/><stop offset="1" stop-color="#1d8fe0"/></linearGradient></defs>
+  <rect y="-50" width="400" height="400" fill="#0b1413"/>
+  <g fill="none" stroke="#1e3431" stroke-width="2">
+    <rect x="70" y="40" width="44" height="62" rx="3"/><rect x="128" y="40" width="44" height="62" rx="3"/><rect x="186" y="40" width="44" height="62" rx="3"/><rect x="244" y="40" width="44" height="62" rx="3"/><rect x="302" y="40" width="44" height="62" rx="3"/>
+    <rect x="70" y="116" width="44" height="62" rx="3"/><rect x="128" y="116" width="44" height="62" rx="3"/><rect x="186" y="116" width="44" height="62" rx="3"/><rect x="244" y="116" width="44" height="62" rx="3"/><rect x="302" y="116" width="44" height="62" rx="3"/>
+  </g>
+  <rect x="128" y="116" width="44" height="62" rx="3" fill="#13594e"/><rect x="244" y="40" width="44" height="62" rx="3" fill="#163a5a"/>
+  <rect x="0" y="214" width="400" height="86" fill="#0e1a18"/><line x1="0" y1="214" x2="400" y2="214" stroke="#2b4743"/>
+  <line x1="24" y1="244" x2="376" y2="244" stroke="#2b4743" stroke-width="6" stroke-linecap="round"/>
+  <line x1="24" y1="244" x2="236" y2="244" stroke="url(#g)" stroke-width="6" stroke-linecap="round"/>
+  <g fill="#93aaa5"><rect x="86" y="234" width="2" height="20"/><rect x="152" y="234" width="2" height="20"/><rect x="208" y="234" width="2" height="20"/><rect x="290" y="234" width="2" height="20"/><rect x="340" y="234" width="2" height="20"/></g>
+  <circle cx="236" cy="244" r="10" fill="#e9f6f3" stroke="#1d8fe0" stroke-width="3"/>
+  <g fill="#e9f6f3" font-family="Figtree, Segoe UI, sans-serif" font-size="15" font-weight="600">
+    <path d="M38 272 l-10 7 10 7z M50 272 l-10 7 10 7z"/>
+    <path d="M66 272 h4 v14 h-4z M74 272 h4 v14 h-4z"/>
+    <path d="M90 272 l10 7 -10 7z M102 272 l10 7 -10 7z"/>
+    <text x="150" y="285" fill="#93aaa5">Turn 4 · Play 41</text>
+    <text x="352" y="285" text-anchor="end" fill="#6ff5dc">2×</text>
+  </g>
+</svg>

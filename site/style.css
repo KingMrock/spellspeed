@@ -71,31 +71,75 @@ section { padding-block: 88px; }
 .count { font: 600 14px/1 var(--f-display); color: var(--muted); border: 1px solid var(--line-2); border-radius: 6px; padding: 5px 8px; margin-left: 10px; vertical-align: middle; letter-spacing: 0; }
 .band { background: var(--bg-2); border-block: 1px solid var(--line); }
 
-/* A feature as a Spell card's text: name bar, [type] line, effect text, and the negation line */
-.spell { border: 1px solid var(--spell-frame); border-radius: 6px; background: var(--spell-box); overflow: hidden; display: flex; flex-direction: column; }
-.spell-name { background: var(--spell-bar); padding: 12px 18px; font: 700 15px/1.2 var(--f-display); letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid var(--spell-frame); }
-.spell-text { padding: 16px 18px 18px; font: 17px/1.55 var(--f-card); color: var(--card-ink); display: flex; flex-direction: column; gap: 10px; flex: 1; }
-.spell-type { font-weight: 600; color: var(--fg); }
-.spell-text b { font-weight: 600; }
-.negate { margin-top: auto; font-style: italic; color: var(--muted); border-top: 1px solid var(--line-2); padding-top: 10px; }
+/* Main Deck: our own card layout (name bar, type line, art window, text box), not Konami's frame or icons.
+   Cards size their type with container units, so one component serves the preview and the deck grid. */
+.deckview { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 48px; align-items: start; }
+.deck-preview { position: sticky; top: 88px; display: grid; gap: 18px; }
+.deck-details { margin: 0; padding-left: 20px; color: var(--muted); display: grid; gap: 6px; font-size: 16px; }
+.deck-details li::marker { color: var(--accent); }
+.deck-side { display: grid; gap: 14px; }
+.deck-bar { display: flex; align-items: center; gap: 12px; font: 600 14px/1 var(--f-display); color: var(--muted); }
+.deck-bar b { font-size: 22px; color: var(--fg); letter-spacing: -.01em; }
+.deck-bar .count { margin-left: 0; }
+.deck-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 16px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--bg-2); }
+.deck-pick { all: unset; cursor: pointer; display: block; border-radius: 6px; transition: transform .18s ease; }
+.deck-pick:hover { transform: translateY(-4px); }
+.deck-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.deck-pick[aria-pressed="true"] { transform: translateY(-4px); }
+.deck-pick[aria-pressed="true"] .ycard { box-shadow: 0 0 0 2px var(--accent), 0 16px 34px -14px #000; }
+@media (max-width: 900px) {
+  .deckview { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .deck-preview { position: static; order: 2; max-width: 400px; width: 100%; justify-self: center; }
+  .deck-grid { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: minmax(132px, 30%); overflow-x: auto; scroll-snap-type: x mandatory; background: var(--bg-2); }
+  .deck-pick { scroll-snap-align: start; }
+}
+
+.ycard { container-type: inline-size; aspect-ratio: 59 / 86; width: 100%; position: relative; overflow: hidden; display: block;
+  border-radius: 2.6% / 1.8%; color: #111;
+  /* Spell frame: teal-green with a faint woven grain; our own CSS, not Konami's frame artwork */
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, .035) 0 2px, transparent 2px 5px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, .05) 0 2px, transparent 2px 6px),
+    linear-gradient(160deg, #2bb08f 0%, #1a8f73 38%, #137360 70%, #0f5f50 100%);
+  box-shadow: inset 0 0 0 2px #101614, inset 0 0 0 3px rgba(255, 255, 255, .2), 0 18px 36px -18px #000; }
+.ycard > * { position: absolute; margin: 0; }
+.ycard-name { left: 6.6%; right: 6.6%; top: 4.4%; height: 7.6%; display: flex; align-items: center; padding: 0 15cqw 0 2.4cqw;
+  border: .55cqw solid; border-color: rgba(0, 0, 0, .55) rgba(255, 255, 255, .35) rgba(255, 255, 255, .35) rgba(0, 0, 0, .55);
+  background: linear-gradient(rgba(255, 255, 255, .1), rgba(0, 0, 0, .08));
+  font: 600 7.4cqw/1 var(--f-card); font-variant: small-caps; letter-spacing: .02em; color: #fff; white-space: nowrap;
+  text-shadow: .3cqw .3cqw 0 rgba(0, 0, 0, .55); }
+.ycard-orb { right: 7.8%; top: 4.6%; width: 10.6cqw; height: 10.6cqw; border-radius: 50%; display: grid; place-items: center;
+  background: radial-gradient(circle at 35% 30%, #8ff7e4, #1d8fe0 55%, #0b3c66 100%);
+  box-shadow: 0 0 0 .7cqw #f4f8f6, 0 0 0 1.2cqw rgba(0, 0, 0, .4); }
+.ycard-orb svg { width: 64%; height: 64%; }
+.ycard-type { right: 8.4%; top: 13.9%; display: flex; align-items: center; gap: .8cqw;
+  font: 700 5.4cqw/1 var(--f-card); font-variant: small-caps; letter-spacing: .02em; color: #0b0f0e; }
+.ycard-type svg { width: 5cqw; height: 5cqw; padding: .5cqw; border-radius: 50%; background: #f4f0e6; color: #0b3c66; box-shadow: 0 0 0 .35cqw #0b0f0e; }
+.ycard-art { left: 12%; top: 18.4%; width: 76%; aspect-ratio: 1; background: #050b0a; overflow: hidden;
+  border: .9cqw solid; border-color: rgba(0, 0, 0, .55) rgba(255, 255, 255, .4) rgba(255, 255, 255, .4) rgba(0, 0, 0, .55); }
+.ycard-art img, .ycard-art svg { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ycard-code { right: 8.2%; top: 71.2%; font: 600 2.9cqw/1 var(--f-body); letter-spacing: .04em; color: #0b0f0e; }
+.ycard-text { left: 6.8%; right: 6.8%; top: 74%; height: 20.4%; padding: 1.6cqw 2.4cqw; overflow: hidden;
+  background: linear-gradient(#f6efe0, #ebe1cc); border: .6cqw solid; border-color: #6f5a35 #c9b48a #c9b48a #6f5a35;
+  font: 4cqw/1.2 var(--f-card); text-align: justify; hyphens: auto; color: #111; }
+.ycard-text .negate { font-style: italic; }
+.ycard-foot { left: 6.8%; bottom: 1.9%; font: 600 2.6cqw/1 var(--f-body); letter-spacing: .04em; color: #0b0f0e; opacity: .85; }
+/* The preview card catches the light as the pointer moves over it (JS sets --mx/--my); still when motion is reduced. */
+.deck-preview .ycard::after { content: ""; position: absolute; inset: 0; pointer-events: none; mix-blend-mode: soft-light; opacity: 0; transition: opacity .25s;
+  background: radial-gradient(circle at var(--mx, 30%) var(--my, 20%), rgba(255, 255, 255, .55), transparent 45%),
+    linear-gradient(115deg, transparent 30%, rgba(111, 245, 220, .35) 45%, rgba(143, 134, 255, .3) 55%, transparent 70%); }
+.deck-preview .ycard:hover::after { opacity: 1; }
+.deck-preview .ycard { transition: transform .2s ease; transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); }
+@media (prefers-reduced-motion: reduce) { .deck-preview .ycard { transform: none; } .deck-pick, .deck-pick:hover { transform: none; transition: none; } }
+
+/* Theme art: the four in-game themes, coloured from the extension's own tokens (night.css) */
+.theme-art { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; width: 100%; height: 100%; }
+.theme-art span { display: grid; align-content: end; padding: 6%; font: 600 clamp(9px, 4cqw, 15px)/1 var(--f-body); border-bottom: 3px solid; }
+.th-night { background: linear-gradient(160deg, #242c2e, #111718 70%); color: #e6eeea; border-color: #4ba3bb; }
+.th-classic { background: linear-gradient(160deg, #ffffff, #eef1f0 70%); color: #1b2224; border-color: #1f6e89; }
+.th-abyss { background: radial-gradient(circle at 30% 10%, #101a2c, #070d1a 75%); color: #dce8f5; border-color: #4cc3e6; }
+.th-ember { background: radial-gradient(circle at 50% 110%, #3a2a18, #211a14 45%, #130f0c); color: #f2e8dc; border-color: #e3a33b; }
 .kbd { font: 600 13px/1 var(--f-body); border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; padding: 2px 6px; color: var(--fg); white-space: nowrap; }
-
-.feature { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 40px; align-items: center; }
-.feature + .feature { margin-top: 56px; }
-.feature.flip { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
-.feature.flip .spell { order: 2; }
-@media (max-width: 860px) { .feature, .feature.flip { grid-template-columns: minmax(0, 1fr); gap: 18px; } .feature.flip .spell { order: 0; } }
-
-.spells { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 56px; }
-@media (max-width: 900px) { .spells { grid-template-columns: minmax(0, 1fr); } }
-
-/* Theme chips inside the Field Spell card, coloured from the extension's own theme tokens (night.css) */
-.themes { display: flex; flex-wrap: wrap; gap: 6px; }
-.themes span { font: 600 12px/1 var(--f-body); padding: 7px 10px; border-radius: 4px; border-bottom: 2px solid; }
-.th-night { background: #242c2e; color: #e6eeea; border-color: #4ba3bb; }
-.th-classic { background: #eef1f0; color: #1b2224; border-color: #1f6e89; }
-.th-abyss { background: #101a2c; color: #dce8f5; border-color: #4cc3e6; }
-.th-ember { background: #211a14; color: #f2e8dc; border-color: #e3a33b; }
 
 /* Plain promises */
 .promises { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line-2); }
