@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="spell" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6ff5dc"/>
+      <stop offset="1" stop-color="#1d8fe0"/>
+    </linearGradient>
+    <mask id="speed" maskUnits="userSpaceOnUse" x="0" y="0" width="128" height="128">
+      <rect width="128" height="128" fill="#fff"/>
+      <path d="M46 40 L64 64 L46 88 M66 40 L84 64 L66 88" fill="none" stroke="#000" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+  <g transform="translate(11 0) skewX(-10)">
+    <g mask="url(#speed)">
+      <rect x="30" y="12" width="71" height="104" rx="10" fill="url(#spell)"/>
+    </g>
+  </g>
+</svg>

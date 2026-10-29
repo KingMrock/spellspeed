@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spellspeed for Android</title>
+<meta name="description" content="Download the Spellspeed app for Android: DuelingBook with touch-sized controls, a replay timeline and links that open in the app.">
+<meta name="theme-color" content="#0b1413">
+<link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+<link rel="icon" href="assets/icon32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/app-icon-512.png">
+<link rel="preload" href="fonts/sora.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./" aria-label="Spellspeed home"><img src="assets/mark.svg" alt=""><span class="wordmark">spellspeed</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="./#deck">Features</a>
+      <a href="android.html" aria-current="page">Android</a>
+      <a href="./#rulings">Rulings</a>
+      <a href="./#community">Community</a>
+    </nav>
+    <a class="btn btn-ghost btn-sm" href="#install">How to install</a>
+  </div>
+</header>
+
+<main>
+  <div class="wrap narrow hero">
+    <div class="hero-copy">
+      <h1>DuelingBook in your <em>pocket.</em></h1>
+      <p class="lead">The Spellspeed app is DuelingBook with Spellspeed built in: buttons sized for a finger, a replay timeline you slide with your thumb, and DuelingBook links that open straight in the app.</p>
+      <div class="ctas" id="download">
+        <!-- TODO(launch): APK link (GitHub release asset), version, size and SHA-256 -->
+        <span class="btn btn-soon">APK coming soon <small>Android 8+</small></span>
+        <a class="btn btn-ghost" href="#install">How to install</a>
+      </div>
+      <p class="note">Not on Google Play yet, so Android asks you to allow the install. The steps below take about a minute.</p>
+    </div>
+  </div>
+
+  <section id="install" class="band">
+    <div class="wrap narrow">
+      <div class="section-head"><h2>Four steps, once</h2><p>About a minute, the first time only.</p></div>
+      <ol class="steps">
+        <li><div>
+          <h3>Download the APK on your phone</h3>
+          <p>Tap <b>Download APK</b> above in Chrome (or your usual browser). If it warns that the file may be harmful, tap <b>Download anyway</b>: it says that about every app from outside Google Play.</p>
+        </div></li>
+        <li><div>
+          <h3>Open it and allow the install</h3>
+          <p>Tap the finished download. Android asks whether Chrome may install unknown apps: tap <b>Settings</b>, switch on <b>Allow from this source</b>, then go back.</p>
+          <p>You can switch it off again afterwards; Spellspeed stays installed.</p>
+        </div></li>
+        <li><div>
+          <h3>Install</h3>
+          <p>Tap <b>Install</b>. If Play Protect says the developer is unknown, tap <b>More details</b>, then <b>Install anyway</b>. If it offers to scan the app, let it.</p>
+        </div></li>
+        <li><div>
+          <h3>Open Spellspeed and log in</h3>
+          <p>Log in to DuelingBook as usual. The app keeps its own login, separate from your browser. A few seconds after the first start, it offers to open DuelingBook links: tap <b>Allow</b> and tick both duelingbook.com addresses, so replay links from Discord open in the app.</p>
+        </div></li>
+      </ol>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap narrow">
+      <div class="section-head"><h2>Updates and safety</h2></div>
+      <div class="rulings">
+        <details open>
+          <summary>How do I update?</summary>
+          <p>Download the new APK from this page and install it over the old one. Your login and settings stay. New versions are announced on <a href="https://discord.gg/m5qKsv8ZST">Discord</a> and on X (@spellspeedapp).</p>
+        </details>
+        <details>
+          <summary>How do I know the file is genuine?</summary>
+          <p>Download it only from spellspeed.com or our GitHub releases. Every version is signed with the same key, so Android refuses to install a modified copy over your app. Each release lists its SHA-256 checksum:</p>
+          <p class="checksum"><!-- TODO(launch): SHA-256 of the release APK -->Checksum published with the first release.</p>
+        </details>
+        <details>
+          <summary>What does the app access?</summary>
+          <p>Only DuelingBook. It has no tracking or analytics and sends nothing to us. See the <a href="privacy.html">privacy policy</a>.</p>
+        </details>
+        <details>
+          <summary>iPhone?</summary>
+          <p>Not yet. Apple does not allow apps from outside the App Store on most iPhones.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-row">
+      <a class="brand" href="./"><img src="assets/mark.svg" alt=""><span class="wordmark">spellspeed</span></a>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="./">Home</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="https://x.com/spellspeedapp">X</a>
+        <a href="https://www.instagram.com/spellspeedapp/">Instagram</a>
+        <!-- TODO(launch): GitHub repository -->
+        <a href="https://discord.gg/m5qKsv8ZST">Discord</a>
+      </nav>
+    </div>
+    <div class="fine">
+      <p>Contact: contact@spellspeed.com</p>
+      <p>Spellspeed is an independent project, not affiliated with or endorsed by DuelingBook, Konami or Google. Yu-Gi-Oh! is a trademark of Konami. Android is a trademark of Google LLC.</p>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
