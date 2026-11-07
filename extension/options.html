@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en" data-dbetter-theme="night"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Spellspeed settings</title><link rel="stylesheet" href="popup.css"></head>
+<body class="options"><main>
+<header class="top"><h1>Spellspeed <small id="version"></small></h1><p class="note">Changes save immediately and apply to open tabs.</p></header>
+<section id="quick" aria-label="Most used settings"></section>
+<h2 class="all-heading">All options</h2>
+<label class="search-label" for="search">Search settings</label><input id="search" type="search" placeholder="Search labels and descriptions…">
+<div id="categories"></div><p id="empty" hidden>No matching settings.</p>
+<section id="key-settings" hidden><h2>Keyboard shortcuts</h2><p class="note">Select a key, then press one printable key. Escape cancels. Modifiers, Tab and Enter are reserved.</p><div id="key-bindings"></div></section>
+<section id="chat-settings" hidden><h2>Quick chat</h2><p class="note">The 💬 Chat wheel in duels shows these after your deck’s own messages (set them with 💬 next to Solo in the deck constructor). Up to 8 in all, 40 characters each.</p><div id="chat-messages"></div><div class="actions"><button id="chat-reset" type="button">Default messages</button></div></section>
+<section id="transfer" hidden><h2>Preferences</h2><div id="volume-setting"><label for="vfxVolume">VFX volume <output id="volume-value">100%</output></label><input id="vfxVolume" type="range" min="0" max="100" step="1"></div><div id="board-setting"><label for="boardSize">Board size <output id="board-value">100%</output></label><input id="boardSize" type="range" min="60" max="100" step="5"></div>
+<div class="actions"><button id="reset" type="button">Reset to defaults</button><button id="export" type="button">Export JSON</button><label class="file-button" for="import">Import JSON</label><input id="import" type="file" accept=".json,application/json"></div>
+<div id="reset-confirm" hidden><p>Reset all extension settings and shortcuts?</p><button id="reset-yes" type="button">Reset all</button> <button id="reset-no" type="button">Cancel</button></div></section>
+<p id="error" role="alert"></p><p id="status" role="status">Loading settings…</p>
+<p class="note">Disable Overflow, then reload DuelingBook before using Spellspeed.</p>
+<p class="note"><a href="privacy.html" target="_blank" rel="noopener">Privacy policy</a></p>
+</main><script src="rules.js"></script><script src="popup.js"></script></body></html>

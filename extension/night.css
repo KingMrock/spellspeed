@@ -1,0 +1,1412 @@
+/* Theme tokens. Name colours receive minimal contrast polish (4.5:1 on both panels).
+   Native tokens preserve the 0.8.5 Night palette; Abyss and Ember use the same structure. */
+html[data-dbetter-theme="night"], .theme-swatch[data-dbetter-theme="night"] {
+  /* Dark text boxes (used with the Classic theme). */
+  --dbt-box: #262c2e;
+  --dbt-box-text: #e6eeea;
+  --dbt-box-line: #5d6d68;
+  --dbt-box-caret: #c4dbd0;
+  --dbt-box-placeholder: #a9b7b1;
+  --dbt-box-selected: #3b4d47;
+  --dbt-box-selected-text: #f0f6f3;
+  --dbt-scenery: none;
+  --dbt-section-main: #282835;
+  --dbt-section-side: #23343e;
+  --dbt-section-extra: #373029;
+  color-scheme: dark;
+  --dbt-ground: #111718;
+  --dbt-panel: #242c2e;
+  --dbt-panel-2: #2b3234;
+  --dbt-line: #8a9c9f;
+  --dbt-text: #e6eeea;
+  --dbt-muted: #a3b2b8;
+  --dbt-accent: #4ba3bb;
+  --dbt-on-accent: #071315;
+  --dbt-you: #d97e83;
+  --dbt-opponent: #4ba3bb;
+  --dbt-section-main-line: #4ba3bb;
+  --dbt-section-extra-line: #d97e83;
+  --dbt-input: #1b2224;
+  /* Text fields: the panel tone the deck constructor's own fields use. */
+  --dbt-field: var(--dbt-panel-2);
+  --dbt-native-242c2e: #242c2e;
+  --dbt-native-e8f0ed: #e8f0ed;
+  --dbt-native-59716b: #59716b;
+  --dbt-native-78998f: #78998f;
+  --dbt-native-294c44: #294c44;
+  --dbt-native-35444d: #35444d;
+  --dbt-native-eef9f4: #eef9f4;
+  --dbt-native-71998b: #71998b;
+  --dbt-native-c3d7cf: #c3d7cf;
+  --dbt-native-293436: #293436;
+  --dbt-native-405650: #405650;
+  --dbt-native-263032: #263032;
+  --dbt-native-374d47: #374d47;
+  --dbt-native-3b5b50: #3b5b50;
+  --dbt-native-8bb7a6: #8bb7a6;
+  --dbt-native-9ed1ff: #9ed1ff;
+  --dbt-native-a5e2b4: #a5e2b4;
+  --dbt-native-cbd3dc: #cbd3dc;
+  --dbt-native-f0d38e: #f0d38e;
+  --dbt-native-d5bbf3: #d5bbf3;
+  --dbt-native-3e534c: #3e534c;
+  --dbt-native-91b5a7: #91b5a7;
+  --dbt-native-2b3234: #2b3234;
+  --dbt-native-e6eeea: #e6eeea;
+  --dbt-native-667973: var(--dbt-line);
+  --dbt-native-c4dbd0: #c4dbd0;
+  --dbt-native-819d90: #819d90;
+  --dbt-native-afbeb7: #afbeb7;
+  --dbt-native-40564e: #40564e;
+  --dbt-native-95b9a7: #95b9a7;
+  --dbt-native-f0f6f3: #f0f6f3;
+  --dbt-native-98bfae: #98bfae;
+  --dbt-native-70857c: #70857c;
+  --dbt-native-303638: #303638;
+  --dbt-native-36433e: #36433e;
+  --dbt-native-6d8478: var(--dbt-line);
+  --dbt-native-4a6458: #4a6458;
+  --dbt-native-aac6b7: #aac6b7;
+  --dbt-native-547d9e: #547d9e;
+  --dbt-native-86bac6: #86bac6;
+  --dbt-native-9acdd6: #9acdd6;
+  --dbt-native-57926f: #57926f;
+  --dbt-native-99b68a: #99b68a;
+  --dbt-native-b6d3a5: #b6d3a5;
+  --dbt-native-b87d65: #b87d65;
+  --dbt-native-ba7793: #ba7793;
+  --dbt-native-dfa990: #dfa990;
+  --dbt-native-8b7fae: #8b7fae;
+  --dbt-native-b18abd: #b18abd;
+  --dbt-native-c2abd6: #c2abd6;
+  --dbt-native-8bb7cd: #8bb7cd;
+  --dbt-native-29383e: #29383e;
+  --dbt-native-98bba3: #98bba3;
+  --dbt-native-2c3d35: #2c3d35;
+  --dbt-native-cba08e: #cba08e;
+  --dbt-native-40362f: #40362f;
+  --dbt-native-b7a3ca: #b7a3ca;
+  --dbt-native-383142: #383142;
+  --dbt-native-c9bd88: #c9bd88;
+  --dbt-native-3d3a2c: #3d3a2c;
+  --dbt-native-a9b991: #a9b991;
+  --dbt-native-343e30: #343e30;
+  --dbt-native-cba587: #cba587;
+  --dbt-native-40362e: #40362e;
+  --dbt-native-b5bec3: #b5bec3;
+  --dbt-native-34393c: #34393c;
+  --dbt-native-c39cab: #c39cab;
+  --dbt-native-403039: #403039;
+  --dbt-native-25312d: #25312d;
+  --dbt-native-e3ebe6: #e3ebe6;
+  --dbt-native-abc1b5: #abc1b5;
+  --dbt-native-151c22: #151c22;
+  --dbt-native-dce5e8: #dce5e8;
+  --dbt-native-6b878b: #6b878b;
+  --dbt-native-202c32: #202c32;
+  --dbt-native-282835: #282835;
+  --dbt-native-565168: #565168;
+  --dbt-native-23343e: #23343e;
+  --dbt-native-496477: #496477;
+  --dbt-native-373029: #373029;
+  --dbt-native-77634d: #77634d;
+  --dbt-native-c4b9df: #c4b9df;
+  --dbt-native-a9cce2: #a9cce2;
+  --dbt-native-e0c09b: #e0c09b;
+  --dbt-native-48525f: #48525f;
+  --dbt-native-20272e: #20272e;
+  --dbt-native-303742: #303742;
+  --dbt-native-4c5361: #4c5361;
+  --dbt-native-6b7881: #6b7881;
+  --dbt-native-253337: #253337;
+  --dbt-native-4e6869: #4e6869;
+  --dbt-native-cedcdd: #cedcdd;
+  --dbt-native-a8cebf: #a8cebf;
+  --dbt-native-343e48: #343e48;
+  --dbt-native-626d79: #626d79;
+  --dbt-native-e1e7ed: #e1e7ed;
+  --dbt-native-40372d: #40372d;
+  --dbt-native-ddbe93: #ddbe93;
+  --dbt-native-7b6851: #7b6851;
+  --dbt-native-293d35: #293d35;
+  --dbt-native-a1d3b8: #a1d3b8;
+  --dbt-native-557b68: #557b68;
+  --dbt-native-3e3040: #3e3040;
+  --dbt-native-d7afd8: #d7afd8;
+  --dbt-native-785d7b: #785d7b;
+  --dbt-native-2e3c43: #2e3c43;
+  --dbt-native-596d74: var(--dbt-line);
+  --dbt-native-e2ebed: #e2ebed;
+  --dbt-native-3b5057: #3b5057;
+  --dbt-native-91b8ad: #91b8ad;
+  --dbt-native-31524a: #31524a;
+  --dbt-native-739b87: #739b87;
+  --dbt-native-242f36: #242f36;
+  --dbt-native-4b646d: #4b646d;
+  --dbt-native-7da99e: #7da99e;
+  --dbt-native-2a3941: #2a3941;
+  --dbt-native-222d34: #222d34;
+  --dbt-native-e0ebee: #e0ebee;
+  --dbt-native-324b50: #324b50;
+  --dbt-native-9fc8b9: #9fc8b9;
+  --dbt-native-29413e: #29413e;
+  --dbt-native-b9d4d1: #b9d4d1;
+  --dbt-native-a5c9df: #a5c9df;
+  --dbt-native-653b46: #653b46;
+  --dbt-native-442d37: #442d37;
+  --dbt-native-a36a78: #a36a78;
+  --dbt-native-e8a0ab: #e8a0ab;
+  --dbt-native-774653: #774653;
+  --dbt-native-f0b1bb: #f0b1bb;
+  --dbt-native-ffe0e5: #ffe0e5;
+  --dbt-native-26343e: #26343e;
+  --dbt-native-edf2f5: #edf2f5;
+  --dbt-native-789caa: #789caa;
+  --dbt-native-647b86: #647b86;
+  --dbt-native-303c48: #303c48;
+  --dbt-native-202e38: #202e38;
+  --dbt-native-536c79: #536c79;
+  --dbt-native-425864: #425864;
+  --dbt-native-c7e8de: #c7e8de;
+  --dbt-native-b1c2cd: #b1c2cd;
+  --dbt-native-c0d8e4: #c0d8e4;
+  --dbt-native-9cdcf5: #9cdcf5;
+  --dbt-native-ffb6bf: #ffb6bf;
+  --dbt-native-303d43: #303d43;
+  --dbt-native-27333a: #27333a;
+  --dbt-native-52636c: #52636c;
+  --dbt-native-81949d: #81949d;
+  --dbt-native-ecebe3: #ecebe3;
+  --dbt-native-b4c0c5: #b4c0c5;
+  --dbt-native-b8c4ca: #b8c4ca;
+  --dbt-native-9bc3b5: #9bc3b5;
+  --dbt-native-9cceb2: #9cceb2;
+  --dbt-native-e1a7c8: #e1a7c8;
+  --dbt-native-c3b0e4: #c3b0e4;
+  --dbt-native-87cddc: #87cddc;
+  --dbt-native-c7d69a: #c7d69a;
+  --dbt-native-dfb184: #dfb184;
+  --dbt-native-d6dce0: #d6dce0;
+  --dbt-native-9ca9b5: #9ca9b5;
+}
+html[data-dbetter-theme="classic"], .theme-swatch[data-dbetter-theme="classic"] {
+  /* Dark text boxes (used with the Classic theme). */
+  --dbt-box: #262c2e;
+  --dbt-box-text: #e6eeea;
+  --dbt-box-line: #5d6d68;
+  --dbt-box-caret: #c4dbd0;
+  --dbt-box-placeholder: #a9b7b1;
+  --dbt-box-selected: #3b4d47;
+  --dbt-box-selected-text: #f0f6f3;
+  --dbt-scenery: none;
+  --dbt-section-main: #eef1f0;
+  --dbt-section-side: #eef1f0;
+  --dbt-section-extra: #eef1f0;
+  color-scheme: light;
+  --dbt-ground: transparent;
+  --dbt-panel: #eef1f0;
+  --dbt-panel-2: #dfe5e2;
+  --dbt-line: #697873;
+  --dbt-text: #1b2224;
+  --dbt-muted: #4c5a5f;
+  --dbt-accent: #1f6e89;
+  --dbt-on-accent: #ffffff;
+  --dbt-you: #b43b42;
+  --dbt-opponent: #2a5ab8;
+  --dbt-section-main-line: #227444;
+  --dbt-section-extra-line: #b43b42;
+  --dbt-input: #ffffff;
+  --dbt-field: var(--dbt-input);
+  --dbt-native-242c2e: var(--dbt-panel);
+  --dbt-native-e8f0ed: var(--dbt-text);
+  --dbt-native-59716b: var(--dbt-line);
+  --dbt-native-78998f: var(--dbt-line);
+  --dbt-native-294c44: var(--dbt-panel);
+  --dbt-native-35444d: var(--dbt-panel);
+  --dbt-native-eef9f4: var(--dbt-text);
+  --dbt-native-71998b: var(--dbt-line);
+  --dbt-native-c3d7cf: var(--dbt-text);
+  --dbt-native-293436: var(--dbt-panel-2);
+  --dbt-native-405650: var(--dbt-line);
+  --dbt-native-263032: var(--dbt-panel-2);
+  --dbt-native-374d47: var(--dbt-panel-2);
+  --dbt-native-3b5b50: var(--dbt-input);
+  --dbt-native-8bb7a6: var(--dbt-line);
+  --dbt-native-9ed1ff: #9ed1ff;
+  --dbt-native-a5e2b4: #a5e2b4;
+  --dbt-native-cbd3dc: #cbd3dc;
+  --dbt-native-f0d38e: #f0d38e;
+  --dbt-native-d5bbf3: #d5bbf3;
+  --dbt-native-3e534c: var(--dbt-panel);
+  --dbt-native-91b5a7: var(--dbt-panel);
+  --dbt-native-2b3234: var(--dbt-input);
+  --dbt-native-e6eeea: var(--dbt-text);
+  --dbt-native-667973: var(--dbt-line);
+  --dbt-native-c4dbd0: var(--dbt-accent);
+  --dbt-native-819d90: var(--dbt-line);
+  --dbt-native-afbeb7: var(--dbt-text);
+  --dbt-native-40564e: var(--dbt-input);
+  --dbt-native-95b9a7: var(--dbt-line);
+  --dbt-native-f0f6f3: var(--dbt-text);
+  --dbt-native-98bfae: var(--dbt-accent);
+  --dbt-native-70857c: var(--dbt-panel);
+  --dbt-native-303638: var(--dbt-panel);
+  --dbt-native-36433e: var(--dbt-input);
+  --dbt-native-6d8478: var(--dbt-line);
+  --dbt-native-4a6458: var(--dbt-input);
+  --dbt-native-aac6b7: var(--dbt-line);
+  --dbt-native-547d9e: var(--dbt-panel-2);
+  --dbt-native-86bac6: var(--dbt-panel-2);
+  --dbt-native-9acdd6: var(--dbt-text);
+  --dbt-native-57926f: var(--dbt-panel);
+  --dbt-native-99b68a: var(--dbt-panel);
+  --dbt-native-b6d3a5: var(--dbt-text);
+  --dbt-native-b87d65: var(--dbt-panel);
+  --dbt-native-ba7793: var(--dbt-panel);
+  --dbt-native-dfa990: var(--dbt-text);
+  --dbt-native-8b7fae: var(--dbt-panel);
+  --dbt-native-b18abd: var(--dbt-panel);
+  --dbt-native-c2abd6: var(--dbt-text);
+  --dbt-native-8bb7cd: #8bb7cd;
+  --dbt-native-29383e: #29383e;
+  --dbt-native-98bba3: #98bba3;
+  --dbt-native-2c3d35: #2c3d35;
+  --dbt-native-cba08e: #cba08e;
+  --dbt-native-40362f: #40362f;
+  --dbt-native-b7a3ca: #b7a3ca;
+  --dbt-native-383142: #383142;
+  --dbt-native-c9bd88: #c9bd88;
+  --dbt-native-3d3a2c: #3d3a2c;
+  --dbt-native-a9b991: #a9b991;
+  --dbt-native-343e30: #343e30;
+  --dbt-native-cba587: #cba587;
+  --dbt-native-40362e: #40362e;
+  --dbt-native-b5bec3: #b5bec3;
+  --dbt-native-34393c: #34393c;
+  --dbt-native-c39cab: #c39cab;
+  --dbt-native-403039: #403039;
+  --dbt-native-25312d: var(--dbt-panel);
+  --dbt-native-e3ebe6: var(--dbt-text);
+  --dbt-native-abc1b5: var(--dbt-panel-2);
+  --dbt-native-151c22: var(--dbt-ground);
+  --dbt-native-dce5e8: var(--dbt-text);
+  --dbt-native-6b878b: var(--dbt-line);
+  --dbt-native-202c32: var(--dbt-line);
+  --dbt-native-282835: #282835;
+  --dbt-native-565168: #565168;
+  --dbt-native-23343e: #23343e;
+  --dbt-native-496477: #496477;
+  --dbt-native-373029: #373029;
+  --dbt-native-77634d: #77634d;
+  --dbt-native-c4b9df: #c4b9df;
+  --dbt-native-a9cce2: #a9cce2;
+  --dbt-native-e0c09b: #e0c09b;
+  --dbt-native-48525f: var(--dbt-line);
+  --dbt-native-20272e: var(--dbt-line);
+  --dbt-native-303742: var(--dbt-panel);
+  --dbt-native-4c5361: var(--dbt-line);
+  --dbt-native-6b7881: var(--dbt-line);
+  --dbt-native-253337: var(--dbt-panel);
+  --dbt-native-4e6869: var(--dbt-line);
+  --dbt-native-cedcdd: var(--dbt-text);
+  --dbt-native-a8cebf: var(--dbt-text);
+  --dbt-native-343e48: var(--dbt-panel);
+  --dbt-native-626d79: var(--dbt-line);
+  --dbt-native-e1e7ed: var(--dbt-text);
+  --dbt-native-40372d: #40372d;
+  --dbt-native-ddbe93: #ddbe93;
+  --dbt-native-7b6851: #7b6851;
+  --dbt-native-293d35: #293d35;
+  --dbt-native-a1d3b8: #a1d3b8;
+  --dbt-native-557b68: #557b68;
+  --dbt-native-3e3040: #3e3040;
+  --dbt-native-d7afd8: #d7afd8;
+  --dbt-native-785d7b: #785d7b;
+  --dbt-native-2e3c43: var(--dbt-input);
+  --dbt-native-596d74: var(--dbt-line);
+  --dbt-native-e2ebed: var(--dbt-text);
+  --dbt-native-3b5057: var(--dbt-input);
+  --dbt-native-91b8ad: var(--dbt-line);
+  --dbt-native-31524a: var(--dbt-panel-2);
+  --dbt-native-739b87: var(--dbt-line);
+  --dbt-native-242f36: var(--dbt-panel);
+  --dbt-native-4b646d: var(--dbt-line);
+  --dbt-native-7da99e: var(--dbt-line);
+  --dbt-native-2a3941: var(--dbt-panel);
+  --dbt-native-222d34: var(--dbt-panel);
+  --dbt-native-e0ebee: var(--dbt-text);
+  --dbt-native-324b50: var(--dbt-panel-2);
+  --dbt-native-9fc8b9: var(--dbt-line);
+  --dbt-native-29413e: var(--dbt-panel);
+  --dbt-native-b9d4d1: var(--dbt-text);
+  --dbt-native-a5c9df: var(--dbt-text);
+  --dbt-native-653b46: var(--dbt-panel);
+  --dbt-native-442d37: var(--dbt-panel);
+  --dbt-native-a36a78: var(--dbt-line);
+  --dbt-native-e8a0ab: var(--dbt-line);
+  --dbt-native-774653: var(--dbt-panel-2);
+  --dbt-native-f0b1bb: var(--dbt-line);
+  --dbt-native-ffe0e5: var(--dbt-text);
+  --dbt-native-26343e: var(--dbt-panel);
+  --dbt-native-edf2f5: var(--dbt-text);
+  --dbt-native-789caa: var(--dbt-line);
+  --dbt-native-647b86: var(--dbt-line);
+  --dbt-native-303c48: var(--dbt-panel);
+  --dbt-native-202e38: var(--dbt-panel);
+  --dbt-native-536c79: var(--dbt-line);
+  --dbt-native-425864: var(--dbt-line);
+  --dbt-native-c7e8de: var(--dbt-text);
+  --dbt-native-b1c2cd: var(--dbt-text);
+  --dbt-native-c0d8e4: var(--dbt-text);
+  --dbt-native-9cdcf5: var(--dbt-text);
+  --dbt-native-ffb6bf: var(--dbt-text);
+  --dbt-native-303d43: var(--dbt-panel-2);
+  --dbt-native-27333a: var(--dbt-panel-2);
+  --dbt-native-52636c: var(--dbt-line);
+  --dbt-native-81949d: var(--dbt-line);
+  --dbt-native-ecebe3: var(--dbt-text);
+  --dbt-native-b4c0c5: var(--dbt-muted);
+  --dbt-native-b8c4ca: var(--dbt-text);
+  --dbt-native-9bc3b5: var(--dbt-panel-2);
+  --dbt-native-9cceb2: var(--dbt-text);
+  --dbt-native-e1a7c8: var(--dbt-text);
+  --dbt-native-c3b0e4: var(--dbt-text);
+  --dbt-native-87cddc: var(--dbt-text);
+  --dbt-native-c7d69a: var(--dbt-text);
+  --dbt-native-dfb184: var(--dbt-text);
+  --dbt-native-d6dce0: var(--dbt-text);
+  --dbt-native-9ca9b5: var(--dbt-text);
+}
+html[data-dbetter-theme="abyss"], .theme-swatch[data-dbetter-theme="abyss"] {
+  /* Dark text boxes (used with the Classic theme). */
+  --dbt-box: #262c2e;
+  --dbt-box-text: #e6eeea;
+  --dbt-box-line: #5d6d68;
+  --dbt-box-caret: #c4dbd0;
+  --dbt-box-placeholder: #a9b7b1;
+  --dbt-box-selected: #3b4d47;
+  --dbt-box-selected-text: #f0f6f3;
+  --dbt-scenery: radial-gradient(ellipse at 52% 48%, #0e2142, #050a14);
+  --dbt-section-main: #233b62;
+  --dbt-section-side: #164858;
+  --dbt-section-extra: #453454;
+  color-scheme: dark;
+  --dbt-ground: #070d1a;
+  --dbt-panel: #101a2c;
+  --dbt-panel-2: #16233a;
+  --dbt-line: #6686aa;
+  --dbt-text: #dce8f5;
+  --dbt-muted: #93a7c0;
+  --dbt-accent: #4cc3e6;
+  --dbt-on-accent: #04121a;
+  --dbt-you: #e0607a;
+  --dbt-opponent: #4cc3e6;
+  --dbt-section-main-line: #4cc3e6;
+  --dbt-section-extra-line: #e0607a;
+  --dbt-input: #0b1424;
+  --dbt-field: var(--dbt-input);
+  --dbt-native-242c2e: var(--dbt-panel);
+  --dbt-native-e8f0ed: var(--dbt-text);
+  --dbt-native-59716b: var(--dbt-line);
+  --dbt-native-78998f: var(--dbt-line);
+  --dbt-native-294c44: var(--dbt-panel);
+  --dbt-native-35444d: var(--dbt-panel);
+  --dbt-native-eef9f4: var(--dbt-text);
+  --dbt-native-71998b: var(--dbt-line);
+  --dbt-native-c3d7cf: var(--dbt-text);
+  --dbt-native-293436: var(--dbt-panel-2);
+  --dbt-native-405650: var(--dbt-line);
+  --dbt-native-263032: var(--dbt-panel-2);
+  --dbt-native-374d47: var(--dbt-panel-2);
+  --dbt-native-3b5b50: var(--dbt-input);
+  --dbt-native-8bb7a6: var(--dbt-line);
+  --dbt-native-9ed1ff: #9ed1ff;
+  --dbt-native-a5e2b4: #a5e2b4;
+  --dbt-native-cbd3dc: #cbd3dc;
+  --dbt-native-f0d38e: #f0d38e;
+  --dbt-native-d5bbf3: #d5bbf3;
+  --dbt-native-3e534c: var(--dbt-panel);
+  --dbt-native-91b5a7: var(--dbt-panel);
+  --dbt-native-2b3234: var(--dbt-input);
+  --dbt-native-e6eeea: var(--dbt-text);
+  --dbt-native-667973: var(--dbt-line);
+  --dbt-native-c4dbd0: var(--dbt-accent);
+  --dbt-native-819d90: var(--dbt-line);
+  --dbt-native-afbeb7: var(--dbt-text);
+  --dbt-native-40564e: var(--dbt-input);
+  --dbt-native-95b9a7: var(--dbt-line);
+  --dbt-native-f0f6f3: var(--dbt-text);
+  --dbt-native-98bfae: var(--dbt-accent);
+  --dbt-native-70857c: var(--dbt-panel);
+  --dbt-native-303638: var(--dbt-panel);
+  --dbt-native-36433e: var(--dbt-input);
+  --dbt-native-6d8478: var(--dbt-line);
+  --dbt-native-4a6458: var(--dbt-input);
+  --dbt-native-aac6b7: var(--dbt-line);
+  --dbt-native-547d9e: var(--dbt-panel-2);
+  --dbt-native-86bac6: var(--dbt-panel-2);
+  --dbt-native-9acdd6: var(--dbt-text);
+  --dbt-native-57926f: var(--dbt-panel);
+  --dbt-native-99b68a: var(--dbt-panel);
+  --dbt-native-b6d3a5: var(--dbt-text);
+  --dbt-native-b87d65: var(--dbt-panel);
+  --dbt-native-ba7793: var(--dbt-panel);
+  --dbt-native-dfa990: var(--dbt-text);
+  --dbt-native-8b7fae: var(--dbt-panel);
+  --dbt-native-b18abd: var(--dbt-panel);
+  --dbt-native-c2abd6: var(--dbt-text);
+  --dbt-native-8bb7cd: #8bb7cd;
+  --dbt-native-29383e: #29383e;
+  --dbt-native-98bba3: #98bba3;
+  --dbt-native-2c3d35: #2c3d35;
+  --dbt-native-cba08e: #cba08e;
+  --dbt-native-40362f: #40362f;
+  --dbt-native-b7a3ca: #b7a3ca;
+  --dbt-native-383142: #383142;
+  --dbt-native-c9bd88: #c9bd88;
+  --dbt-native-3d3a2c: #3d3a2c;
+  --dbt-native-a9b991: #a9b991;
+  --dbt-native-343e30: #343e30;
+  --dbt-native-cba587: #cba587;
+  --dbt-native-40362e: #40362e;
+  --dbt-native-b5bec3: #b5bec3;
+  --dbt-native-34393c: #34393c;
+  --dbt-native-c39cab: #c39cab;
+  --dbt-native-403039: #403039;
+  --dbt-native-25312d: var(--dbt-panel);
+  --dbt-native-e3ebe6: var(--dbt-text);
+  --dbt-native-abc1b5: var(--dbt-panel-2);
+  --dbt-native-151c22: var(--dbt-ground);
+  --dbt-native-dce5e8: var(--dbt-text);
+  --dbt-native-6b878b: var(--dbt-line);
+  --dbt-native-202c32: var(--dbt-line);
+  --dbt-native-282835: #282835;
+  --dbt-native-565168: #565168;
+  --dbt-native-23343e: #23343e;
+  --dbt-native-496477: #496477;
+  --dbt-native-373029: #373029;
+  --dbt-native-77634d: #77634d;
+  --dbt-native-c4b9df: #c4b9df;
+  --dbt-native-a9cce2: #a9cce2;
+  --dbt-native-e0c09b: #e0c09b;
+  --dbt-native-48525f: var(--dbt-line);
+  --dbt-native-20272e: var(--dbt-line);
+  --dbt-native-303742: var(--dbt-panel);
+  --dbt-native-4c5361: var(--dbt-line);
+  --dbt-native-6b7881: var(--dbt-line);
+  --dbt-native-253337: var(--dbt-panel);
+  --dbt-native-4e6869: var(--dbt-line);
+  --dbt-native-cedcdd: var(--dbt-text);
+  --dbt-native-a8cebf: var(--dbt-text);
+  --dbt-native-343e48: var(--dbt-panel);
+  --dbt-native-626d79: var(--dbt-line);
+  --dbt-native-e1e7ed: var(--dbt-text);
+  --dbt-native-40372d: #40372d;
+  --dbt-native-ddbe93: #ddbe93;
+  --dbt-native-7b6851: #7b6851;
+  --dbt-native-293d35: #293d35;
+  --dbt-native-a1d3b8: #a1d3b8;
+  --dbt-native-557b68: #557b68;
+  --dbt-native-3e3040: #3e3040;
+  --dbt-native-d7afd8: #d7afd8;
+  --dbt-native-785d7b: #785d7b;
+  --dbt-native-2e3c43: var(--dbt-input);
+  --dbt-native-596d74: var(--dbt-line);
+  --dbt-native-e2ebed: var(--dbt-text);
+  --dbt-native-3b5057: var(--dbt-input);
+  --dbt-native-91b8ad: var(--dbt-line);
+  --dbt-native-31524a: var(--dbt-panel-2);
+  --dbt-native-739b87: var(--dbt-line);
+  --dbt-native-242f36: var(--dbt-panel);
+  --dbt-native-4b646d: var(--dbt-line);
+  --dbt-native-7da99e: var(--dbt-line);
+  --dbt-native-2a3941: var(--dbt-panel);
+  --dbt-native-222d34: var(--dbt-panel);
+  --dbt-native-e0ebee: var(--dbt-text);
+  --dbt-native-324b50: var(--dbt-panel-2);
+  --dbt-native-9fc8b9: var(--dbt-line);
+  --dbt-native-29413e: var(--dbt-panel);
+  --dbt-native-b9d4d1: var(--dbt-text);
+  --dbt-native-a5c9df: var(--dbt-text);
+  --dbt-native-653b46: var(--dbt-panel);
+  --dbt-native-442d37: var(--dbt-panel);
+  --dbt-native-a36a78: var(--dbt-line);
+  --dbt-native-e8a0ab: var(--dbt-line);
+  --dbt-native-774653: var(--dbt-panel-2);
+  --dbt-native-f0b1bb: var(--dbt-line);
+  --dbt-native-ffe0e5: var(--dbt-text);
+  --dbt-native-26343e: var(--dbt-panel);
+  --dbt-native-edf2f5: var(--dbt-text);
+  --dbt-native-789caa: var(--dbt-line);
+  --dbt-native-647b86: var(--dbt-line);
+  --dbt-native-303c48: var(--dbt-panel);
+  --dbt-native-202e38: var(--dbt-panel);
+  --dbt-native-536c79: var(--dbt-line);
+  --dbt-native-425864: var(--dbt-line);
+  --dbt-native-c7e8de: var(--dbt-text);
+  --dbt-native-b1c2cd: var(--dbt-text);
+  --dbt-native-c0d8e4: var(--dbt-text);
+  --dbt-native-9cdcf5: var(--dbt-text);
+  --dbt-native-ffb6bf: var(--dbt-text);
+  --dbt-native-303d43: var(--dbt-panel-2);
+  --dbt-native-27333a: var(--dbt-panel-2);
+  --dbt-native-52636c: var(--dbt-line);
+  --dbt-native-81949d: var(--dbt-line);
+  --dbt-native-ecebe3: var(--dbt-text);
+  --dbt-native-b4c0c5: var(--dbt-muted);
+  --dbt-native-b8c4ca: var(--dbt-text);
+  --dbt-native-9bc3b5: var(--dbt-panel-2);
+  --dbt-native-9cceb2: var(--dbt-text);
+  --dbt-native-e1a7c8: var(--dbt-text);
+  --dbt-native-c3b0e4: var(--dbt-text);
+  --dbt-native-87cddc: var(--dbt-text);
+  --dbt-native-c7d69a: var(--dbt-text);
+  --dbt-native-dfb184: var(--dbt-text);
+  --dbt-native-d6dce0: var(--dbt-text);
+  --dbt-native-9ca9b5: var(--dbt-text);
+}
+html[data-dbetter-theme="ember"], .theme-swatch[data-dbetter-theme="ember"] {
+  /* Dark text boxes (used with the Classic theme). */
+  --dbt-box: #262c2e;
+  --dbt-box-text: #e6eeea;
+  --dbt-box-line: #5d6d68;
+  --dbt-box-caret: #c4dbd0;
+  --dbt-box-placeholder: #a9b7b1;
+  --dbt-box-selected: #3b4d47;
+  --dbt-box-selected-text: #f0f6f3;
+  --dbt-scenery: radial-gradient(ellipse at 50% 100%, #3a1f0e, #130f0c);
+  --dbt-section-main: #503621;
+  --dbt-section-side: #263e58;
+  --dbt-section-extra: #4d2924;
+  color-scheme: dark;
+  --dbt-ground: #130f0c;
+  --dbt-panel: #211a14;
+  --dbt-panel-2: #2a2119;
+  --dbt-line: #a38a6c;
+  --dbt-text: #f2e8dc;
+  --dbt-muted: #b9a690;
+  --dbt-accent: #e3a33b;
+  --dbt-on-accent: #1a1206;
+  --dbt-you: #e3a33b;
+  --dbt-opponent: #7aa7e8;
+  --dbt-section-main-line: #e3a33b;
+  --dbt-section-extra-line: #7aa7e8;
+  --dbt-input: #18130f;
+  --dbt-field: var(--dbt-input);
+  --dbt-native-242c2e: var(--dbt-panel);
+  --dbt-native-e8f0ed: var(--dbt-text);
+  --dbt-native-59716b: var(--dbt-line);
+  --dbt-native-78998f: var(--dbt-line);
+  --dbt-native-294c44: var(--dbt-panel);
+  --dbt-native-35444d: var(--dbt-panel);
+  --dbt-native-eef9f4: var(--dbt-text);
+  --dbt-native-71998b: var(--dbt-line);
+  --dbt-native-c3d7cf: var(--dbt-text);
+  --dbt-native-293436: var(--dbt-panel-2);
+  --dbt-native-405650: var(--dbt-line);
+  --dbt-native-263032: var(--dbt-panel-2);
+  --dbt-native-374d47: var(--dbt-panel-2);
+  --dbt-native-3b5b50: var(--dbt-input);
+  --dbt-native-8bb7a6: var(--dbt-line);
+  --dbt-native-9ed1ff: #9ed1ff;
+  --dbt-native-a5e2b4: #a5e2b4;
+  --dbt-native-cbd3dc: #cbd3dc;
+  --dbt-native-f0d38e: #f0d38e;
+  --dbt-native-d5bbf3: #d5bbf3;
+  --dbt-native-3e534c: var(--dbt-panel);
+  --dbt-native-91b5a7: var(--dbt-panel);
+  --dbt-native-2b3234: var(--dbt-input);
+  --dbt-native-e6eeea: var(--dbt-text);
+  --dbt-native-667973: var(--dbt-line);
+  --dbt-native-c4dbd0: var(--dbt-accent);
+  --dbt-native-819d90: var(--dbt-line);
+  --dbt-native-afbeb7: var(--dbt-text);
+  --dbt-native-40564e: var(--dbt-input);
+  --dbt-native-95b9a7: var(--dbt-line);
+  --dbt-native-f0f6f3: var(--dbt-text);
+  --dbt-native-98bfae: var(--dbt-accent);
+  --dbt-native-70857c: var(--dbt-panel);
+  --dbt-native-303638: var(--dbt-panel);
+  --dbt-native-36433e: var(--dbt-input);
+  --dbt-native-6d8478: var(--dbt-line);
+  --dbt-native-4a6458: var(--dbt-input);
+  --dbt-native-aac6b7: var(--dbt-line);
+  --dbt-native-547d9e: var(--dbt-panel-2);
+  --dbt-native-86bac6: var(--dbt-panel-2);
+  --dbt-native-9acdd6: var(--dbt-text);
+  --dbt-native-57926f: var(--dbt-panel);
+  --dbt-native-99b68a: var(--dbt-panel);
+  --dbt-native-b6d3a5: var(--dbt-text);
+  --dbt-native-b87d65: var(--dbt-panel);
+  --dbt-native-ba7793: var(--dbt-panel);
+  --dbt-native-dfa990: var(--dbt-text);
+  --dbt-native-8b7fae: var(--dbt-panel);
+  --dbt-native-b18abd: var(--dbt-panel);
+  --dbt-native-c2abd6: var(--dbt-text);
+  --dbt-native-8bb7cd: #8bb7cd;
+  --dbt-native-29383e: #29383e;
+  --dbt-native-98bba3: #98bba3;
+  --dbt-native-2c3d35: #2c3d35;
+  --dbt-native-cba08e: #cba08e;
+  --dbt-native-40362f: #40362f;
+  --dbt-native-b7a3ca: #b7a3ca;
+  --dbt-native-383142: #383142;
+  --dbt-native-c9bd88: #c9bd88;
+  --dbt-native-3d3a2c: #3d3a2c;
+  --dbt-native-a9b991: #a9b991;
+  --dbt-native-343e30: #343e30;
+  --dbt-native-cba587: #cba587;
+  --dbt-native-40362e: #40362e;
+  --dbt-native-b5bec3: #b5bec3;
+  --dbt-native-34393c: #34393c;
+  --dbt-native-c39cab: #c39cab;
+  --dbt-native-403039: #403039;
+  --dbt-native-25312d: var(--dbt-panel);
+  --dbt-native-e3ebe6: var(--dbt-text);
+  --dbt-native-abc1b5: var(--dbt-panel-2);
+  --dbt-native-151c22: var(--dbt-ground);
+  --dbt-native-dce5e8: var(--dbt-text);
+  --dbt-native-6b878b: var(--dbt-line);
+  --dbt-native-202c32: var(--dbt-line);
+  --dbt-native-282835: #282835;
+  --dbt-native-565168: #565168;
+  --dbt-native-23343e: #23343e;
+  --dbt-native-496477: #496477;
+  --dbt-native-373029: #373029;
+  --dbt-native-77634d: #77634d;
+  --dbt-native-c4b9df: #c4b9df;
+  --dbt-native-a9cce2: #a9cce2;
+  --dbt-native-e0c09b: #e0c09b;
+  --dbt-native-48525f: var(--dbt-line);
+  --dbt-native-20272e: var(--dbt-line);
+  --dbt-native-303742: var(--dbt-panel);
+  --dbt-native-4c5361: var(--dbt-line);
+  --dbt-native-6b7881: var(--dbt-line);
+  --dbt-native-253337: var(--dbt-panel);
+  --dbt-native-4e6869: var(--dbt-line);
+  --dbt-native-cedcdd: var(--dbt-text);
+  --dbt-native-a8cebf: var(--dbt-text);
+  --dbt-native-343e48: var(--dbt-panel);
+  --dbt-native-626d79: var(--dbt-line);
+  --dbt-native-e1e7ed: var(--dbt-text);
+  --dbt-native-40372d: #40372d;
+  --dbt-native-ddbe93: #ddbe93;
+  --dbt-native-7b6851: #7b6851;
+  --dbt-native-293d35: #293d35;
+  --dbt-native-a1d3b8: #a1d3b8;
+  --dbt-native-557b68: #557b68;
+  --dbt-native-3e3040: #3e3040;
+  --dbt-native-d7afd8: #d7afd8;
+  --dbt-native-785d7b: #785d7b;
+  --dbt-native-2e3c43: var(--dbt-input);
+  --dbt-native-596d74: var(--dbt-line);
+  --dbt-native-e2ebed: var(--dbt-text);
+  --dbt-native-3b5057: var(--dbt-input);
+  --dbt-native-91b8ad: var(--dbt-line);
+  --dbt-native-31524a: var(--dbt-panel-2);
+  --dbt-native-739b87: var(--dbt-line);
+  --dbt-native-242f36: var(--dbt-panel);
+  --dbt-native-4b646d: var(--dbt-line);
+  --dbt-native-7da99e: var(--dbt-line);
+  --dbt-native-2a3941: var(--dbt-panel);
+  --dbt-native-222d34: var(--dbt-panel);
+  --dbt-native-e0ebee: var(--dbt-text);
+  --dbt-native-324b50: var(--dbt-panel-2);
+  --dbt-native-9fc8b9: var(--dbt-line);
+  --dbt-native-29413e: var(--dbt-panel);
+  --dbt-native-b9d4d1: var(--dbt-text);
+  --dbt-native-a5c9df: var(--dbt-text);
+  --dbt-native-653b46: var(--dbt-panel);
+  --dbt-native-442d37: var(--dbt-panel);
+  --dbt-native-a36a78: var(--dbt-line);
+  --dbt-native-e8a0ab: var(--dbt-line);
+  --dbt-native-774653: var(--dbt-panel-2);
+  --dbt-native-f0b1bb: var(--dbt-line);
+  --dbt-native-ffe0e5: var(--dbt-text);
+  --dbt-native-26343e: var(--dbt-panel);
+  --dbt-native-edf2f5: var(--dbt-text);
+  --dbt-native-789caa: var(--dbt-line);
+  --dbt-native-647b86: var(--dbt-line);
+  --dbt-native-303c48: var(--dbt-panel);
+  --dbt-native-202e38: var(--dbt-panel);
+  --dbt-native-536c79: var(--dbt-line);
+  --dbt-native-425864: var(--dbt-line);
+  --dbt-native-c7e8de: var(--dbt-text);
+  --dbt-native-b1c2cd: var(--dbt-text);
+  --dbt-native-c0d8e4: var(--dbt-text);
+  --dbt-native-9cdcf5: var(--dbt-text);
+  --dbt-native-ffb6bf: var(--dbt-text);
+  --dbt-native-303d43: var(--dbt-panel-2);
+  --dbt-native-27333a: var(--dbt-panel-2);
+  --dbt-native-52636c: var(--dbt-line);
+  --dbt-native-81949d: var(--dbt-line);
+  --dbt-native-ecebe3: var(--dbt-text);
+  --dbt-native-b4c0c5: var(--dbt-muted);
+  --dbt-native-b8c4ca: var(--dbt-text);
+  --dbt-native-9bc3b5: var(--dbt-panel-2);
+  --dbt-native-9cceb2: var(--dbt-text);
+  --dbt-native-e1a7c8: var(--dbt-text);
+  --dbt-native-c3b0e4: var(--dbt-text);
+  --dbt-native-87cddc: var(--dbt-text);
+  --dbt-native-c7d69a: var(--dbt-text);
+  --dbt-native-dfb184: var(--dbt-text);
+  --dbt-native-d6dce0: var(--dbt-text);
+  --dbt-native-9ca9b5: var(--dbt-text);
+}
+/* Night themes: DuelingBook's text fields (inputs, and the proxies it draws over them) in the theme's field colours.
+   Chat logs, card text and user lists have their own rules; the deck constructor and Solo settings style their fields. */
+html.dbetter-night :is(input[type="text"], .textinput.proxy):not(:where(#deck_constructor input, #deck_constructor .textinput, .dblite-solo-settings *)) {
+  background-color:var(--dbt-field) !important;
+  color:var(--dbt-text) !important;
+}
+
+/* DBETTER user lists: remove the native white row artwork and theme every
+   scroll layer, including both DB's wrapper and OverlayScrollbars classes. */
+html.dbetter-night :is(#online_users, #watchers) {
+  background-color:var(--dbt-native-242c2e) !important;
+  color:var(--dbt-native-e8f0ed) !important;
+  border-color:var(--dbt-native-59716b) !important;
+  color-scheme:dark;
+}
+html.dbetter-night :is(#online_users, #watchers) :is(.chat_background, .users, .list,
+  .os_viewport, .os-viewport, .os-content, .os-padding) {
+  background-color:var(--dbt-native-242c2e) !important;
+  color:var(--dbt-native-e8f0ed) !important;
+  scrollbar-color:var(--dbt-native-78998f) var(--dbt-native-242c2e);
+}
+html.dbetter-night :is(#online_users, #watchers) .chat_top_bg {
+  background:linear-gradient(110deg, var(--dbt-native-294c44), var(--dbt-native-35444d)) !important;
+  color:var(--dbt-native-eef9f4) !important;
+  border-bottom:1px solid var(--dbt-native-71998b);
+}
+html.dbetter-night :is(#online_users, #watchers) :is(.total_txt, .title_txt, .watchers_txt) { color:var(--dbt-native-c3d7cf) !important; }
+html.dbetter-night :is(#online_users, #watchers) .cell {
+  background-color:var(--dbt-native-293436) !important;
+  background-image:none !important;
+  color:var(--dbt-native-e8f0ed) !important;
+  border-color:var(--dbt-native-405650) !important;
+}
+html.dbetter-night :is(#online_users, #watchers) .cell2 { background-color:var(--dbt-native-263032) !important; }
+html.dbetter-night :is(#online_users, #watchers) .cell:hover { background-color:var(--dbt-native-374d47) !important; }
+html.dbetter-night :is(#online_users, #watchers) .cell.selected { background-color:var(--dbt-native-3b5b50) !important; border-color:var(--dbt-native-8bb7a6) !important; }
+html.dbetter-night :is(#online_users, #watchers) .cell.following { color:var(--dbt-native-9ed1ff) !important; }
+html.dbetter-night :is(#online_users, #watchers) .cell.admin1 { color:var(--dbt-native-a5e2b4) !important; }
+html.dbetter-night :is(#online_users, #watchers) .cell.admin2 { color:var(--dbt-native-cbd3dc) !important; }
+html.dbetter-night :is(#online_users, #watchers) :is(.cell.admin3, .cell.admin4) { color:var(--dbt-native-f0d38e) !important; }
+html.dbetter-night :is(#online_users, #watchers) .cell.adjudicator { color:var(--dbt-native-d5bbf3) !important; }
+html.dbetter-night :is(#online_users, #watchers) :is(.os-scrollbar-track, .os-scrollbar .os-scrollbar-track) { background:var(--dbt-native-3e534c) !important; }
+html.dbetter-night :is(#online_users, #watchers) :is(.os-scrollbar-handle, .os-scrollbar .os-scrollbar-handle) { background:var(--dbt-native-91b5a7) !important; }
+
+/* DB renders native selects through .combobox proxies. Theme both layers so
+   collapsed controls, OS option menus and custom deck lists stay consistent. */
+html.dbetter-night :is(
+  input[type="text"], input[type="password"], input[type="search"], input[type="email"],
+  input[type="number"], input[type="date"], input[type="tel"], input[type="url"],
+  textarea, select, option, optgroup, .textinput, .textarea, .combobox,
+  .combobox_background, .comboboxlike, .decklist_decks, .combo_item, .autocomplete .list, .autocomplete .cell
+):not(.card *, .cardfront *, .cardback *):not(:where(.dblite-solo-settings *)) {
+  background-color:var(--dbt-native-2b3234) !important;
+  background-image:none !important;
+  color:var(--dbt-native-e6eeea) !important;
+  border-color:var(--dbt-native-667973) !important;
+  color-scheme:dark;
+  caret-color:var(--dbt-native-c4dbd0);
+  scrollbar-color:var(--dbt-native-819d90) var(--dbt-native-2b3234);
+}
+html.dbetter-night :is(.textinput, .combobox, .combo_item) span { color:inherit !important; }
+html.dbetter-night :is(input, textarea)::placeholder { color:var(--dbt-native-afbeb7) !important; opacity:1; }
+html.dbetter-night :is(.combobox_selected, .combo_item:hover, .combo_item.selected) {
+  background:var(--dbt-native-40564e) !important; border-color:var(--dbt-native-95b9a7) !important; color:var(--dbt-native-f0f6f3) !important;
+}
+html.dbetter-night :is(input, textarea, select):focus-visible { outline:2px solid var(--dbt-native-98bfae); outline-offset:1px; }
+html.dbetter-night .combobox_arrow { filter:brightness(0) invert(.85); }
+html.dbetter-night .combobox_line { background-color:var(--dbt-native-70857c) !important; }
+html.dbetter-night :is(.textarea, .textinput, .decklist_decks) :is(.os_viewport, .os-viewport, .os-content, .os-padding, .scrollpane_proxy) {
+  background-color:var(--dbt-native-2b3234) !important; color:var(--dbt-native-e6eeea) !important;
+}
+html.dbetter-night :is(.cout_txt, #hosting #joinlist, #accept_members .joinlist):not(.card *) {
+  background-color:var(--dbt-native-303638) !important; color:var(--dbt-native-e6eeea) !important;
+}
+html.dbetter-night #content :is(input[type="submit"], input[type="button"], .button):not(.card *, .cardfront *) {
+  background:var(--dbt-native-36433e) !important; color:var(--dbt-native-e6eeea) !important; border-color:var(--dbt-native-6d8478) !important; color-scheme:dark;
+}
+html.dbetter-night #content :is(.button.button_selected, .button.button_down) { background:var(--dbt-native-4a6458) !important; border-color:var(--dbt-native-aac6b7) !important; }
+
+/* Keep the familiar panel hues, with softer greens and matching headings. */
+html.dbetter-night #filter > .border::before { background:linear-gradient(to right, var(--dbt-native-547d9e), var(--dbt-native-86bac6)) !important; }
+html.dbetter-night #filter_lbl { color:var(--dbt-native-9acdd6) !important; }
+html.dbetter-night :is(#host_bg, #accept_members_bg) > .border::before { background:linear-gradient(to right, var(--dbt-native-57926f), var(--dbt-native-99b68a)) !important; }
+html.dbetter-night :is(#host_lbl, #accept_members_bg .host_lbl) { color:var(--dbt-native-b6d3a5) !important; }
+html.dbetter-night #decklist > .border::before { background:linear-gradient(to right, var(--dbt-native-b87d65), var(--dbt-native-ba7793)) !important; }
+html.dbetter-night #decklist > .arial_black2 { color:var(--dbt-native-dfa990) !important; }
+html.dbetter-night #mode > .border::before { background:linear-gradient(to right, var(--dbt-native-8b7fae), var(--dbt-native-b18abd)) !important; }
+html.dbetter-night #mode_lbl { color:var(--dbt-native-c2abd6) !important; }
+html.dbetter-night #duel_room .format { --dbetter-format:var(--dbt-native-8bb7cd); --dbetter-format-surface:var(--dbt-native-29383e); }
+html.dbetter-night #duel_room #au { --dbetter-format:var(--dbt-native-98bba3); --dbetter-format-surface:var(--dbt-native-2c3d35); }
+html.dbetter-night #duel_room #yu { --dbetter-format:var(--dbt-native-cba08e); --dbetter-format-surface:var(--dbt-native-40362f); }
+html.dbetter-night #duel_room #gu { --dbetter-format:var(--dbt-native-b7a3ca); --dbetter-format-surface:var(--dbt-native-383142); }
+html.dbetter-night #duel_room #eu { --dbetter-format:var(--dbt-native-c9bd88); --dbetter-format-surface:var(--dbt-native-3d3a2c); }
+html.dbetter-night #duel_room #su { --dbetter-format:var(--dbt-native-a9b991); --dbetter-format-surface:var(--dbt-native-343e30); }
+html.dbetter-night #duel_room #ru { --dbetter-format:var(--dbt-native-cba587); --dbetter-format-surface:var(--dbt-native-40362e); }
+html.dbetter-night #duel_room #uu { --dbetter-format:var(--dbt-native-b5bec3); --dbetter-format-surface:var(--dbt-native-34393c); }
+html.dbetter-night #duel_room #tu { --dbetter-format:var(--dbt-native-c39cab); --dbetter-format-surface:var(--dbt-native-403039); }
+html.dbetter-night #duel_room .format > .border::before {
+  background:linear-gradient(120deg, color-mix(in srgb, var(--dbetter-format) 70%, var(--dbt-native-25312d)), var(--dbetter-format)) !important;
+  filter:none !important;
+}
+html.dbetter-night #duel_room .format .format_txt { color:var(--dbetter-format) !important; }
+html.dbetter-night #duel_room .format .format_inner {
+  background:var(--dbetter-format-surface) !important; color:var(--dbt-native-e3ebe6) !important;
+  color-scheme:dark; scrollbar-color:var(--dbetter-format) var(--dbetter-format-surface);
+}
+html.dbetter-night #ar :is(.desc_txt, .format_lbl, .rules_lbl, .type_lbl),
+html.dbetter-night #duel_room .duelbutton { color:var(--dbt-native-e3ebe6) !important; }
+html.dbetter-night #duel_room .duelbutton .background { background-color:var(--dbt-native-abc1b5) !important; opacity:.08; }
+
+/* Match native DeckCard's 55 x 77.5 pitch and Side/ExtraCard's 36.65 pitch.
+   Grid tracks avoid inline-block baseline/margin rounding accumulating per row.
+   Only the slot backgrounds change: native card positions and drag bounds stay intact. */
+#deck_constructor .deck_mask .slots { display:grid;grid-template-columns:repeat(10,55px);grid-auto-rows:77.5px;align-content:start;line-height:0;font-size:0; }
+#deck_constructor .deck_slot { left:0;top:0;width:55px;height:77.5px;margin:0;vertical-align:top; }
+#deck_constructor .deck_slot .content { left:0;top:0;width:100%;height:100%; }
+#deck_constructor :is(.side_mask,.extra_mask) .slots { display:flex;align-items:flex-start;line-height:0;font-size:0; }
+#deck_constructor :is(.side_slot,.extra_slot) { flex:0 0 36.65px;left:1px;top:0;width:36.65px;height:52px;margin:0; }
+
+/* Quiet slate surfaces retain the builder's purple / blue / amber landmarks. */
+html.dbetter-night :is(#deck_constructor, #main_menu) { background:var(--dbt-native-151c22); color:var(--dbt-native-dce5e8); }
+/* Card faces keep black ink on their light text panels; native title overrides remain intact. */
+html.dbetter-night #deck_constructor .cardfront { color:#000; }
+html.dbetter-night #main_menu :is(#menu_content,#statuses,#videos,#tourneys,#circle_content) { color-scheme:dark; scrollbar-color:var(--dbt-native-6b878b) var(--dbt-native-202c32); }
+html.dbetter-night #deck_constructor .deck_bg { background:var(--dbt-native-282835) !important; box-shadow:inset 0 0 0 1px var(--dbt-native-565168); }
+html.dbetter-night #deck_constructor .side_bg { background:var(--dbt-native-23343e) !important; box-shadow:inset 0 0 0 1px var(--dbt-native-496477); }
+html.dbetter-night #deck_constructor .extra_bg { background:var(--dbt-native-373029) !important; box-shadow:inset 0 0 0 1px var(--dbt-native-77634d); }
+html.dbetter-night #deck_constructor .deck_lbl { color:var(--dbt-native-c4b9df); }
+html.dbetter-night #deck_constructor .side_lbl { color:var(--dbt-native-a9cce2); }
+html.dbetter-night #deck_constructor .extra_lbl { color:var(--dbt-native-e0c09b); }
+html.dbetter-night #deck_constructor :is(.deck_slot,.side_slot,.extra_slot,.search_slot) { border-color:var(--dbt-native-48525f) !important; background:var(--dbt-native-20272e) !important; }
+html.dbetter-night #deck_constructor .deck_slot .content { background:var(--dbt-native-303742) !important; border-color:var(--dbt-native-4c5361) !important; opacity:.45; }
+html.dbetter-night #deck_constructor :is(.deck_mask,.side_mask,.extra_mask,#search_mask) { color-scheme:dark; scrollbar-color:var(--dbt-native-6b7881) var(--dbt-native-20272e); }
+html.dbetter-night #deck_constructor .search_bg { background:var(--dbt-native-253337) !important; box-shadow:inset 0 0 0 1px var(--dbt-native-4e6869); }
+html.dbetter-night #deck_constructor #search { color:var(--dbt-native-cedcdd); font-family:'Segoe UI', Arial, sans-serif; }
+html.dbetter-night #deck_constructor #search :is(.title_txt,.more_options_btn,.prev_options_btn) { color:var(--dbt-native-a8cebf) !important; text-shadow:none; }
+html.dbetter-night #deck_constructor #search .title_txt { font-size:27px; font-weight:600; }
+html.dbetter-night #deck_constructor #search :is(.search_prev_btn,.search_next_btn) { filter:invert(.7); }
+html.dbetter-night #deck_constructor :is(#search>span,#search1>span,#search2>span) { color:var(--dbt-native-cedcdd); font-size:14px; font-weight:500; }
+/* These labels fit between fixed native numeric fields; keep their compact metrics. */
+html.dbetter-night #deck_constructor #search :is(.lvl_compare_lbl,.lvl_rank_lbl,.atk_lbl,.def_lbl,.scale1_lbl,.scale2_lbl) { font-family:Arial,sans-serif; font-size:12px; font-weight:600; white-space:nowrap; }
+html.dbetter-night #deck_constructor .deck_bg :is(.total_bg,.total_effect_bg,.total_spell_bg,.total_trap_bg) {
+  background:var(--dbt-native-343e48); box-shadow:inset 0 0 0 1px var(--dbt-native-626d79); color:var(--dbt-native-e1e7ed); border-radius:6px;
+}
+html.dbetter-night #deck_constructor .deck_bg .total_effect_bg { background:var(--dbt-native-40372d); color:var(--dbt-native-ddbe93); box-shadow:inset 0 0 0 1px var(--dbt-native-7b6851); }
+html.dbetter-night #deck_constructor .deck_bg .total_spell_bg { background:var(--dbt-native-293d35); color:var(--dbt-native-a1d3b8); box-shadow:inset 0 0 0 1px var(--dbt-native-557b68); }
+html.dbetter-night #deck_constructor .deck_bg .total_trap_bg { background:var(--dbt-native-3e3040); color:var(--dbt-native-d7afd8); box-shadow:inset 0 0 0 1px var(--dbt-native-785d7b); }
+html.dbetter-night #deck_constructor .deck_bg :is(.total_txt,.total_effect_txt,.total_spell_txt,.total_trap_txt) { color:inherit; font:600 22px/30px 'Segoe UI', Arial, sans-serif; padding-top:0; }
+html.dbetter-night #content :is(#deck_constructor,#main_menu) :is(input[type='submit'],.button) {
+  background:var(--dbt-native-2e3c43) !important; border:1px solid var(--dbt-native-596d74) !important; border-radius:5px; color:var(--dbt-native-e2ebed) !important;
+  font-family:'Segoe UI', Arial, sans-serif; font-weight:500; text-shadow:none; box-shadow:none;
+}
+html.dbetter-night #content :is(#deck_constructor,#main_menu) :is(input[type='submit']:hover,.button_selected) { background:var(--dbt-native-3b5057) !important; border-color:var(--dbt-native-91b8ad) !important; }
+html.dbetter-night #deck_constructor :is(#save_btn,#save_btn+.button) { background:var(--dbt-native-31524a) !important; border-color:var(--dbt-native-739b87) !important; }
+html.dbetter-night #deck_constructor :is(#preview_txt,.bypass_background2) { background:var(--dbt-native-242f36) !important; color:var(--dbt-native-dce5e8) !important; }
+
+/* Retain native menu hit targets and labels, replacing the neon frames. */
+html.dbetter-night #main_menu .menu_btn > .content {
+  box-sizing:border-box; width:100%; height:64px; border:1px solid var(--dbt-native-4b646d); border-left:3px solid var(--dbt-native-7da99e);
+  border-radius:9px; background:linear-gradient(110deg,var(--dbt-native-2a3941),var(--dbt-native-222d34)); box-shadow:0 3px 10px #0003;
+}
+html.dbetter-night #main_menu .menu_btn > span {
+  color:var(--dbt-native-e0ebee); font:600 18px/24px 'Segoe UI', Arial, sans-serif; letter-spacing:.1px;
+  text-shadow:none; -webkit-text-stroke:0; padding-top:19px;
+}
+html.dbetter-night #main_menu .menu_btn2 > span { padding-top:8px; }
+html.dbetter-night #main_menu .menu_btn:hover > .content { background:var(--dbt-native-324b50); border-color:var(--dbt-native-9fc8b9); }
+html.dbetter-night #main_menu .menu_btn:active > .content { background:var(--dbt-native-29413e); }
+html.dbetter-night #main_menu :is(.title1,.subtitle_txt) { color:var(--dbt-native-b9d4d1); text-shadow:none; -webkit-text-stroke:0; font-family:'Segoe UI',Arial,sans-serif; font-weight:600; }
+html.dbetter-night #main_menu #post_status_btn { color:var(--dbt-native-a5c9df); }
+html.dbetter-night #main_menu #main_exit_btn > .content { background:linear-gradient(110deg,var(--dbt-native-653b46),var(--dbt-native-442d37)); border-color:var(--dbt-native-a36a78); border-left-color:var(--dbt-native-e8a0ab); }
+html.dbetter-night #main_menu #main_exit_btn:hover > .content { background:var(--dbt-native-774653); border-color:var(--dbt-native-f0b1bb); }
+html.dbetter-night #main_menu #main_exit_btn > span { color:var(--dbt-native-ffe0e5); }
+/* Keep native status sizing, reply controls and clipping, with visible cards. */
+html.dbetter-night #main_menu .status { background:var(--dbt-native-26343e) !important; color:var(--dbt-native-edf2f5); border-radius:7px; box-shadow:inset 3px 0 var(--dbt-native-789caa), inset 0 1px var(--dbt-native-647b86); }
+html.dbetter-night #main_menu .status:nth-child(even) { background:var(--dbt-native-303c48) !important; }
+html.dbetter-night #main_menu .status.reply { background:var(--dbt-native-202e38) !important; box-shadow:inset 2px 0 var(--dbt-native-536c79), inset 0 1px var(--dbt-native-425864); }
+html.dbetter-night #main_menu .status :is(.status_txt,textarea) { color:var(--dbt-native-edf2f5) !important; font-family:'Segoe UI',Arial,sans-serif; }
+html.dbetter-night #main_menu .status .username_txt { color:var(--dbt-native-c7e8de); }
+html.dbetter-night #main_menu .status :is(.date_txt,.role_txt) { color:var(--dbt-native-b1c2cd); }
+html.dbetter-night #main_menu .status :is(.likes,.dislikes,.reply_btn,.delete_btn,.save_btn) { color:var(--dbt-native-c0d8e4); }
+html.dbetter-night #main_menu .status.unapproved .status_txt { color:var(--dbt-native-9cdcf5) !important; }
+html.dbetter-night #main_menu .status.nsfw .status_txt { color:var(--dbt-native-ffb6bf) !important; }
+
+/* Keep DB's 49px entries and 50px native positioning; emphasize names inside. */
+html.dbetter-night #duel_room .duelbutton {
+  position:absolute!important;display:grid;grid-template-columns:minmax(0,1fr) 58px;grid-template-rows:22px 21px;column-gap:5px;
+  height:49px!important;min-height:0;width:100%;padding:2px 6px;margin-top:-1px;box-sizing:border-box;
+  background:linear-gradient(110deg,var(--dbt-native-303d43),var(--dbt-native-27333a));border:1px solid var(--dbt-native-52636c);border-left:3px solid var(--dbt-native-81949d);border-radius:4px;
+}
+html.dbetter-night #duel_room .duelbutton:not([style*="display: none"]):not([style*="display:none"]){display:grid!important}
+html.dbetter-night #duel_room .duelbutton:has(.dblite-room-following){border-left-color:var(--dbt-line)}
+html.dbetter-night #duel_room .duelbutton:has(.dblite-room-friend){border-left-color:var(--dbt-line)}
+html.dbetter-night #duel_room .duelbutton.dblite-room-no-meta{grid-template-columns:minmax(0,1fr)}
+html.dbetter-night #duel_room .dblite-room-no-meta>.dblite-room-meta{display:none}
+html.dbetter-night #duel_room .duelbutton>.background{inset:0;width:100%;height:100%;pointer-events:none}
+html.dbetter-night #duel_room .duelbutton :is(.username_txt,.title_txt,.title2_txt,.rating_txt,.note_txt){
+  position:relative!important;inset:auto!important;grid-column:1;width:100%!important;max-width:100%;height:auto!important;min-width:0;
+  padding:0;box-sizing:border-box;transform:none!important;filter:none;letter-spacing:normal!important;
+  font-family:'Segoe UI',Arial,sans-serif!important;text-shadow:none!important;-webkit-text-stroke:0!important;
+  white-space:nowrap!important;overflow:visible;text-overflow:clip;
+}
+html.dbetter-night #duel_room .duelbutton :is(.username_txt,.title_txt,.title2_txt){
+  font-family:Arial,Helvetica,sans-serif!important;font-size:var(--dbetter-room-font,15px)!important;line-height:21px;font-weight:700!important;color:var(--dbt-native-ecebe3)!important;
+}
+html.dbetter-night #duel_room .duelbutton :is(.username_txt,.title_txt){grid-row:1}
+html.dbetter-night #duel_room .watchbutton:not(.dblite-room-tag)>.title_txt{grid-row:1 / span 2;display:flex;flex-direction:column}
+html.dbetter-night #duel_room .duelbutton .title2_txt{grid-row:2}
+html.dbetter-night #duel_room .dblite-room-tag :is(.title_txt,.title2_txt){display:flex;flex-direction:column;line-height:10.5px}
+html.dbetter-night #duel_room .dblite-room-tag .dblite-room-player{height:10.5px;min-width:0;gap:2px}
+html.dbetter-night #duel_room .dblite-room-tag .dblite-room-rating{font-size:9px;line-height:10.5px}
+html.dbetter-night #duel_room .duelbutton .note_txt{grid-row:2;align-self:center;font:11px/18px 'Segoe UI',Arial,sans-serif;color:var(--dbt-native-b4c0c5);overflow:hidden;text-overflow:ellipsis}
+html.dbetter-night #duel_room .watchbutton>.note_txt{display:none}
+html.dbetter-night #duel_room .dblite-room-heading{position:relative;grid-column:1;grid-row:1;display:flex;align-items:baseline;gap:6px;min-width:0}
+html.dbetter-night #duel_room .dblite-room-heading>.username_txt{width:auto!important;flex:0 1 auto}
+html.dbetter-night #duel_room .duelbutton .rating_txt{flex:none;width:auto!important;font:400 11px/20px Arial,Helvetica,sans-serif!important;text-align:left;font-variant-numeric:tabular-nums;color:var(--dbt-native-b8c4ca)}
+#duel_room :is(.dblite-room-player,.dblite-room-name,.dblite-room-rating,.dblite-room-versus){position:static;display:inline;font:inherit;color:inherit}
+#duel_room .dblite-room-friend{color:var(--dbt-text)}
+#duel_room .dblite-room-following{color:var(--dbt-text)}
+html.dbetter-night #duel_room .dblite-room-player{display:flex;align-items:baseline;gap:6px;min-width:0}
+html.dbetter-night #duel_room .dblite-room-name{display:block;flex:0 1 auto;min-width:0;white-space:nowrap;color:var(--dbt-text);font-weight:700}
+html.dbetter-night #duel_room .dblite-room-friend{color:var(--dbt-text)}
+html.dbetter-night #duel_room .dblite-room-following{color:var(--dbt-text)}
+html.dbetter-night #duel_room .dblite-room-rating{display:block;flex:none;font-size:clamp(9px,.72em,11px);line-height:18px;font-weight:400;font-variant-numeric:tabular-nums;color:var(--dbt-text)}
+html:not(.dbetter-night) #duel_room .dblite-room-player{font-size:inherit!important}
+html.dbetter-night #duel_room .dblite-room-versus{display:none}
+html.dbetter-night #duel_room .dblite-room-meta{
+  position:relative!important;grid-column:2;grid-row:1 / span 2;align-self:center;display:flex;align-items:center;justify-content:center;align-content:center;flex-wrap:wrap;gap:1px 3px;
+}
+html.dbetter-night #duel_room .dblite-room-meta>*{
+  position:relative!important;inset:auto!important;transform:none!important;padding:0;letter-spacing:normal;
+  width:auto;height:auto;max-width:100%;font:600 9px/11px 'Segoe UI',Arial,sans-serif;text-align:center;color:var(--dbt-text);opacity:1;text-shadow:none;
+}
+html.dbetter-night #duel_room .dblite-room-meta .key{order:0;width:18px;height:11px;object-fit:contain}
+html.dbetter-night #duel_room .dblite-room-meta :is(.tcg_title,.ocg_title){order:1;font-size:9px;line-height:11px}
+html.dbetter-night #duel_room .dblite-room-meta .game_type{order:3;flex-basis:100%;font-size:10px;line-height:12px;color:var(--dbt-text)}
+html.dbetter-night #duel_room .dblite-room-meta .note_txt{order:4;flex-basis:100%;font:600 10px/12px 'Segoe UI',Arial,sans-serif;color:var(--dbt-muted)!important;overflow:visible}
+html.dbetter-night #duel_room .dblite-room-meta :is(.tag_duel,.tag_team,.classic,.expert,.partner){order:2;color:var(--dbt-text)}
+html.dbetter-night #duel_room .dblite-room-meta .watching{order:4;width:18px;height:12px;object-fit:contain}
+html.dbetter-night #duel_room .dblite-room-rated .tcg_title,
+html.dbetter-night #duel_room .dblite-room-hide-match .game_type{display:none!important}
+html.dbetter-night #duel_room .duelbutton :is(.glow,.glow .background){inset:0;width:100%;height:100%;background:var(--dbt-native-9bc3b5)!important;opacity:.12!important;pointer-events:none}
+/* Headings sit above the frame instead of straddling its border. */
+html.dbetter-night #duel_room .format .format_txt{
+  top:-25px;height:22px;left:10px;width:calc(100% - 34px);font:700 19px/22px 'Segoe UI',Arial,sans-serif;
+  letter-spacing:0;text-shadow:none;-webkit-text-stroke:0;white-space:nowrap;
+}
+html.dbetter-night #duel_room :is(#filter_lbl,#host_lbl,#mode_lbl,#decklist>.arial_black2,#accept_members_bg .host_lbl){
+  top:-23px;height:20px;font:700 18px/20px 'Segoe UI',Arial,sans-serif;letter-spacing:0;
+  text-shadow:none;-webkit-text-stroke:0;white-space:nowrap;
+}
+
+/* Native getDeckColor categories: preserve meaning in selects and proxies. */
+/* Advanced */
+html.dbetter-night :is(#decklist_cb option,.decklist_decks .combo_item):is([style*="color: rgb(0, 119, 0)"],[style*="color: #007700" i]),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(0, 119, 0)"],[style*="color: #007700" i])),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(0, 119, 0)"],[style*="color: #007700" i])) + .combobox { color:var(--dbt-native-9cceb2) !important; }
+/* Traditional */
+html.dbetter-night :is(#decklist_cb option,.decklist_decks .combo_item):is([style*="color: rgb(204, 0, 119)"],[style*="color: #CC0077" i]),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(204, 0, 119)"],[style*="color: #CC0077" i])),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(204, 0, 119)"],[style*="color: #CC0077" i])) + .combobox { color:var(--dbt-native-e1a7c8) !important; }
+/* Goat */
+html.dbetter-night :is(#decklist_cb option,.decklist_decks .combo_item):is([style*="color: rgb(136, 0, 136)"],[style*="color: #880088" i]),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(136, 0, 136)"],[style*="color: #880088" i])),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(136, 0, 136)"],[style*="color: #880088" i])) + .combobox { color:var(--dbt-native-c3b0e4) !important; }
+/* Custom */
+html.dbetter-night :is(#decklist_cb option,.decklist_decks .combo_item):is([style*="color: rgb(0, 204, 255)"],[style*="color: #00CCFF" i]),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(0, 204, 255)"],[style*="color: #00CCFF" i])),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(0, 204, 255)"],[style*="color: #00CCFF" i])) + .combobox { color:var(--dbt-native-87cddc) !important; }
+/* Speed */
+html.dbetter-night :is(#decklist_cb option,.decklist_decks .combo_item):is([style*="color: rgb(153, 204, 0)"],[style*="color: #99CC00" i]),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(153, 204, 0)"],[style*="color: #99CC00" i])),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(153, 204, 0)"],[style*="color: #99CC00" i])) + .combobox { color:var(--dbt-native-c7d69a) !important; }
+/* Rush */
+html.dbetter-night :is(#decklist_cb option,.decklist_decks .combo_item):is([style*="color: rgb(255, 102, 0)"],[style*="color: #FF6600" i]),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(255, 102, 0)"],[style*="color: #FF6600" i])),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(255, 102, 0)"],[style*="color: #FF6600" i])) + .combobox { color:var(--dbt-native-dfb184) !important; }
+/* Unrestricted or invalid */
+html.dbetter-night :is(#decklist_cb option,.decklist_decks .combo_item):is([style*="color: rgb(0, 0, 0)"],[style*="color: #000000" i]),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(0, 0, 0)"],[style*="color: #000000" i])),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(0, 0, 0)"],[style*="color: #000000" i])) + .combobox { color:var(--dbt-native-d6dce0) !important; }
+/* Unknown */
+html.dbetter-night :is(#decklist_cb option,.decklist_decks .combo_item):is([style*="color: rgb(136, 136, 136)"],[style*="color: #888888" i]),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(136, 136, 136)"],[style*="color: #888888" i])),
+html.dbetter-night #decklist_cb:has(option:checked:is([style*="color: rgb(136, 136, 136)"],[style*="color: #888888" i])) + .combobox { color:var(--dbt-native-9ca9b5) !important; }
+
+
+/* Loaded at document_start: hide each native profile until its own size and
+   position are ready, including live entries, reconnects and replay resets. */
+html.dblite-profile-layout #duel .duel_avatar:not(.dblite-history-profile) {
+  visibility:hidden !important;
+}
+
+/* 0.5 constructor: reserve a footer below all result sizes. Native deck coordinates stay intact. */
+html.dblite-constructor-layout #deck_constructor:not(.dblite-constructor-native) #search,
+html.dblite-constructor-layout #deck_constructor:not(.dblite-constructor-native):not(.dblite-constructor-ready)>.cards>.search_card{visibility:hidden!important}
+#deck_constructor.dblite-constructor #search{display:none!important}
+#deck_constructor .dblite-builder-search{position:absolute!important;left:798.5px!important;top:4px!important;width:221px!important;height:300px!important;box-sizing:border-box;padding:6px;background:var(--dbt-panel);color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:7px;z-index:5;font:9.5px/1.25 Arial,sans-serif}
+#deck_constructor .dblite-builder-search *{position:static!important;box-sizing:border-box;transform:none!important;float:none!important;letter-spacing:normal;text-shadow:none;min-width:0}
+#deck_constructor .dblite-builder-search [hidden],#deck_constructor .dblite-native-return[hidden]{display:none!important}
+#deck_constructor .dblite-builder-search h2{display:none}
+/* Deck undo (↶) under the privacy button, drawn like DuelingBook's round icons in that column. */
+#deck_constructor .dblite-deck-undo{position:absolute!important;box-sizing:border-box;margin:0;padding:0 0 2px;border:0;border-radius:50%;background:#fff;color:#222;font:700 17px/1 Arial,sans-serif;cursor:pointer;z-index:3;box-shadow:0 1px 3px #0008}
+#deck_constructor .dblite-deck-undo:disabled{opacity:.35;cursor:default}
+#deck_constructor .dblite-deck-undo:not(:disabled):hover{background:#dff3f0}
+#deck_constructor .dblite-deck-undo[hidden]{display:none!important}
+#deck_constructor .dblite-builder-heading{display:flex;align-items:start;gap:4px;height:20px}
+#deck_constructor .dblite-builder-heading>label{font-size:0;width:76px;margin-left:auto}
+#deck_constructor .dblite-builder-search .dblite-builder-heading select{height:17px;min-height:17px;font-size:9px;padding:0 2px}
+#deck_constructor .dblite-builder-search .dblite-builder-heading>button{width:47px;height:17px;min-height:17px;font-size:9px;padding:0 3px}
+#deck_constructor .dblite-builder-fields{height:217px;overflow:auto;scrollbar-width:thin;padding-right:3px}
+#deck_constructor .dblite-search-text{display:grid;grid-template-columns:minmax(0,1fr) 51px;gap:4px;margin-bottom:5px}
+#deck_constructor .dblite-search-text>label{font-size:0}
+/* Describe search: the query, then one chip per part read. */
+#deck_constructor .dblite-describe{margin-bottom:5px}
+#deck_constructor .dblite-describe-line{display:flex;align-items:center;gap:4px}
+#deck_constructor .dblite-builder-search .dblite-describe-line>input{flex:1 1 auto;min-width:0;border-color:var(--dbt-accent)}
+#deck_constructor .dblite-describe-chips{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px}
+#deck_constructor .dblite-describe-chips[hidden]{display:none}
+#deck_constructor .dblite-describe-chip{display:inline-flex;align-items:center;gap:2px;max-width:100%;padding:0 0 0 5px;border:1px solid var(--dbt-line);border-radius:8px;background:var(--dbt-panel-2);font:9px/14px Arial,sans-serif;overflow-wrap:anywhere}
+#deck_constructor .dblite-describe-chip.dblite-describe-concept{border-color:var(--dbt-accent);font-weight:600}
+#deck_constructor .dblite-describe-chip.dblite-describe-plain{font-style:italic;opacity:.85}
+#deck_constructor .dblite-describe-chip.dblite-describe-pending{opacity:.55;padding-right:5px}
+#deck_constructor .dblite-builder-search .dblite-describe-chip>button{width:14px;min-height:14px;height:14px;padding:0;border:0;border-radius:7px;background:transparent;font-size:10px;line-height:14px;cursor:pointer}
+#deck_constructor .dblite-builder-search .dblite-describe-chip>button:hover{background:var(--dbt-input)}
+#preview_txt mark.dblite-describe-mark{background:rgba(255,214,77,.38);color:inherit;border-radius:2px}
+#preview_txt .dblite-describe-why{font-weight:600}
+#deck_constructor .dblite-builder-search input,#deck_constructor .dblite-builder-search select,#deck_constructor .dblite-builder-search button{font:9.5px Arial,sans-serif;color:inherit;background:var(--dbt-input);border:1px solid var(--dbt-line);border-radius:4px;min-height:19px;height:19px;padding:2px 4px;width:100%;margin:0}
+#deck_constructor .dblite-builder-search .dblite-search-text select{padding:0 2px}
+/* Native resize writes a scaled inline font-size to every select and option. */
+#deck_constructor .dblite-builder-search select,#deck_constructor .dblite-builder-search option{font-size:9.5px!important}
+#deck_constructor .dblite-builder-search .dblite-builder-heading :is(select,option),#deck_constructor .dblite-builder-search .dblite-builder-pager :is(select,option){font-size:9px!important}
+#deck_constructor .dblite-builder-search input[type=checkbox]{width:10px;height:10px;min-height:10px;flex-shrink:0;vertical-align:middle;accent-color:var(--dbt-accent);margin-right:4px}
+#deck_constructor .dblite-builder-search .dblite-filter-grid{position:relative!important;display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:5px;z-index:8}
+#deck_constructor .dblite-filter{border:1px solid var(--dbt-line);border-radius:4px;background:var(--dbt-panel-2)}
+#deck_constructor .dblite-builder-search summary{cursor:pointer;font-weight:500}
+#deck_constructor .dblite-filter>summary{display:flex;align-items:center;gap:3px;height:20px;padding:3px 5px;list-style:none;font-size:9px}
+#deck_constructor .dblite-filter>summary::-webkit-details-marker{display:none}
+#deck_constructor .dblite-filter>summary::after{content:'';width:4px;height:4px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(45deg);margin:0 1px 2px auto;opacity:.65}
+#deck_constructor .dblite-filter[open]>summary::after{transform:rotate(225deg);margin-bottom:0}
+#deck_constructor .dblite-filter-count{font-size:8px;border-radius:6px;background:var(--dbt-panel-2);color:var(--dbt-muted);padding:0 3px;line-height:12px}
+#deck_constructor .dblite-filter[open]{border-color:var(--dbt-line)}
+#deck_constructor .dblite-builder-search .dblite-options{position:absolute!important;left:0;right:0;top:50px;z-index:9;display:grid;grid-template-columns:1fr 1fr;gap:1px 3px;max-height:142px;overflow:auto;overscroll-behavior:contain;padding:5px;background:var(--dbt-panel-2);border:1px solid var(--dbt-line);border-radius:5px;box-shadow:0 5px 12px var(--dbt-line);scrollbar-width:thin}
+#deck_constructor .dblite-filter:not([open])>.dblite-options{display:none!important}
+#deck_constructor .dblite-options label{display:flex;align-items:center;gap:2px;font-size:9px;line-height:12px;padding:4px 3px;border-radius:3px;cursor:pointer}
+#deck_constructor .dblite-options label:hover{background:var(--dbt-panel-2)}
+#deck_constructor .dblite-options label:has(:checked){background:var(--dbt-panel-2);color:var(--dbt-text)}
+#deck_constructor .dblite-builder-search :is(input,select,button,summary):focus-visible{outline:1px solid var(--dbt-accent);outline-offset:1px}
+#deck_constructor .dblite-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+#deck_constructor .dblite-range{display:grid;grid-template-columns:1fr 1fr;gap:2px;font-size:9px}
+#deck_constructor .dblite-range>input:first-of-type{grid-column:1}
+#deck_constructor .dblite-builder-more{padding:5px 0}
+#deck_constructor .dblite-builder-more>label{display:flex;align-items:center;gap:6px;margin-top:4px}
+#deck_constructor .dblite-checks{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0}
+#deck_constructor .dblite-checks label{white-space:nowrap}
+#deck_constructor .dblite-builder-actions{display:flex;gap:6px;margin:5px 0}
+#deck_constructor .dblite-builder-actions>button:first-child{background:var(--dbt-panel-2);color:var(--dbt-text)}
+#deck_constructor .dblite-builder-search button{cursor:pointer}
+#deck_constructor .dblite-builder-search button:disabled{opacity:.4;cursor:default}
+#deck_constructor .dblite-builder-pager{display:flex;align-items:center;gap:3px;font-size:9px}
+#deck_constructor .dblite-builder-pager>button{width:16px;flex-shrink:0;padding:0}
+#deck_constructor .dblite-builder-pager>output{flex:1;text-align:center;cursor:ns-resize;user-select:none;line-height:10px}
+#deck_constructor .dblite-builder-pager>label{font-size:0;width:53px;flex-shrink:0}
+#deck_constructor .dblite-builder-pager select{font-size:9px;padding:0}
+#deck_constructor .dblite-builder-points{padding:4px 0}
+#deck_constructor .dblite-builder-points>.dblite-range{margin-top:4px}
+#deck_constructor .dblite-native-return{position:absolute!important;left:800px;top:585px;z-index:6;font:11px Arial,sans-serif}
+#deck_constructor.dblite-constructor :is(#banlists,#banlists+.combobox_background,#banlists+.combobox_background+.combobox){top:618px!important;width:144px!important;height:16px!important;min-height:0!important;line-height:16px!important;box-sizing:border-box;padding-top:0!important;padding-bottom:0!important}
+#deck_constructor.dblite-constructor #banlists+.combobox_background+.combobox>span{font-size:10px!important;line-height:14px!important;padding-top:0!important}
+#deck_constructor.dblite-constructor #banlists+.combobox_background+.combobox .combobox_line{height:16px!important;right:20px}
+#deck_constructor.dblite-constructor #banlists+.combobox_background+.combobox .combobox_arrow{height:5px!important;top:5px;right:6px}
+#deck_constructor.dblite-constructor .cards>.search_card{transform-origin:top left!important}
+html.dbetter-night #deck_constructor .dblite-builder-search{background:var(--dbt-panel);color:var(--dbt-text);border-color:var(--dbt-line)}
+html.dbetter-night #deck_constructor .dblite-builder-search input,html.dbetter-night #deck_constructor .dblite-builder-search select,html.dbetter-night #deck_constructor .dblite-filter,html.dbetter-night #deck_constructor .dblite-builder-search button{background:var(--dbt-input)!important;color:var(--dbt-text)!important;border-color:var(--dbt-line)!important}
+html.dbetter-night #deck_constructor .dblite-builder-actions>button:first-child{background:var(--dbt-panel-2)}
+html.dbetter-night #deck_constructor .dblite-options{background:var(--dbt-panel-2);border-color:var(--dbt-line);box-shadow:0 5px 12px #0008}
+html.dbetter-night #deck_constructor .dblite-options label:hover{background:var(--dbt-panel-2)}
+html.dbetter-night #deck_constructor .dblite-options label:has(:checked){background:var(--dbt-panel-2);color:var(--dbt-text)}
+html.dbetter-night #deck_constructor .dblite-filter-count{background:var(--dbt-panel-2);color:var(--dbt-muted)}
+
+
+#deck_constructor .dblite-range-title{grid-column:1/-1}
+
+/* Compact native controls and their visual proxies give effect text more room. */
+#deck_constructor.dblite-solo-ready #preview_txt{height:152px!important}
+#deck_constructor .dblite-deck-control{top:var(--dblite-control-top)!important;left:var(--dblite-control-left)!important;width:var(--dblite-control-width)!important;height:var(--dblite-control-height,18px)!important;box-sizing:border-box!important;padding:0!important;font-size:11px!important;line-height:16px!important}
+#deck_constructor .combobox.dblite-deck-control>span{padding-top:0!important;line-height:16px!important}
+#deck_constructor :is(.dblite-deck-select,.dblite-deck-select>span,#decklist_cb option,.decklists_btn,.decklist_decks .combo_item,.decklist_decks .combo_item>span){font-size:14px!important}
+html.dblite-in-constructor #chat_buttons :is(#online_btn,#group_chat_btn,#tools_btn,#chat_btn,#private_btn,#private_btn_anim){top:614px!important;width:24px!important;height:24px!important}
+html.dblite-in-constructor #chat_buttons img{width:100%;height:100%;object-fit:contain}
+html.dblite-in-constructor #online_btn{left:12px!important}
+html.dblite-in-constructor :is(#group_chat_btn,#tools_btn){left:58px!important}
+html.dblite-in-constructor #chat_btn{left:104px!important}
+html.dblite-in-constructor :is(#private_btn,#private_btn_anim){left:150px!important;transform:none!important}
+#deck_constructor .dblite-solo-launch{position:absolute;left:3px;top:466px;width:200px;height:18px;display:flex;gap:4px;align-items:center;color:var(--dbt-text);font:10px/1.25 system-ui;z-index:2}
+html.dbetter-night #deck_constructor .dblite-solo-launch{color:var(--dbt-text)}
+#deck_constructor .dblite-solo-launch *{position:static;box-sizing:border-box}
+#deck_constructor .dblite-solo-launch button{width:168px;height:18px;flex:none;padding:0;background:var(--dbt-panel-2);color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:4px;font:600 11px system-ui;cursor:pointer}
+#deck_constructor .dblite-solo-launch .dblite-solo-gear{width:28px;font-size:14px;line-height:16px}
+#deck_constructor .dblite-solo-launch button:disabled{opacity:.55;cursor:wait}
+#deck_constructor .dblite-solo-launch output{position:absolute;left:0;bottom:25px;width:200px;padding:5px;background:var(--dbt-panel);color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:4px;pointer-events:none}
+#deck_constructor .dblite-solo-launch output:empty{display:none}
+.dblite-solo-settings{position:fixed;z-index:2147483645;width:280px;box-sizing:border-box;padding:15px;border:1px solid var(--dbt-line);border-radius:10px;background:var(--dbt-panel);color:var(--dbt-text);font:13px/1.4 system-ui;box-shadow:0 12px 40px #0008}
+.dblite-solo-settings *{position:static;box-sizing:border-box}
+.dblite-solo-settings header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.dblite-solo-settings button{border:1px solid var(--dbt-line);border-radius:4px;background:var(--dbt-panel-2);color:inherit;cursor:pointer}
+.dblite-solo-settings label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0}
+html.dbetter-night .dblite-solo-settings input[type=number]{background:var(--dbt-input)!important;color:inherit!important;border-color:var(--dbt-line)!important}
+.dblite-solo-settings input[type=number]{width:64px;height:29px;padding:4px;background:var(--dbt-input);color:inherit;border:1px solid var(--dbt-line);border-radius:4px;font:inherit}
+.dblite-solo-settings .dblite-solo-order{justify-content:flex-start}.dblite-solo-settings input[type=checkbox]{margin:0;accent-color:var(--dbt-accent)}
+.dblite-solo-settings p{margin:14px 0 0;font-size:12px;color:var(--dbt-text)}
+.dblite-overview-settings .dblite-size-row{display:block;margin:12px 0}.dblite-overview-settings .dblite-size-row>span{display:flex;justify-content:space-between;gap:10px}.dblite-overview-settings output{font-variant-numeric:tabular-nums}
+.dblite-overview-settings input[type=range]{display:block;width:100%;margin:6px 0 0;accent-color:var(--dbt-accent);cursor:pointer}.dblite-overview-settings>button{margin-top:12px;padding:4px 12px}
+
+/* 0.6.0: feedback changes only compositor properties. */
+:is(.dblite-fan,.dblite-menu,.dblite-panel,.dblite-tools,.dblite-builder-search) button{transition:transform 100ms ease-out,opacity 100ms ease-out!important}
+:is(.dblite-fan,.dblite-menu,.dblite-panel,.dblite-tools,.dblite-builder-search) button:active{transform:scale(.97);opacity:.86}
+.dblite-fan-card{transition:transform 100ms ease-out,opacity 100ms ease-out!important}
+html.dblite-adaptive :is(.dblite-menu,.dblite-panel,.dblite-view-settings,.dblite-card-search,.dblite-solo-settings){box-sizing:border-box;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto}
+/* 0.6.5 constructor search */
+#deck_constructor .dblite-builder-search>.dblite-search-resizer{position:absolute!important;left:-5px;right:auto;top:8px;bottom:8px;width:8px;cursor:ew-resize;touch-action:none;z-index:10;border-radius:4px;outline:none}
+#deck_constructor .dblite-builder-search>.dblite-search-resizer::after{content:'';position:absolute;left:3px;top:50%;width:2px;height:28px;margin-top:-14px;border-radius:1px;background:var(--dbt-panel);opacity:.55}
+#deck_constructor .dblite-builder-search>.dblite-search-resizer:is(:hover,:focus-visible,.dblite-resizing)::after{top:0;height:100%;margin-top:0;background:var(--dbt-panel-2);opacity:1}
+#deck_constructor.dblite-search-resized>.cards{overflow:visible!important}
+#deck_constructor .dblite-builder-search .dblite-more-grid{grid-template-columns:1fr;margin:2px 0 4px}
+#deck_constructor .dblite-builder-search .dblite-more-grid .dblite-options{top:24px;max-height:120px}
+#deck_constructor .dblite-stat-relation{display:grid;grid-template-columns:1fr 1fr 34px 1fr;gap:2px;padding:0 0 4px}
+#deck_constructor .dblite-stat-relation>label{font-size:0;margin:0}
+#deck_constructor .dblite-builder-search .dblite-stat-relation select{padding:0 1px}
+html.dbetter-night #deck_constructor .dblite-builder-search>.dblite-search-resizer::after{background:var(--dbt-panel)}
+html.dbetter-night #deck_constructor .dblite-builder-search>.dblite-search-resizer:is(:hover,:focus-visible,.dblite-resizing)::after{background:var(--dbt-panel-2)}
+#deck_constructor .dblite-builder-search :is(.dblite-fetch-filter,.dblite-lab-filter){display:flex;align-items:center;gap:4px;margin-bottom:5px;padding:1px 1px 1px 6px;border:1px solid var(--dbt-line);border-radius:4px;background:var(--dbt-panel-2)}
+#deck_constructor .dblite-builder-search .dblite-fetch-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+/* The Summon Lab row carries the materials and the count per frame: two lines rather than an ellipsis. */
+#deck_constructor .dblite-builder-search .dblite-lab-filter .dblite-fetch-label{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:1.25}
+#deck_constructor .dblite-builder-search .dblite-fetch-clear{width:19px;flex:none;padding:0}
+html.dbetter-night #deck_constructor .dblite-builder-search :is(.dblite-fetch-filter,.dblite-lab-filter){background:var(--dbt-panel-2);border-color:var(--dbt-line)}
+#deck_constructor .dblite-builder-search .dblite-fetch-name{cursor:help;text-decoration:underline dotted;text-underline-offset:2px}
+/* Filter options cycle ✓ include, ✕ exclude, off. */
+#deck_constructor .dblite-builder-search .dblite-options input[type=checkbox]{-webkit-appearance:none;appearance:none;display:inline-grid;place-content:center;width:11px;height:11px;min-height:11px;padding:0;margin:0 4px 0 0;border:1px solid var(--dbt-line);border-radius:2px;background:var(--dbt-input);font:700 9px/1 Arial,sans-serif;color:var(--dbt-text);cursor:pointer}
+#deck_constructor .dblite-builder-search .dblite-options input[type=checkbox]:checked{background:var(--dbt-input);border-color:var(--dbt-line)}
+#deck_constructor .dblite-builder-search .dblite-options input[type=checkbox]:checked::before{content:'✓'}
+#deck_constructor .dblite-builder-search .dblite-options input[type=checkbox][data-exclude]{background:var(--dbt-input);border-color:var(--dbt-line)}
+#deck_constructor .dblite-builder-search .dblite-options input[type=checkbox][data-exclude]::before{content:'✕'}
+#deck_constructor .dblite-builder-search .dblite-options label.dblite-excluded span{color:var(--dbt-text);text-decoration:line-through}
+html.dbetter-night #deck_constructor .dblite-builder-search .dblite-options input[type=checkbox]:checked{background:var(--dbt-input)!important;border-color:var(--dbt-line)!important}
+html.dbetter-night #deck_constructor .dblite-builder-search .dblite-options input[type=checkbox][data-exclude]{background:var(--dbt-input)!important;border-color:var(--dbt-line)!important}
+html.dbetter-night #deck_constructor .dblite-builder-search .dblite-options label.dblite-excluded span{color:var(--dbt-text)}
+#deck_constructor .dblite-builder-search :is(.dblite-access-gear,.dblite-lab-edit){width:19px;flex:none;padding:0}
+#deck_constructor .dblite-builder-search .dblite-access-options{display:flex;flex-wrap:wrap;gap:3px 8px;margin:-6px 0 5px;padding:4px 6px;border:1px solid var(--dbt-line);border-top:0;border-radius:0 0 4px 4px;background:var(--dbt-panel-2)}
+#deck_constructor .dblite-builder-search .dblite-access-options label{display:flex;align-items:center;gap:3px;white-space:nowrap;cursor:pointer}
+#deck_constructor .dblite-builder-search .dblite-access-title{width:100%;font-weight:600}
+html.dbetter-night #deck_constructor .dblite-builder-search .dblite-access-options{background:var(--dbt-panel-2);border-color:var(--dbt-line)}
+/* Summon Lab: Polymerization's art as the icon; the panel takes the filters' place while open. */
+#deck_constructor .dblite-builder-search .dblite-lab-icon{display:inline-block;width:15px;height:15px;flex:none;vertical-align:-3px;border-radius:3px;background-size:265% auto;background-position:50% 34%;background-repeat:no-repeat;box-shadow:0 0 0 1px #0004;font-size:11px;line-height:15px;text-align:center}
+#deck_constructor .dblite-builder-search .dblite-lab-open{display:flex;align-items:center;justify-content:center;gap:5px;width:100%;margin:4px 0 5px;height:21px;min-height:21px;font-weight:600}
+#deck_constructor .dblite-builder-search .dblite-lab{height:217px;overflow:auto;scrollbar-width:thin;padding-right:3px}
+#deck_constructor .dblite-builder-search .dblite-lab-head{display:flex;align-items:center;gap:5px;margin-bottom:3px}
+#deck_constructor .dblite-builder-search .dblite-lab-head strong{flex:1;font-size:11px}
+#deck_constructor .dblite-builder-search .dblite-lab-back{width:auto;padding:0 6px}
+#deck_constructor .dblite-builder-search .dblite-lab-help{margin:0 0 5px;opacity:.85}
+#deck_constructor .dblite-builder-search .dblite-lab-slot{margin-bottom:4px}
+#deck_constructor .dblite-builder-search .dblite-lab-slot-row{display:flex;align-items:stretch;gap:3px}
+#deck_constructor .dblite-builder-search .dblite-lab-slot-row>*{flex:none}
+#deck_constructor .dblite-builder-search .dblite-lab-slot-row>:is(input,.dblite-lab-any-summary){flex:1 1 auto;min-width:0}
+#deck_constructor .dblite-builder-search .dblite-lab-slot-row>[hidden]{display:none!important}
+#deck_constructor .dblite-builder-search .dblite-lab-slot-row button{padding:0}
+#deck_constructor .dblite-builder-search .dblite-lab-slot-row .dblite-lab-pick{width:21px}
+#deck_constructor .dblite-builder-search .dblite-lab-slot-row .dblite-lab-remove{width:19px}
+/* Card / Any (user, 2026-10-29): a named card, or a monster described by what is known about it. */
+#deck_constructor .dblite-builder-search .dblite-lab-kind{width:34px;font-size:10px;font-weight:600}
+#deck_constructor .dblite-builder-search .dblite-lab-kind[aria-pressed="true"]{border-color:var(--dbt-accent);color:var(--dbt-accent)}
+#deck_constructor .dblite-builder-search .dblite-lab-any-summary{padding:0 6px!important;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:italic}
+#deck_constructor .dblite-builder-search .dblite-lab-any{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 6px;margin:3px 0 2px;padding:5px;border:1px solid var(--dbt-line);border-radius:5px}
+#deck_constructor .dblite-builder-search .dblite-lab-any[hidden]{display:none}
+#deck_constructor .dblite-builder-search .dblite-lab-chips{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:2px}
+#deck_constructor .dblite-builder-search .dblite-lab-chip{width:auto;height:17px;min-height:17px;padding:0 5px;border-radius:9px;font-size:10px}
+#deck_constructor .dblite-builder-search .dblite-lab-chip[aria-pressed="true"]{background:var(--dbt-accent)!important;border-color:var(--dbt-accent)!important;color:var(--dbt-on-accent)!important}
+#deck_constructor .dblite-builder-search .dblite-lab-any-field{display:flex;align-items:center;gap:3px;min-width:0}
+#deck_constructor .dblite-builder-search .dblite-lab-any-field>:is(select,input){flex:1 1 0;min-width:0;width:auto}
+#deck_constructor .dblite-builder-search .dblite-lab-any-label{flex:none;min-width:42px;font-size:10px;opacity:.85}
+#deck_constructor .dblite-builder-search .dblite-lab-chips .dblite-lab-any-label{min-width:48px}
+#deck_constructor .dblite-builder-search .dblite-lab-any-dash{flex:none;opacity:.7}
+#deck_constructor .dblite-builder-search .dblite-lab-beta,#deck_constructor .dblite-builder-search .dblite-lab-open .dblite-lab-beta{flex:none;padding:0 5px;border:1px solid var(--dbt-accent);border-radius:8px;color:var(--dbt-accent);font-size:9px;font-weight:700;line-height:13px;letter-spacing:.04em;text-transform:uppercase}
+html.dbetter-touch #deck_constructor .dblite-builder-search .dblite-lab-chip{height:28px;min-height:28px;padding:0 10px;font-size:13px;border-radius:14px}
+html.dbetter-touch #deck_constructor .dblite-builder-search .dblite-lab-any{grid-template-columns:minmax(0,1fr);gap:6px}
+html.dbetter-touch #deck_constructor .dblite-builder-search .dblite-lab-any-field>:is(select,input){height:30px;font-size:14px}
+html.dbetter-touch #deck_constructor .dblite-builder-search .dblite-lab-kind{width:46px;font-size:13px}
+html.dbetter-touch #deck_constructor .dblite-builder-search .dblite-lab-any-label{min-width:70px;font-size:12px}
+html.dbetter-touch #deck_constructor .dblite-builder-search .dblite-lab-actions .dblite-lab-find{height:30px;min-height:30px;font-size:14px}
+#deck_constructor .dblite-builder-search .dblite-lab-suggest{display:flex;flex-direction:column;gap:1px;margin-top:1px}
+#deck_constructor .dblite-builder-search .dblite-lab-suggest:empty{display:none}
+#deck_constructor .dblite-builder-search .dblite-lab-option{height:17px;min-height:17px;text-align:left;padding:0 5px;border-radius:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Find on its own row: squeezed beside the mode it was cut off in narrow panels (2026-10-29). */
+#deck_constructor .dblite-builder-search .dblite-lab-actions{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px;margin-top:4px}
+#deck_constructor .dblite-builder-search .dblite-lab-actions .dblite-lab-find{grid-column:1/-1;width:100%}
+#deck_constructor .dblite-builder-search .dblite-lab-slot-missing input[type="search"]{border-color:var(--dbt-you)!important;box-shadow:0 0 0 1px var(--dbt-you)}
+#deck_constructor .dblite-builder-search .dblite-lab-actions button{width:auto;padding:0 6px}
+#deck_constructor .dblite-builder-search .dblite-lab-find{background:var(--dbt-panel)!important;color:var(--dbt-text)!important;border-color:var(--dbt-line)!important;font-weight:600}
+/* Opening odds panel (dark, like the Solo and quick chat panels). */
+.dblite-odds{width:320px!important;max-height:min(560px,calc(100vh - 16px));display:flex;flex-direction:column}
+.dblite-odds table{width:100%;border-collapse:collapse;margin:4px 0 6px;font-size:12px}
+.dblite-odds th,.dblite-odds td{padding:3px 4px;text-align:right;border-bottom:1px solid #ffffff1c}
+.dblite-odds th:first-child,.dblite-odds td:first-child{text-align:left}
+.dblite-odds th{font-weight:600;font-size:11px;opacity:.85}
+.dblite-odds-tools{display:flex;gap:6px;margin-bottom:6px}.dblite-odds-tools button{flex:1}
+.dblite-odds-list{overflow:auto;min-height:60px;scrollbar-width:thin;display:flex;flex-direction:column;gap:2px}
+.dblite-odds-row{display:grid;grid-template-columns:24px 24px minmax(0,1fr);gap:4px;align-items:center;font-size:12px}
+.dblite-odds-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}
+.dblite-odds-row button{height:20px;padding:0;font-size:11px;font-weight:700;opacity:.55}
+.dblite-odds-row button[aria-pressed="true"]{opacity:1;background:var(--dbt-panel-2)!important;border-color:var(--dbt-line)!important;color:var(--dbt-text)!important}
+.dblite-odds-row button:nth-child(2)[aria-pressed="true"]{background:var(--dbt-panel-2)!important;border-color:var(--dbt-line)!important}
+
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]),
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) body {background-color:var(--dbt-ground)}
+#deck_constructor .dblite-builder-actions>button:first-child,
+#deck_constructor .dblite-builder-search .dblite-lab-find,
+.dblite-odds-row button[aria-pressed="true"],
+#deck_constructor .dblite-builder-search .dblite-options input[type=checkbox]:checked {
+  background:var(--dbt-accent)!important;color:var(--dbt-on-accent)!important;border-color:var(--dbt-accent)!important;
+}
+#deck_constructor .dblite-builder-search .dblite-options input[type=checkbox][data-exclude] {
+  background:var(--dbt-you)!important;border-color:var(--dbt-you)!important;color:var(--dbt-panel)!important;
+}
+
+html[data-dbetter-theme-pending]{opacity:0!important}
+
+/* Themes v2: only scenery layers are dimmed/replaced, never card ancestors. */
+html[data-dbetter-theme="night"] #circuit_board { filter:saturate(.65) brightness(.8); }
+html[data-dbetter-theme="night"] #greenlines { opacity:.35; }
+html[data-dbetter-theme="abyss"] { --dbt-scenery:radial-gradient(ellipse at 52% 48%, #0e2142, #050a14); --dbt-section-main:#233b62; --dbt-section-side:#164858; --dbt-section-extra:#453454; }
+html[data-dbetter-theme="ember"] { --dbt-scenery:radial-gradient(ellipse at 50% 100%, #3a1f0e, #130f0c); --dbt-section-main:#503621; --dbt-section-side:#263e58; --dbt-section-extra:#4d2924; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) body,
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) #content { background:var(--dbt-scenery) fixed!important; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) :is(#circuit_board,#circuit_cover,#greenlines) { display:none!important; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) :is(#deck_constructor,#main_menu) { background:transparent; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) :is(.chat_background,.chat_top_bg,#duel>.cout_txt,#duel_log .log,#duel_log .log_tools,#card_menu,#view>.background_inner) { background:linear-gradient(135deg,var(--dbt-panel-2),var(--dbt-panel))!important;color:var(--dbt-text)!important;border-color:var(--dbt-line)!important; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) #duel .os_viewport { background:var(--dbt-panel)!important; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) #content :is(.button,input[type="submit"],input[type="button"]):not(.card *) { background:linear-gradient(135deg,var(--dbt-panel-2),var(--dbt-input))!important;color:var(--dbt-text)!important;border:1px solid var(--dbt-line)!important;border-radius:5px;text-shadow:none; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) #content :is(.button_selected,.button_down) { background:var(--dbt-accent)!important;color:var(--dbt-on-accent)!important; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) :is(.phase,#turn) { background:var(--dbt-panel)!important;box-shadow:inset 0 0 0 1px var(--dbt-line);border-radius:6px;color:var(--dbt-text); }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) :is(.phase,#turn)>:is(.background,.phase_inner,.blue,.red) { background:none!important; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) :is(.phase,#turn) .background>* { background:none!important; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) .phase.active { background:var(--dbt-accent)!important;color:var(--dbt-on-accent); }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) .phase .phase_txt { color:inherit!important;text-shadow:none!important; }
+/* The current phase, filled with the turn player's colour. DuelingBook marks it .active, and turns every phase light
+   .red on the bottom player's turn or .blue on the top player's (changeDarks). */
+html[data-dbetter-theme]:not([data-dbetter-theme="classic"]) .phase.active:has(> .phase_inner.red) { --dblite-turn:var(--dbt-you); }
+html[data-dbetter-theme]:not([data-dbetter-theme="classic"]) .phase.active:has(> .phase_inner.blue) { --dblite-turn:var(--dbt-opponent); }
+html[data-dbetter-theme]:not([data-dbetter-theme="classic"]) .phase.active { background:var(--dblite-turn,var(--dbt-accent))!important;box-shadow:0 0 0 2px var(--dblite-turn,var(--dbt-accent)),0 0 12px var(--dblite-turn,var(--dbt-accent))!important;border-radius:6px; }
+html[data-dbetter-theme]:not([data-dbetter-theme="classic"]) .phase.active > :is(.background,.phase_inner) { background:transparent!important; }
+html[data-dbetter-theme]:not([data-dbetter-theme="classic"]) .phase.active .phase_txt { color:var(--dbt-on-accent)!important;text-shadow:none!important;text-decoration:none!important;font-weight:700; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) .life_border { background:none!important;box-shadow:inset 0 0 0 1px var(--dbt-you),0 0 5px var(--dbt-you);border-radius:4px; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) #lifepoints2 .life_border { box-shadow:inset 0 0 0 1px var(--dbt-opponent),0 0 5px var(--dbt-opponent); }
+/* Native selection boxes are DOM. The permanent field_zones artwork is an
+   external SVG <img>; its internal strokes cannot be targeted by page CSS. */
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) #select_zones>div { outline:1px solid var(--dbt-you);outline-offset:-1px;box-shadow:0 0 5px var(--dbt-you);background:transparent!important; }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) #select_zones>div:is([id$="select2"],#field_spell2_select) { outline-color:var(--dbt-opponent);box-shadow:0 0 5px var(--dbt-opponent); }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) #deck_constructor .deck_bg { background:var(--dbt-section-main)!important;box-shadow:inset 0 0 0 1px var(--dbt-section-main-line); }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) #deck_constructor .side_bg { background:var(--dbt-section-side)!important;box-shadow:inset 0 0 0 1px var(--dbt-line); }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) #deck_constructor .extra_bg { background:var(--dbt-section-extra)!important;box-shadow:inset 0 0 0 1px var(--dbt-section-extra-line); }
+html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) #deck_constructor :is(.deck_lbl,.side_lbl,.extra_lbl) { color:var(--dbt-text); }
+/* Readability fixes apply to Classic too. */
+html[data-dbetter-theme] #turn>span { color:var(--dbt-text)!important;text-shadow:none; }
+html.dbetter-night #duel .cout_txt font[color] { color:var(--dbt-accent)!important; }
+html[data-dbetter-theme] :is(button,input,select,textarea,.button):is([class*="dblite-"],[id^="dblite-"],[class*="dblite-"] *,[id^="dblite-"] *) { border-color:var(--dbt-line)!important; }
+html[data-dbetter-theme] :is([class*="dblite-"],[id^="dblite-"]) :is(button:disabled,[aria-disabled="true"]),
+html[data-dbetter-theme] button[class*="dblite-"]:disabled { opacity:1!important;color:var(--dbt-muted);cursor:default; }
+html[data-dbetter-theme] .dblite-ring-item path { fill:var(--dbt-panel);stroke:var(--dbt-accent); }
+html[data-dbetter-theme] .dblite-ring-item:is(:hover,:focus-visible) path { fill:var(--dbt-panel-2);stroke:var(--dbt-text);stroke-width:2; }
+/* Card frames keep DuelingBook's black text (effect, ATK/DEF) wherever they appear: the card overview, the field and
+   viewers inherit the theme's light text otherwise. Colours DuelingBook sets on a card (white Link names) stay. */
+html[data-dbetter-theme] .cardfront { color:#000; }
+/* DuelingBook shows its chat buttons' tooltips at one fixed spot at the bottom left, as dark text on a light
+   gradient. Themed text is light, and in the deck constructor that spot is where DBETTER's deck controls sit (Save
+   Deck As): there the buttons get a title by the cursor instead (constructor.js). */
+html[data-dbetter-theme] #tooltips > * { color:var(--dbt-text)!important; }
+html[data-dbetter-theme]:not([data-dbetter-theme="classic"]) #tooltips > * { background:var(--dbt-panel)!important;border:1px solid var(--dbt-line);border-radius:4px;box-sizing:border-box; }
+html.dblite-in-constructor :is(#public_chat_tooltip,#private_chat_tooltip,#online_users_tooltip) { display:none!important; }
+/* Drop targets: a light accent tint over the zone (cards and scenery stay visible), with the label inside it on a
+   solid chip, so it reads the same over any card art. */
+html[data-dbetter-theme] .dblite-drop { background:color-mix(in srgb,var(--dbt-accent) 12%,transparent)!important;border-color:var(--dbt-accent);box-shadow:none;align-items:center;text-shadow:none; }
+html[data-dbetter-theme] .dblite-drop.dblite-selected { background:color-mix(in srgb,var(--dbt-accent) 26%,transparent)!important;border-color:var(--dbt-accent);box-shadow:inset 0 0 0 1px var(--dbt-accent);align-items:center;text-shadow:none; }
+html[data-dbetter-theme] .dblite-drop-label {font:bold 11px/1.3 system-ui;background:var(--dbt-panel);color:var(--dbt-text);border:1px solid var(--dbt-accent);border-radius:3px;padding:2px 5px;max-width:calc(100% - 6px);box-sizing:border-box;text-align:center;box-shadow:0 1px 4px #0009; }
+html[data-dbetter-theme] .dblite-chat-row { display:contents!important; }
+html[data-dbetter-theme] .dblite-chat-wheel-button { box-sizing:border-box;padding:0;border:1px solid var(--dbt-line);border-radius:4px;background:var(--dbt-panel);color:var(--dbt-text);font:14px/1 system-ui;cursor:pointer;z-index:1001; }
+html[data-dbetter-theme] .dblite-chat-wheel-button[hidden] { display:none!important; }
+
+html[data-dbetter-theme] .dblite-viewing-eye { opacity:1; }
+html[data-dbetter-theme] #duel .button.disabled { opacity:1!important;color:var(--dbt-muted)!important; }
+
+html[data-dbetter-theme="night"] #duel .cout_txt font[color] { color:var(--dbt-native-9ed1ff)!important; }
+/* Duel chat names: DuelingBook writes player 1's name in #FF0000 (you in a duel, the bottom player when spectating
+   or watching a replay) and other names in #0000FF. The dark themes give them the players' colours instead of one
+   accent for every name; donor colours and other coloured text keep the accent. Classic keeps DuelingBook's colours. */
+html.dbetter-night #duel .cout_txt font[color="#FF0000" i] { color:var(--dbt-you)!important; }
+html.dbetter-night #duel .cout_txt font[color="#0000FF" i] { color:var(--dbt-opponent)!important; }
+
+html[data-dbetter-theme] :is(.dblite-odds-row button,.dblite-history-recent) {opacity:1!important;color:var(--dbt-muted)!important;}
+html[data-dbetter-theme] .dblite-odds-row button[aria-pressed="true"] {color:var(--dbt-text)!important;}
+
+/* The insertion line is the hand feedback; no badge is painted over the hand. */
+html[data-dbetter-theme] .dblite-drop[data-zone="hand"]>.dblite-drop-label {display:none;}
+html[data-dbetter-theme="classic"] #deck_constructor :is(.total_bg,.total_effect_bg,.total_spell_bg,.total_trap_bg) {background:var(--dbt-panel);color:var(--dbt-text);}
+html[data-dbetter-theme="classic"] #deck_constructor :is(.total_txt,.total_effect_txt,.total_spell_txt,.total_trap_txt) {color:var(--dbt-text);}
+html[data-dbetter-theme="classic"] #deck_constructor :is(.combobox,.combobox_background) {background:var(--dbt-panel);color:var(--dbt-text);}
+
+/* Dark text boxes (user, 2026-10-28: the white boxes are harsh). Only where the theme leaves them white, that is
+   the Classic theme: card text, chat and the duel log, text fields, text areas and lists. Other colours stay. */
+html.dbetter-dark-boxes:not(.dbetter-night) :is(
+  #preview_txt, #duel .os_viewport, #chats .os_viewport, #chats .chat_background, #duel_log .log,
+  input[type="text"], input[type="password"], input[type="search"], input[type="number"], textarea, select,
+  .textinput, .textarea, .combobox, .combobox_background, .decklist_decks, .combo_item, .autocomplete .list, .autocomplete .cell
+):not(.card *, .cardfront *, .cardback *) {
+  background-color:var(--dbt-box) !important;
+  background-image:none !important;
+  color:var(--dbt-box-text) !important;
+  border-color:var(--dbt-box-line) !important;
+  color-scheme:dark;
+  caret-color:var(--dbt-box-caret);
+}
+html.dbetter-dark-boxes:not(.dbetter-night) :is(.textarea, .textinput, .decklist_decks, #preview_txt) :is(.os_viewport, .os-viewport, .os-content, .os-padding, .scrollpane_proxy) {
+  background-color:transparent !important; color:inherit !important;
+}
+html.dbetter-dark-boxes:not(.dbetter-night) :is(.textinput, .combobox, .combo_item) span { color:inherit !important; }
+html.dbetter-dark-boxes:not(.dbetter-night) :is(input, textarea)::placeholder { color:var(--dbt-box-placeholder) !important; opacity:1; }
+html.dbetter-dark-boxes:not(.dbetter-night) :is(.combobox_selected, .combo_item:hover, .combo_item.selected) { background:var(--dbt-box-selected) !important; color:var(--dbt-box-selected-text) !important; }
+html.dbetter-dark-boxes:not(.dbetter-night) #preview_txt :is(.dblite-card-ref, .dblite-card-ref:hover) { color:var(--dbt-box-text) !important; }
+
+/* User, 2026-10-28: DBETTER's own deck constructor overlay is as harsh as the text boxes. With dark text boxes in
+   the Classic theme, its panels take the Night palette; DuelingBook's own constructor keeps its colours. */
+html.dbetter-dark-boxes:not(.dbetter-night) :is(.dblite-builder-search, .dblite-results-bg, .dblite-access-options, .dblite-lab,
+  .dblite-solo-settings, .dblite-card-search) {
+  color-scheme: dark;
+  --dbt-panel: #242c2e;
+  --dbt-panel-2: #2b3234;
+  --dbt-line: #8a9c9f;
+  --dbt-text: #e6eeea;
+  --dbt-muted: #a3b2b8;
+  --dbt-accent: #4ba3bb;
+  --dbt-on-accent: #071315;
+  --dbt-input: #1b2224;
+}
+html.dbetter-dark-boxes:not(.dbetter-night) .dblite-results-bg { background:var(--dbt-panel) !important; border-color:var(--dbt-line) !important; }
+
+/* Phones: the deck controls that moved to the "⋯ Deck" menu (constructor.js), the menu button and the menu. */
+#deck_constructor .dblite-deck-control.dblite-deck-grouped{display:none!important}
+#deck_constructor .dblite-deck-more{position:absolute;left:83px;top:544px;width:58px;height:34px;box-sizing:border-box;padding:0;border:1px solid var(--dbt-line);border-radius:5px;background:var(--dbt-panel-2);color:var(--dbt-text);font:600 15px/32px system-ui,sans-serif;cursor:pointer;z-index:2}
+.dblite-deck-menu{position:fixed;z-index:2147483600;left:50%;top:50%;translate:-50% -50%;width:min(420px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;box-sizing:border-box;padding:12px 14px 14px;border:1px solid var(--dbt-line);border-radius:12px;background:var(--dbt-panel);color:var(--dbt-text);font:15px/1.3 system-ui,sans-serif;box-shadow:0 12px 40px #000a}
+.dblite-deck-menu header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.dblite-deck-menu header strong{font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dblite-deck-menu header button{width:40px;height:40px;border:0;background:none;color:inherit;font-size:24px;cursor:pointer}
+.dblite-deck-menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dblite-deck-menu-grid button{min-height:44px;border:1px solid var(--dbt-line);border-radius:8px;background:var(--dbt-input);color:var(--dbt-text);font:inherit;cursor:pointer}
+.dblite-deck-menu-grid button:disabled{opacity:.45}
+/* A card being dragged passes over the search panel (z-index 5), not under it (user, 2026-10-28). */
+#deck_constructor .ui-draggable-dragging{z-index:20!important}

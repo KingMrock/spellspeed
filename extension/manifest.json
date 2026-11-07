@@ -1,0 +1,82 @@
+{
+  "manifest_version": 3,
+  "name": "Spellspeed for DuelingBook",
+  "short_name": "Spellspeed",
+  "version": "0.9.1",
+  "version_name": "0.9.1-beta",
+  "description": "Faster, cleaner DuelingBook: drag-and-drop plays, card fans, shortcut keys, replay rewind, themes and a smarter deck builder.",
+  "permissions": [
+    "storage"
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "action": {
+    "default_title": "Spellspeed",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://duelingbook.com/*",
+        "https://www.duelingbook.com/*"
+      ],
+      "js": [
+        "bootstrap.js"
+      ],
+      "css": [
+        "night.css"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://duelingbook.com/replay*", "https://www.duelingbook.com/replay*"],
+      "js": ["rewind-observer.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://duelingbook.com/*",
+        "https://www.duelingbook.com/*"
+      ],
+      "js": [
+        "rules.js",
+        "loader.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "rules.js",
+        "workbench.js",
+        "constructor.js",
+        "sounds.js",
+        "content.js",
+        "touch.js",
+        "recorder.js",
+        "tour.js",
+        "rewind.js",
+        "rewind-ui.js",
+        "sfx-*.wav"
+      ],
+      "matches": [
+        "https://duelingbook.com/*",
+        "https://www.duelingbook.com/*"
+      ]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

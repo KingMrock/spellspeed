@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DBETTER for Android, GPL-3.0-only. Marked as a game (appCategory, isGame) so game modes such as
+     Xiaomi Game Turbo list it; landscape, full screen, screen kept on. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.dbetter.app">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:label="Spellspeed"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:appCategory="game"
+        android:isGame="true"
+        android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="false"
+        android:allowBackup="false"
+        android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- DuelingBook links, replays and every other page (user, 2026-10-28: they should open in DBETTER by
+                 default). Not verified App Links (that needs a file on duelingbook.com): from Android 12 they open
+                 here once the user selects the addresses under Open by default, which the app offers once. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="www.duelingbook.com" />
+                <data android:host="duelingbook.com" />
+            </intent-filter>
+            <!-- Share a replay link (from Discord, a browser ...) to DBETTER. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
