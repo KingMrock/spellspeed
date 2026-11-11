@@ -28,8 +28,10 @@
       ['blockAutoFocus', 'Block DuelingBook auto-focus', 'Stop the site moving your cursor into chat and search boxes, so shortcut keys keep working. Replaces the Auto-Focus Blocker userscript.'],
       ['declare', 'Double-click to declare', 'Hand, field, GY, banished and face-up Extra Deck Pendulums.'],
       ['previewLinks', 'Clickable names in card preview', 'Click a quoted name, archetype or stat in the card text to list related cards in Find a card. Links read the whole phrase (Level, Attributes, Types, “non-” exclusions). Under the text: the card’s archetype and, in the deck constructor, Access and Starters.'],
+      ['namePeek', 'Hover a named card to see it', 'Point at a card name quoted in the card text (in duels, Solo and the deck constructor) to see that card in a small panel, without clicking. Archetype names that fit several cards have none.', 'previewLinks'],
       ['chatWheel', 'Quick chat wheel', 'A 💬 Chat button in duels opens a wheel of short messages (gg, glhf…): your deck’s own messages from the deck constructor first, then the messages below.'],
       ['contextMenu', 'Right-click actions', 'On: right-click a card for its actions. Off: DuelingBook’s hover menu (also in Fan and Grid views).'],
+      ['keepHandRevealed', 'Keep hand revealed', 'DuelingBook’s Show hand button asks: Show once (its own) or Keep revealed; Keep hand revealed is also in the right-click menu of your hand cards. Your whole hand stays revealed to your opponent (Mind Scan and the like), new cards too, with DuelingBook’s own Stay Revealed, until you choose Stop.'],
       ['quickActions', 'Game actions & macros', 'Native game buttons and guided card macros.'],
       ['quickButtons', 'Draw / Deck buttons', 'Draw, shuffle, mill and banish from the Deck.', 'quickActions'],
       ['cardMacros', 'Card macros', 'Vidolium and Fifty Fifty? on eligible cards.', 'quickActions']
@@ -69,7 +71,7 @@
       ['replayRewind', 'Replay rewind', 'Back one visible play (←), or go to the start of the turn (Shift+←). Pauses playback. Unavailable while recording or when Enhancer replay controls are present.', 'replay'],
       ['replay', 'Replay enhancements', 'Fast-forward controls and replay videos.'],
       ['replaySpeed', 'Replay speed control', 'Native, 2×, 4×, 8× or 16× fast-forward.', 'replay'],
-      ['replayVideo', 'Replay to video', 'A ⏺ Record video button on replays plays them fast-forwarded (2× by default) and downloads a small video file when they end, about 10 MB a minute. Your browser asks which tab to share. A finished Solo duel links to its replay for this.', 'replay'],
+      ['replayVideo', 'Replay to video', 'A ⏺ Record video button on replays plays them fast-forwarded (2× by default) and downloads a video file when they end: Low, Medium or High quality, about 6, 8 or 24 MB a minute. Your browser asks which tab to share. A finished Solo duel links to its replay for this.', 'replay'],
       ['skipIntro', 'Skip site intro', 'Go directly to the front page.'],
       ['autoRps', 'Random RPS', 'Automatically choose Rock, Paper or Scissors, including ties.'],
       ['retryLogin', 'Retry when “already logged in”', 'After a network change or a reload, DuelingBook’s duel server keeps your old connection for up to a minute. Press DUEL again every 5 seconds instead of showing the error.']

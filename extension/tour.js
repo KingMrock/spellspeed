@@ -11,7 +11,7 @@
   let config = rules.settings((() => { try { return JSON.parse(script?.dataset.settings || '{}'); } catch { return {}; } })());
   // Shown and saved locally at once, so a tip never comes back while the save is on its way.
   const seen = new Set(config.tourSeen);
-  let off = config.tourOff, open = null, timer = null;
+  let off = config.tourOff, open = null, timer = null, waiting = null;
   const started = performance.now();
 
   const html = document.documentElement;
@@ -35,10 +35,14 @@
     const card = window.player1?.hand_arr?.find?.(card => visible(card?.[0]))?.[0];
     return card || first('#duel #field');
   };
+  // Where the hand cards are. The duel tip waits until this stays the same (user, 2026-11-09: in Solo the Drag and
+  // drop tip appeared during the deal and jumped from card to card as they were dealt).
+  const handPlace = () => (window.player1?.hand_arr || []).map(card => card?.[0]).filter(visible)
+    .map(node => { const box = node.getBoundingClientRect(); return Math.round(box.left) + ',' + Math.round(box.top); }).join(' ');
 
   // Each tip: when it applies, then its steps. A step without a target is centred on the page.
   const tips = [
-    { id: 'duel', when: playing, steps: () => [
+    { id: 'duel', when: playing, settle: handPlace, steps: () => [
       config.drag && { target: handCard, title: 'Drag and drop', text: config.dropWheel
         ? 'Drag a card onto a zone to play it. On an empty zone a wheel asks how: SS Attack up, SS Defense down, Normal on the right, Set on the left.'
         : tap() ? 'Drag a card onto a zone to play it.' : 'Drag a card onto a zone to play it. Shift plays it in Defense or face-down, Ctrl Normal Summons, Alt Sets.' },
@@ -195,7 +199,14 @@
       return;
     }
     const tip = tips.find(tip => !seen.has(tip.id) && tip.when());
-    if (tip) show(tip);
+    if (!tip) { waiting = null; return; }
+    // A tip with `settle` shows once its target has kept still for three checks in a row (about 1.4 s).
+    if (tip.settle) {
+      const place = tip.settle();
+      if (waiting?.id !== tip.id || waiting.place !== place) { waiting = { id: tip.id, place, still: 0 }; return; }
+      if (++waiting.still < 2) return;
+    }
+    waiting = null; show(tip);
   }
 
   window.addEventListener('message', event => {

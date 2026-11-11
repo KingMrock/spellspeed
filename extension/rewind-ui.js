@@ -206,8 +206,15 @@
   // move. Playback and scanning advance from the target, so a slow first visit never piles up.
   // resume: playing before a fast scan began; turning the scan off (or reaching the start) goes back to it.
   let target = null, scheduled = false, dragging = false, playing = false, scan = 0, speed = 1, playTimer = 0, resume = false;
+  // hold: performance.now() when loading after opening began, 0 when not loading (preloadTick).
+  let hold = 0;
   // scrub: a finger on the track ({ id, x, pct, pos, playing, scan }); the bar shows the finger's place, not the board's.
   let scrub = null;
+  // The page's own timers, kept at load: a recording swaps requestAnimationFrame and setTimeout for its virtual clock, which
+  // drops what is still pending when it ends. A request made then (DuelingBook clicks the hand setting while a duel is
+  // recorded again) left the move pending for good, and the timeline stopped answering (2026-11-09).
+  const frame = window.requestAnimationFrame.bind(window);
+  const pageTimeout = window.setTimeout;
   // cue: forward moves made by playing or stepping replay the cues of their plays, within this many milliseconds.
   function request(pos, ms, fromPlayer = false, cue = 0) {
     if (!enabled() || recording()) return;
@@ -217,14 +224,32 @@
     if (scheduled) return;
     scheduled = true; ui.root?.classList.add('dblite-tl-busy'); render();
     // Let the pressed state paint first: a first visit to a stretch of the replay records it, which takes time.
-    requestAnimationFrame(() => setTimeout(run, 0));
+    frame(() => pageTimeout.call(window, run, 0));
   }
   function run() {
     scheduled = false;
+    if (!target) return; // already taken by another run
     const { pos, ms, cue } = target; target = null;
     // Recording a video or turning the timeline off since the request: the move no longer applies.
     if (!enabled() || recording()) { ui.root?.classList.remove('dblite-tl-busy'); render(); return; }
-    const consistent = core.status().tape?.consistent;
+    const tape = core.status().tape, consistent = tape?.consistent;
+    // A jump far past the recorded part records the plays up to it in chunks first, with the board where it is (the
+    // preload's chunks, larger): the tab keeps painting and answering, and the bar shows the recorded part growing.
+    // The jump itself is then a tape move (user, 2026-11-09: a click at the end of a long replay froze the tab).
+    if (consistent && !tape.ended && pos > tape.recorded + JUMP_CHUNKED) {
+      let chunk = null;
+      // Where input can be watched, a longer chunk that stops for a click or a key (the mouse may keep moving meanwhile).
+      try { chunk = core.preload(inputPending ? { budget: JUMP_LONG_MS, until: pos, stop: () => inputPending() } : { budget: JUMP_BUDGET_MS, until: pos }); }
+      catch (error) { console.warn('Spellspeed rewind:', error); }
+      if (chunk && !chunk.ended && !chunk.rebuilt && chunk.recorded < pos) {
+        moveMs = chunk.moveMs;
+        // A newer click or key while recording replaces this target (request keeps the move pending).
+        if (!target) target = { pos, ms, cue };
+        // A request during the chunk has queued its own run already.
+        const queued = scheduled; scheduled = true; render(); if (!queued) pageTimeout.call(window, run, 0);
+        return;
+      }
+    }
     if (pos !== position() || !consistent) {
       const from = position(), before = ms ? placement() : null;
       cancelCues();
@@ -236,6 +261,16 @@
     ui.root?.classList.remove('dblite-tl-busy'); render(); schedule();
   }
   const step = n => request(stepFrom(target ? target.pos : position(), n), 340, false, n > 0 ? Infinity : 0);
+  // "Next game →" (content.js) while the timeline is on: a move to the next game's first turn. DuelingBook's own skip
+  // (nextGameE) runs its playback, which the paused timeline stopped after one play (2026-11-09).
+  function nextGame() {
+    if (!enabled() || recording()) return false;
+    const m = analyse(), from = target ? target.pos : position(), game = m.games.find(g => g.pos > from);
+    if (!game) return false;
+    const turn = m.turns.find(t => t.pos > game.pos && t.game === game.game);
+    request(turn ? turn.pos : game.pos, 480);
+    return true;
+  }
   const jumpTurn = direction => request(turnFrom(target ? target.pos : position(), direction), 480);
   function schedule() {
     clearTimeout(playTimer);
@@ -251,12 +286,16 @@
     // The recorded pace, with long pauses shortened, divided by the chosen speed.
     const next = stepFrom(pos, 1), now = m.all[pos - 1]?.seconds, then = m.all[next - 1]?.seconds;
     const gap = Math.max(350, Math.min(1500, Number.isFinite(then - now) ? (then - now) * 1000 : 600)) / speed;
+    nextStepAt = performance.now() + gap;
     playTimer = setTimeout(() => request(next, Math.min(380, gap * 0.8), true, gap), gap);
   }
   // User, 2026-10-28: one rule for the icons. ⏸ whenever the replay moves (playing or scanning), and it always pauses;
   // ▶ only when paused. « and » start a scan, and pressed again go back to how it was (playing or paused).
-  function togglePlay() { const moving = playing || !!scan; scan = 0; playing = !moving; render(); schedule(); }
+  // While the replay loads after opening (hold), ⏸ shows: it is going to play. Pressing it leaves it paused.
+  function togglePlay() { const moving = playing || !!scan || !!hold; hold = 0; scan = 0; playing = !moving; render(); schedule(); }
   function toggleScan(direction) {
+    // A scan while loading: the replay plays when the scan is turned off, as it would have.
+    if (hold) { hold = 0; playing = true; }
     if (scan === direction) { scan = 0; playing = resume; }
     else { if (!scan) resume = playing; playing = false; scan = direction; }
     render(); schedule();
@@ -269,13 +308,94 @@
       if (!enabled()) return false;
       // A finger on the track lets go: lifting it must not seek during the recording.
       ui.stopDrag?.();
-      recordingHere = true; speed = SPEEDS.includes(rate) ? rate : 1; scan = 0; playing = true;
+      recordingHere = true; speed = SPEEDS.includes(rate) ? rate : 1; scan = 0; hold = 0; playing = true;
       if (position() >= analyse().total) request(0, 0, true); else { render(); schedule(); }
       return true;
     },
     stop() { if (!recordingHere) return; recordingHere = false; playing = false; scan = 0; clearTimeout(playTimer); render(); },
     finished: () => recordingHere && !playing && !scheduled && position() >= analyse().total
   });
+
+  // Background preload (user, 2026-11-09): after the replay loads, the plays ahead are recorded in chunks while nobody uses
+  // the page, so a later jump anywhere is a tape move. Each chunk keeps the viewed position and is silent (rewind.js,
+  // preload). A click, key, wheel or touch pauses it for PRELOAD_IDLE_MS, and a moving mouse makes its chunks short and
+  // spaced (PRELOAD_HOVER_MS), so hovering cards stays smooth; it waits while a move is pending, during
+  // scans and drags, a video recording, an open pile viewer or a hidden tab, until a played step's sounds have played
+  // and while cards glide or pulse (a busy page would make them stutter; animating). While playing,
+  // a chunk runs only when it ends before the next step is due.
+  // Sizes (Chrome, 2026-11-09, a 742-entry replay): a chunk costs its moves there and back (moveMs, about 10-25 ms),
+  // some 25 ms of set-up and listeners, and its first play pays for the style recalculation the move caused (20-36 ms
+  // against about 7 ms a play in a row). Chunks therefore record for PRELOAD_BUDGET_MS when they can, back to back while
+  // nobody uses the page (user, 2026-11-09: "load in less than 3 seconds").
+  const PRELOAD_IDLE_MS = 1000, PRELOAD_GAP_MS = 60, PRELOAD_REST_MS = 0, PRELOAD_BUDGET_MS = 300, PRELOAD_HOVER_MS = 50;
+  // Where the browser says whether input is waiting (Chrome: navigator.scheduling.isInputPending), an idle chunk records
+  // for up to PRELOAD_LONG_MS and stops after the play during which input (a mouse move included) arrived: a click then
+  // waits one play and the move back, and the moves there and back, paid once per chunk, are paid rarely. Nothing is
+  // painted meanwhile, which shows nothing new: the page is back at the viewed position before the next frame.
+  // While loading after opening (hold) nobody watches the board: one chunk up to HOLD_LONG_MS, so the moves there and
+  // back, the paint after a chunk and the first play's style recalculation come once instead of every 2 s.
+  const PRELOAD_LONG_MS = 2000, HOLD_LONG_MS = 8000, inputPending = navigator.scheduling?.isInputPending?.bind(navigator.scheduling);
+  // A chunk stopped by input counts as a moving mouse: a mouse move reaches the page only at the next frame, and once
+  // queued there the browser no longer reports it as waiting, so the next long chunk would have run first (live: moves
+  // answered after 0.6-1 s).
+  let interrupted = false;
+  const stopForInput = () => (interrupted = !!inputPending({ includeContinuous: true }));
+  const PRELOAD_FIXED_MS = 40, PRELOAD_PLAY_MARGIN_MS = 30, PRELOAD_MIN_ROOM_MS = 20;
+  // Explicit jumps: further than this past the recorded part, recorded in chunks of at least this many milliseconds.
+  const JUMP_CHUNKED = 20, JUMP_BUDGET_MS = 150, JUMP_LONG_MS = 1000;
+  let lastInput = -Infinity, lastMove = -Infinity, moveMs = 0, nextStepAt = 0, preloadTimer = 0;
+  for (const type of ['pointerdown', 'keydown', 'wheel', 'touchstart']) document.addEventListener(type, () => { lastInput = performance.now(); }, { capture: true, passive: true });
+  document.addEventListener('pointermove', () => { lastMove = performance.now(); }, { capture: true, passive: true });
+  // The timeline's own card motions (glides, pulses, lunges: script animations of 0.3-0.5 s that move cards, on the main
+  // thread since they animate z-index). CSS animations and transitions (declaration glows and sparks, the thumb) last up
+  // to 1.9 s and mostly fade and scale; waiting for them left almost no room while playing.
+  const css = a => (typeof CSSAnimation === 'function' && a instanceof CSSAnimation) || (typeof CSSTransition === 'function' && a instanceof CSSTransition);
+  const animating = () => (document.getAnimations?.() || []).some(a => a.playState === 'running' && !css(a) && Number.isFinite(a.effect?.getComputedTiming?.().endTime));
+  // Loading after opening (user, 2026-11-09: "pause it"): a replay that would start playing when the timeline takes over
+  // waits until it is all recorded, like a video buffering, and then plays; meanwhile chunks run as when paused, and the
+  // count shows how far loading got. ⏸ pauses it for good, a scan or a recording starts it, and it plays as soon as
+  // loading stops getting further for HOLD_STALL_MS (a preload that cannot go on, the page changed, a busy page).
+  const HOLD_STALL_MS = 4000;
+  let holdRecorded = -1, holdProgress = 0;
+  function releaseHold() {
+    if (!hold) return;
+    hold = 0; playing = true; render(); schedule();
+  }
+  function preloadTick() {
+    preloadTimer = setTimeout(preloadTick, PRELOAD_GAP_MS);
+    const now = performance.now();
+    // What the viewer is doing holds loading back (a finger or the mouse on the bar, a pending move, a key, a pile viewer):
+    // that is not a stall.
+    const busy = scheduled || dragging || scrub || scan || cueTimers.size || document.hidden || window.viewing || now - lastInput < PRELOAD_IDLE_MS;
+    if (hold) {
+      const tape = core.status().tape, recorded = tape?.recorded ?? -1;
+      if (recorded !== holdRecorded || busy) { holdRecorded = recorded; holdProgress = now; }
+      if (!busy && (tape?.ended || tape?.preloadFailed || now - Math.max(hold, holdProgress) > HOLD_STALL_MS)) releaseHold();
+    }
+    if (busy || !enabled() || recording() || recordingHere || window.DBETTERRecorder?.recording?.() || window.DBETTERRebuilding) return;
+    const tape = core.status().tape;
+    // Loaded: the log lines recorded meanwhile are formatted now, so the first jump finds them ready (rewind.js, warm).
+    if (tape?.ended && tape.unformatted) { core.warm?.(playing || now - lastMove < PRELOAD_IDLE_MS ? PRELOAD_HOVER_MS : PRELOAD_BUDGET_MS); return; }
+    if (!tape?.consistent || tape.ended || animating()) return;
+    const hovering = now - lastMove < PRELOAD_IDLE_MS;
+    let budget = hovering ? PRELOAD_HOVER_MS : PRELOAD_BUDGET_MS;
+    if (playing) {
+      const room = nextStepAt - now - PRELOAD_PLAY_MARGIN_MS - PRELOAD_FIXED_MS - moveMs;
+      if (room < PRELOAD_MIN_ROOM_MS) return;
+      budget = Math.min(budget, room);
+    }
+    const long = inputPending && !playing && !hovering;
+    let chunk = null;
+    interrupted = false;
+    try { chunk = core.preload(long ? { budget: hold ? HOLD_LONG_MS : PRELOAD_LONG_MS, stop: stopForInput } : { budget }); }
+    catch (error) { console.warn('Spellspeed preload:', error); }
+    const stopped = interrupted; interrupted = false;
+    if (stopped) lastMove = performance.now();
+    if (!chunk) return;
+    moveMs = chunk.moveMs;
+    clearTimeout(preloadTimer); preloadTimer = setTimeout(preloadTick, playing || hovering || stopped ? PRELOAD_GAP_MS : PRELOAD_REST_MS);
+    if (chunk.ended || chunk.rebuilt) render();
+  }
 
   // UI
   const ui = {};
@@ -302,10 +422,10 @@
     controls.append(ui.prevTurn, ui.scanBack, ui.back, ui.play, ui.next, ui.scanFwd, ui.nextTurn, ui.speed);
     const track = ui.track = element('div', 'dblite-tl-track'); track.setAttribute('role', 'slider'); track.tabIndex = 0;
     track.setAttribute('aria-label', 'Replay position');
-    ui.rail = element('div', 'dblite-tl-rail'); ui.fill = element('div', 'dblite-tl-fill'); ui.marks = element('div', 'dblite-tl-marks');
+    ui.rail = element('div', 'dblite-tl-rail'); ui.loaded = element('div', 'dblite-tl-loaded'); ui.fill = element('div', 'dblite-tl-fill'); ui.marks = element('div', 'dblite-tl-marks');
     ui.thumb = element('div', 'dblite-tl-thumb'); ui.ghost = element('div', 'dblite-tl-thumb dblite-tl-preview'); ui.tip = element('div', 'dblite-tl-tip');
     ui.ghost.hidden = ui.tip.hidden = true;
-    track.append(ui.rail, ui.fill, ui.marks, ui.ghost, ui.thumb, ui.tip);
+    track.append(ui.rail, ui.loaded, ui.fill, ui.marks, ui.ghost, ui.thumb, ui.tip);
     const info = element('div', 'dblite-tl-info');
     ui.label = element('span', 'dblite-tl-label'); ui.count = element('span', 'dblite-tl-count');
     info.append(ui.label, ui.count);
@@ -434,10 +554,14 @@
     const m = analyse(), pos = scrub ? scrub.pos : target ? target.pos : position(), pct = scrub ? scrub.pct : m.total ? pos / m.total * 100 : 0;
     renderMarks();
     ui.fill.style.width = ui.miniFill.style.width = pct + '%'; ui.thumb.style.left = pct + '%';
+    // How far the replay is recorded (preloaded): moves up to there are instant.
+    const tape = core.status().tape, loaded = !tape ? 0 : tape.ended ? 100 : m.total ? Math.min(100, tape.recorded / m.total * 100) : 0;
+    const loadedWidth = loaded.toFixed(2) + '%'; if (ui.loadedWidth !== loadedWidth) ui.loaded.style.width = ui.loadedWidth = loadedWidth;
     ui.track.setAttribute('aria-valuemin', '0'); ui.track.setAttribute('aria-valuemax', String(m.total)); ui.track.setAttribute('aria-valuenow', String(pos));
-    const text = label(pos); ui.track.setAttribute('aria-valuetext', text); ui.label.textContent = text; ui.count.textContent = `${pos} / ${m.total}`;
+    const text = label(pos); ui.track.setAttribute('aria-valuetext', text); ui.label.textContent = text;
+    ui.count.textContent = hold ? `Loading ${Math.floor(loaded)}%` : `${pos} / ${m.total}`;
     ui.root.style.setProperty('--dblite-tl-digits', String(String(m.total).length));
-    const moving = playing || !!scan;
+    const moving = playing || !!scan || !!hold;
     ui.play.textContent = moving ? '⏸' : '▶'; ui.play.setAttribute('aria-pressed', String(moving)); ui.play.setAttribute('aria-label', moving ? 'Pause' : 'Play');
     ui.scanBack.setAttribute('aria-pressed', String(scan < 0)); ui.scanFwd.setAttribute('aria-pressed', String(scan > 0));
     ui.speed.textContent = speed + '×';
@@ -464,7 +588,8 @@
   document.addEventListener('keyup', event => { if (event.key === ' ' && spacePlayed) { spacePlayed = false; event.preventDefault(); event.stopImmediatePropagation(); } }, true);
   // A new hand setting (Hide Hands, Show Hand, Show Both) makes the tape stale: the duel is recorded again at the
   // current position right away, so the next move stays quick.
-  document.addEventListener('change', event => { if (event.target?.name === 'show' && enabled() && !recording()) request(position(), 0); });
+  // Only the viewer's changes: DuelingBook sets the hand setting itself while it loads the duel again.
+  document.addEventListener('change', event => { if (event.target?.name === 'show' && !window.DBETTERRebuilding && enabled() && !recording()) request(position(), 0); });
   window.addEventListener('message', event => {
     if (event.source !== window || event.origin !== location.origin || event.data?.type !== 'DBLITE_SETTINGS') return;
     config = rules.settings(event.data.settings || {}); render();
@@ -512,7 +637,8 @@
     #dblite-timeline .dblite-tl-info{position:relative;display:flex;align-items:baseline;gap:10px;flex:0 1 330px;min-width:0}
     #dblite-timeline .dblite-tl-track{position:relative;flex:1 1 auto;min-width:200px;height:30px;cursor:pointer;touch-action:none;outline:none}
     .dblite-tl-track:focus-visible .dblite-tl-thumb{box-shadow:0 0 0 3px var(--dbt-text,#e6eeea)}
-    .dblite-tl-rail,.dblite-tl-fill{position:absolute;left:0;top:17px;height:4px;border-radius:2px}
+    .dblite-tl-rail,.dblite-tl-fill,.dblite-tl-loaded{position:absolute;left:0;top:17px;height:4px;border-radius:2px}
+    .dblite-tl-loaded{background:color-mix(in srgb,var(--dbt-accent,#3c9bb5) 30%,transparent);transition:width .25s}
     .dblite-tl-rail{right:0;background:var(--dbt-panel-2,#2b3234);box-shadow:inset 0 0 0 1px var(--dbt-line,#3a4548)}
     .dblite-tl-fill{background:var(--dbt-accent,#3c9bb5)}
     .dblite-tl-marks{position:absolute;inset:0;pointer-events:none}
@@ -544,7 +670,7 @@
     document.querySelectorAll('#spark > svg').forEach(node => node.remove());
     try { window.spark?.stop?.(); } catch {}
   });
-  window.DBETTERRewind = Object.freeze({ render, request, label, recordPlayback, motion: Object.freeze({ placement, glide }) });
+  window.DBETTERRewind = Object.freeze({ render, request, nextGame, label, recordPlayback, motion: Object.freeze({ placement, glide }) });
   window.DBETTERReplayCapture.subscribe(text => {
     try { core.capture(text); captured = true; } catch { captured = false; }
     render();
@@ -555,9 +681,10 @@
     // (release review, 2026-10-29).
     if (taken && !enabled()) taken = false;
     if (!taken && enabled() && !recording() && !window.DBETTERRebuilding) {
-      taken = true; playing = !window.paused; window.pauseE?.(); request(position(), 0);
+      taken = true; hold = window.paused ? 0 : performance.now(); playing = false; window.pauseE?.(); request(position(), 0);
     }
     if (!dragging && !scheduled) render();
   }, 250);
+  preloadTick();
   render();
 })();

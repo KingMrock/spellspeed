@@ -1,4 +1,4 @@
-# Spellspeed for DuelingBook — 0.9.1-beta
+# Spellspeed for DuelingBook — 0.9.2-beta
 
 An unofficial, fan-made browser extension for [DuelingBook](https://www.duelingbook.com/) that makes it quicker and
 easier on the eyes, without changing how the game works. Every action still goes through DuelingBook's own duel
@@ -6,7 +6,7 @@ commands; Spellspeed only makes them faster to reach. Every feature can be switc
 button, which brings back DuelingBook's original behaviour.
 
 Install: [Chrome Web Store](https://chromewebstore.google.com/detail/fcaoibhakcgpbjickjgpdpdpnfdikdnn) (Chrome, Edge,
-Brave, Opera). To load this folder instead: `chrome://extensions` → **Developer mode** → **Load unpacked** → this
+Brave, Opera) or [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/spellspeed/). To load this folder instead: `chrome://extensions` → **Developer mode** → **Load unpacked** → this
 folder, then reload DuelingBook.
 
 ## Play faster
@@ -29,7 +29,10 @@ folder, then reload DuelingBook.
 - Access, Starters and Ideas (beta): which cards can reach a card, and which one- and two-card lines start it.
 - Summon Lab (beta): pick monsters and see which Fusion, Synchro, Xyz and Link Monsters they can make.
 - Describe (beta): search cards in plain words ("revive fire monster", "level 4 or lower tuner").
-- Opening odds, and Solo practice with a chosen opening hand.
+- Opening odds: how stable the deck is, going first and second. Mark each card's role (Starter, Non-engine, Brick,
+  Normal Summon), two-card starters, your own conditions, and what one copy more or fewer changes.
+- Siding patterns: for each matchup, the cards you side in and out; side in with one click and back to game 1.
+- Solo practice with a chosen opening hand.
 
 ## Make it yours
 - Themes (Night, Abyss, Ember…) or DuelingBook's own Classic look; animations and sounds with their own volume.
@@ -37,6 +40,12 @@ folder, then reload DuelingBook.
 ## Privacy
 Spellspeed runs only on duelingbook.com. It stores your settings in your browser, has no server and collects no data.
 See `privacy.html`.
+
+## New in 0.9.2-beta
+- Opening odds becomes a deck stability menu (above), and Siding patterns is new, with a PDF of your plans.
+- The replay timeline loads the whole replay in the background, so jumping to any play is quick.
+- Replays at 1920×1080: no doubled Action panels after going back; Find a card and Record video stay clear of the
+  replay options. Record video has a quality choice.
 
 ## New in 0.9.1-beta
 - Classic look: the hover menu in DuelingBook's card viewers stays open reliably; a long menu keeps its full size;

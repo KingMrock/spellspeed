@@ -506,10 +506,13 @@
       const entries = api.menuEntries(card);
       if (canResolveFifty(card)) entries.push({ data: 'dblite:fifty-fifty', label: 'Resolve effect · Spellspeed', run: () => startFifty(card) });
       if (canResolveVidolium(card)) entries.push({ data: 'dblite:vidolium', label: 'Banish your GY face-down · Spellspeed', run: () => batchDialog('vidolium', card) });
+      if (handRevealReady() && owned(card) && api.includes(player().hand_arr, card)) entries.push({ data: 'dblite:keep-hand',
+        label: handRevealOn() ? 'Stop keeping hand revealed · Spellspeed' : 'Keep hand revealed · Spellspeed', run: () => setHandReveal(!handRevealOn()) });
       const position = ['To ATK', 'To DEF', 'Flip', 'Flip Summon', 'Set monster', 'Set ST', 'Set Field Spell', 'Activate ST', 'Activate Field Spell'];
       return entries.map(entry => ({ ...entry,
         position: api.cardInfo(card).onField && position.includes(entry.data),
-        effect: entry.data.startsWith('dblite:') || /\b(effect|event)\b|^Resolve /i.test(entry.data) ||
+        // Keep hand revealed is no card effect: it comes last, after DuelingBook's own actions.
+        effect: entry.data.startsWith('dblite:') && entry.data !== 'dblite:keep-hand' ||/\b(effect|event)\b|^Resolve /i.test(entry.data) ||
           /^Resolve Effect$|^(Banish|Mill|Draw|Reveal) \d+\b/i.test(entry.label || '') || /^(Banish|Mill) (\d+|random|top)\b/.test(entry.data)
       })).sort((a, b) => (a.position ? 0 : a.effect ? 1 : 2) - (b.position ? 0 : b.effect ? 1 : 2));
     }
@@ -1766,6 +1769,82 @@
         done: () => (receipts.get(receiptKey) || 0) > before && (receiptKey === 'shuffleDeck' || api.includes(player()[source], card))
       };
     }
+    // Keep hand revealed (user, 2026-11-06): for Toon's "Mind Scan" ("your opponent must keep their hand revealed")
+    // and the like. DuelingBook has the command, card by card: its hand menu offers Stay Revealed (and Stop Revealing
+    // on a revealed card) when a card's text calls for it. While this is on, every card of your hand not yet revealed
+    // gets that same command, one at a time, each waiting for DuelingBook's flip; cards that come to the hand later
+    // too. Off sends Stop revealing for the cards it revealed. No reply within 8 s: it stops, without retrying.
+    let handReveal = null;
+    const handRevealSetting = () => api.config().keepHandRevealed !== false;
+    const handRevealOwn = () => !!handReveal && handReveal.player === player() && handReveal.duel === window.duelId;
+    const handRevealOn = () => handRevealOwn() && handReveal.on;
+    const handRevealReady = () => handRevealSetting() && contextValid(context()) && typeof window.cardMenuClicked === 'function';
+    function setHandReveal(on) {
+      if (on === handRevealOn()) return true;
+      if (on) {
+        if (!handRevealReady()) return false;
+        // Cards already revealed by Stay Revealed before stay revealed when it is turned off again. A command still
+        // waiting for DuelingBook's reply is kept, so it is neither sent twice nor forgotten (Codex review, 2026-11-06).
+        const own = handRevealOwn();
+        handReveal = { ...context(), on: true, ours: own ? handReveal.ours : new Set(), pending: own ? handReveal.pending : null };
+        api.announce('Keep hand revealed: on. Your hand stays revealed to your opponent, new cards too.');
+      } else {
+        handReveal.on = false;
+        api.announce('Keep hand revealed: off. Spellspeed hides the cards it revealed.');
+      }
+      refreshHandReveal(); return true;
+    }
+    function refreshHandReveal() {
+      const job = handReveal; if (!job) return;
+      if (!handRevealOwn()) { handReveal = null; return; }
+      // Switching the setting off turns it off: the cards it revealed are hidden again.
+      if (!handRevealSetting()) job.on = false;
+      // Cards are followed by their element: DuelingBook numbers hand cards by position (live, 2026-11-06: 620, 621,
+      // 622) and numbers them again when the hand changes.
+      const hand = player()?.hand_arr || [];
+      for (const node of job.ours) if (!hand.some(card => card[0] === node)) job.ours.delete(node);
+      if (job.pending) {
+        const card = hand.find(card => card[0] === job.pending.node), reveal = job.pending.action === 'Stay revealed';
+        if (!card) job.pending = null;
+        else if (!!card.data('face_up') === reveal) { job.ours[reveal ? 'add' : 'delete'](job.pending.node); job.pending = null; }
+        else if (Date.now() >= job.pending.deadline) {
+          handReveal = null;
+          api.announce(`DuelingBook did not ${reveal ? 'reveal' : 'hide'} ${job.pending.name}. Keep hand revealed stopped, without retrying.`);
+          return;
+        } else return;
+      }
+      if (!nativeReady() || sequence || wizard || !contextValid(job) || typeof window.cardMenuClicked !== 'function') return;
+      const next = job.on ? hand.find(card => owned(card) && !card.data('face_up')) : hand.find(card => job.ours.has(card[0]) && card.data('face_up'));
+      if (!next) { if (!job.on) handReveal = null; return; }
+      const action = job.on ? 'Stay revealed' : 'Stop revealing';
+      job.pending = { node: next[0], action, name: name(next) || 'a card', deadline: Date.now() + 8000 };
+      window.cardMenuClicked(next, action);
+    }
+    // DuelingBook's Show hand button (user, 2026-11-06) offers both: its own Show hand, once (showHandE: its
+    // confirmation, then the opponent sees the hand in a viewer; nothing in Solo), or Keep revealed.
+    function openHandRevealChoice(anchor) {
+      closeMenu();
+      const ctx = context(), on = handRevealOn();
+      menu = isolate(element('div', 'dblite-menu dblite-hand-choice')); menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'Show hand');
+      menu.append(element('strong', '', 'Show hand'));
+      const choices = [];
+      if (!window.solo && typeof window.showHandE === 'function') choices.push(['Show once', 'DuelingBook’s Show hand: your opponent sees your hand now, once.', () => window.showHandE()]);
+      choices.push(on ? ['Stop keeping revealed', 'Spellspeed hides the cards it revealed.', () => setHandReveal(false)]
+        : ['Keep revealed', 'Your whole hand stays revealed to your opponent, new cards too, until you choose Stop (Mind Scan and the like). Uses DuelingBook’s Stay Revealed.', () => setHandReveal(true)]);
+      for (const [label, title, run] of choices) {
+        const item = button(label, () => { closeMenu(); if (contextValid(ctx)) run(); }); item.title = title; item.setAttribute('role', 'menuitem'); menu.append(item);
+      }
+      document.body.append(menu);
+      const box = anchor.getBoundingClientRect(), rect = menu.getBoundingClientRect();
+      menu.style.left = `${Math.max(8, Math.min(box.left, innerWidth - rect.width - 8))}px`;
+      menu.style.top = `${Math.max(8, box.top - rect.height - 6 >= 8 ? box.top - rect.height - 6 : Math.min(box.bottom + 6, innerHeight - rect.height - 8))}px`;
+      menu.querySelector('button')?.focus({ preventScroll: true });
+    }
+    document.addEventListener('click', event => {
+      const showHand = event.target.closest?.('#show_hand_btn');
+      if (!showHand || !(handRevealReady() || handRevealOn()) || !nativeReady() || sequence || wizard) return;
+      event.preventDefault(); event.stopImmediatePropagation(); openHandRevealChoice(showHand);
+    }, true);
     let soloPractice, soloSession, soloSessionControls, nativeSameHand;
     const soloSessionValid = () => soloSession && soloSession.player === player() && soloSession.duel === window.duelId && window.solo && window.duelist && !window.replay && !window.automatic && !window.tag_duel;
     function startSoloPractice(plan, reset = false) {
@@ -2380,9 +2459,18 @@
       clearTileMotions();
       hookViewLifecycle(); hookPileMoveOrigins(); hookReceipts(); refreshFan(); refreshTargets(); refreshNotices(); refreshReplayHands(); flushHistory(); refreshDeclarations(); updateToolbar(); updateWizard(); updateOpponentRequest();
       if (sequence) advance();
+      refreshHandReveal();
+      const showHand = document.getElementById('show_hand_btn');
+      if (showHand && showHand.classList.contains('dblite-hand-kept') !== handRevealOn()) {
+        showHand.classList.toggle('dblite-hand-kept', handRevealOn());
+        if (handRevealOn()) { showHand.dataset.dbliteTitle = showHand.title; showHand.title = 'Your hand is kept revealed (Spellspeed). Click to stop, or to show it once.'; }
+        else if ('dbliteTitle' in showHand.dataset) { showHand.title = showHand.dataset.dbliteTitle; delete showHand.dataset.dbliteTitle; }
+      }
       updateSoloPractice();
       if (((!api.config().quickActions || !api.config()[sequence?.requiresQuickActions || (wizard ? 'cardMacros' : panel?.dataset.quickSetting || 'quickButtons')]) && sequence?.requiresQuickActions !== false && !soloPractice || !contextValid(context())) && (sequence || wizard || panel)) cancelAll();
-      if (menu && (!nativeReady() || !api.config().contextMenu && !hoverMenuOpen() || api.config().contextMenu && hoverMenuOpen())) closeMenu();
+      // The Show hand choice is no card menu: it stays open whatever Right-click actions is set to.
+      const handChoice = !!menu?.classList.contains('dblite-hand-choice');
+      if (menu && (!nativeReady() || !handChoice && (!api.config().contextMenu && !hoverMenuOpen() || api.config().contextMenu && hoverMenuOpen()))) closeMenu();
       viewerDuringZonePick();
     }
     document.addEventListener('contextmenu', event => {
@@ -2516,8 +2604,12 @@
       });
     });
     window.addEventListener('scroll', () => { updateToolbar(); positionNotices(); }, true);
+    // A preload records plays ahead and comes back to the viewed position (rewind.js, preload): what those plays told the
+    // field signals (Declared · …) is put back when it ends, or the viewer saw a later declaration (2026-11-09).
+    let preloadSignals = null;
     window.addEventListener('dbetter-rebuild-begin', event => {
       viewObserver.disconnect(); faceObserver.disconnect(); watchedView = null; observedView = null;
+      if (event.detail?.preload) preloadSignals = new Map([...signalStates].map(([p, state]) => [p, { ...state }]));
       // Recording past the furthest play continues the duel, as normal playback does: keep everything.
       if (event.detail?.mode === 'record') return;
       historyTape.length = 0;
@@ -2541,6 +2633,7 @@
       for (const {list} of histories.values()) list.scrollTop = list.scrollHeight;
     }
     window.addEventListener('dbetter-rebuild-end', () => {
+      if (preloadSignals) { signalStates.clear(); for (const [p, state] of preloadSignals) signalStates.set(p, state); preloadSignals = null; }
       viewObserver.takeRecords(); faceObserver.takeRecords(); dirtyFaces.clear(); fanProbe = ''; fanKey = '';
       renderHistoryTape();
     });
@@ -2565,6 +2658,7 @@
         if (window.viewing === zone) closeViewer(); else openPile(zone);
       },
       busy: () => !!sequence || !!wizard || !!panel || !!moving || !!soloPractice,
+      handReveal: { available: handRevealReady, on: handRevealOn, set: setHandReveal, toggle: () => setHandReveal(!handRevealOn()) },
       allowsChat: wizardChat,
       // Deck of the current Solo session started from the constructor (other duels use the default deck).
       deckName: () => soloSessionValid() ? soloSession.deckName || null : null,
@@ -2645,6 +2739,7 @@
     .dblite-fan footer{margin:0 auto;width:fit-content;flex-shrink:0;border-radius:8px;background:var(--dbt-panel);padding:6px 12px;font-size:11px;color:var(--dbt-text);text-align:center}
     .dblite-fan footer[hidden]{display:none!important}
     .dblite-peek-toggle{display:inline-flex;align-items:center;justify-content:center;padding:4px 6px}.dblite-peek-toggle svg{width:18px;height:18px}
+    #show_hand_btn.dblite-hand-kept{outline:2px solid var(--dbt-accent,#58c4dc);outline-offset:1px}
     .dblite-view-peek{opacity:.08!important;pointer-events:none!important;filter:none!important}.dblite-view-peek *{pointer-events:none!important}
         /* Touch screens: the viewer covers most of a phone, so it gets out of the way entirely while a card is dragged out. */
     html.dbetter-touch .dblite-fan-dragging{opacity:0}

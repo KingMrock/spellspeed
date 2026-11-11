@@ -439,7 +439,13 @@
     }
     const conditions = phrase.refs.length + (phrase.excluded?.length || 0) + phrase.frames.length + phrase.properties.length + phrase.attributes.length + phrase.types.length + Object.keys(phrase.stats).length + phrase.tuner + phrase.abilities.length + !!phrase.normal + !!phrase.relation + !!phrase.numberRange + !!phrase.statAlternatives + phrase.textHas.length + phrase.not.length + !!phrase.mentionedOn;
     const generic = allowGeneric && phrase.kinds?.length && !/\b(?:with|whose|that|same|different|following|these|those|such|one of|any of|listed|mentioned|based on)\b/i.test(text);
-    return conditions || generic ? phrase : null;
+    // "Banish 1 card from your Deck, face-up" (Gold Sarcophagus), "send 1 card from your Deck to the GY": any card at all,
+    // the broadest generic (user, 2026-11-09: with Banish ticked, Access for Artmage Power Patron listed nothing). Ranked
+    // after the kinds (ANY_RANK).
+    const any = allowGeneric && !conditions && !phrase.kinds && /^\s*(?:(?:add|send|banish|place|set|take|Special Summon)\s+)?(?:up to\s+)?(?:1|a|an|one|2|two)\s+(?:face-(?:up|down)\s+)?cards?\b/i.test(text) &&
+      !/\b(?:monsters?|spells?|traps?|with|whose|that|same|different|following|these|those|such|one of|any of|listed|mentioned|based on|named|declared|top|bottom)\b/i.test(text);
+    if (any) phrase.any = true;
+    return conditions || generic || any ? phrase : null;
   }
   // "add 1 "Dark Magician", or 1 non-Ritual Monster that mentions it": "it" is the last name quoted before.
   function resolveMentions(text, before = '') {
@@ -570,6 +576,9 @@
       const own = i > 0 && effects[i - 1] === effects[i] && !effects[i].condition.includes(clauses[i - 1].trim()) && clauses[i - 1].match(effects[i].text.includes(`or, ${clauses[i - 1].trim()}`) ? /^\s*if\b([^;:]*)$/i : /\bor,?\s+if\b([^;:]*)$/i);
       for (const phrase of phrases.slice(start)) if (own) phrase.when = own[1].trim();
       for (const phrase of phrases.slice(start)) Object.assign(phrase, { effect: effects[i], dependent });
+      // "When a card or effect is activated that includes any of these effects ... ●Add a card from the Deck to the hand"
+      // (Ash Blossom & Joyous Spring): what it negates, not what it does.
+      if (/\bincludes any of these effects\b/i.test(effects[i].text)) for (let at = phrases.length - 1; at >= start; at--) if (phrases[at].any) phrases.splice(at, 1);
     });
     return phrases;
     function readClause(clause, i) {
@@ -597,6 +606,19 @@
       if (/^\s*(?:a maximum of|only|no more than)\b/i.test(tail.slice(verb[0].length))) return;
       const opponent = /\byour opponent\s+(?:can |may )?$/i.test(clause.slice(0, verb.index)) && /\bfrom (?:their|your opponent's)\b/i.test(tail);
       let object = tail;
+      // "Special Summon 1 "Artorigus" monster, or add to your hand 1 "Noble Arms" card, from your Deck or GY" (Camelot,
+      // Realm of Noble Knights and Noble Arms), "either Special Summon 1 "Materiactor" monster from your Deck, or add 1
+      // "Materiactor" Spell/Trap from your Deck to your hand" (Materiactor Exagard): two actions, read apart, each with the
+      // source they share. Before, the second card was read as Special Summoned.
+      const orAdd = !/^add/i.test(verb[0]) && object.match(/,?\s+or\s+add(?:\s+to\s+(?:your|the)\s+hand)?\s+(?=(?:up to\s+)?(?:\d+|a|an|one)\b)/i);
+      if (orAdd) {
+        const first = object.slice(0, orAdd.index), second = object.slice(orAdd.index + orAdd[0].length);
+        const shared = !/\bfrom\b/i.test(first) && second.match(/,?\s*\bfrom\b[^,;]*$/i)?.[0] || '';
+        const head = clause.slice(0, verb.index);
+        readClause(`${head}${first}${shared}`, i);
+        readClause(`${head}add ${second}${/\bhand\b/i.test(second) ? '' : ' to your hand'}`, i);
+        return;
+      }
       // "Special Summon it": what "it" is comes earlier, in the same clause ("reveal 1 "X" ..., and add it")
       // or in the previous one ("Target 1 ... in your GY; Special Summon it").
       if (/^\s*(?:it|them|that (?:target|card|monster)s?|those (?:targets|cards|monsters))\b/i.test(object.replace(/^\S+(?:\s+summons?)?/i, ''))) {
@@ -701,9 +723,16 @@
     if (ritualDeckIndex?.cards !== cards || ritualDeckIndex.size !== cards.length) labDrain(ritualDeckTask(cards));
     return ritualDeckIndex.list;
   }
+  const ANY_RANK = 3.5;
   function fetchRank(card, phrase, anySource = false) {
     // Printed case distinguishes embedded archetypes: "roid" / "LV", but "HERO" is not "Heroic".
+    // A Summon Lab "Any …" stand-in (labAny) is an unnamed monster: it has the properties it was picked for, but
+    // no name or text of its own, so only its slot's archetype can meet a name-based requirement (user, 2026-11-07,
+    // after Any DARK + Any Effect listed Fusions that need "Fallen of Albaz").
+    const unnamed = card.labAny;
+    if (unnamed && (phrase.listed || phrase.mentionedOn?.refs || phrase.numberRange || phrase.textHas?.length || phrase.copiedRitual)) return Infinity;
     const text = indexedText(card), named = ref => {
+      if (unnamed) return labAnyArchetype(unnamed, ref);
       const identities = anySource ? text.name : phrase.fromMain ? namesAt(card, 'deck') : phrase.fromExtra ? namesAt(card, 'extra') : phrase.places?.length ? [...new Set(phrase.places.flatMap(place => namesAt(card, place)))] : text.name;
       if (ref.mode === 'exact') return identities.includes(ref.name);
       if (ref.nameMatch === 'includes' || EMBEDDED_ARCHETYPES.has(ref.name)) return identities.some(name => name.includes(ref.name));
@@ -715,10 +744,10 @@
     if (phrase.copiedRitual) return ritualDeckEffects().some(entry => fetchRank(entry.card, phrase.copiedRitual) < Infinity && summonAllowed(card, entry.phrase, entry.card, 'access') && fetchRank(card, entry.phrase) < Infinity) ? 2 : Infinity;
     if (phrase.alternatives) return Math.min(Infinity, ...phrase.alternatives.map(part => fetchRank(card, part, anySource)));
     if (phrase.listed) return listedBy(card).some(other => String(other.monster_color).includes(phrase.listed.frame) && (!phrase.listed.by || fetchRank(other, phrase.listed.by) < Infinity)) ? 2 : Infinity;
-    let rank = 3;
+    let rank = phrase.any ? ANY_RANK : 3;
     if (phrase.refs.length) {
       rank = Math.min(...phrase.refs.map(ref => ref.mode === 'exact' ? (named(ref) ? 0 : Infinity) :
-        ref.mode === 'mention' ? (text.effect.some(s => s.includes(`"${ref.name}"`)) ? 2 : Infinity) : ref.mode === 'member' ? (quotesMember(card, ref) ? 2 : Infinity) : named(ref) && fitsKind(card, ref) ? 1 : Infinity));
+        unnamed && (ref.mode === 'mention' || ref.mode === 'member') ? Infinity : ref.mode === 'mention' ? (text.effect.some(s => s.includes(`"${ref.name}"`)) ? 2 : Infinity) : ref.mode === 'member' ? (quotesMember(card, ref) ? 2 : Infinity) : named(ref) && fitsKind(card, ref) ? 1 : Infinity));
       if (rank === Infinity) return Infinity;
     }
     if (!fitsKind(card, phrase)) return Infinity;
@@ -810,6 +839,8 @@
     return quoted.some(name => archetypes.includes(name)) ? 1 : Infinity;
   }
   const fetches = (card, target, mode = 'access') => relatedRank(card, target, mode) < Infinity;
+  // Only an archetype the "Any" slot itself names guarantees a name: "Springans" meets 1 "Springans" monster, never "Fallen of Albaz".
+  const labAnyArchetype = (spec, ref) => ref.mode !== 'exact' && !!spec.archetype && namePart(normalize(spec.archetype), ref.name);
   const fitsPhrase = (card, phrase) => fetchRank(card, phrase) < Infinity;
   // Describe search (user, 2026-10-31): a search in plain words, read into what the card is and what its effects do:
   // "revive fire monster", "level 4 tuner", "spellcasters that can search", "hand traps", "negate spell", "-fire".
@@ -929,7 +960,7 @@
           phrase = { refs: [], kinds: any || !kinds.length ? null : kinds, frames: [], properties: [], tuner: false, abilities: [], attributes: [], types: [], stats: {}, not: [] };
         } else if (verb !== 'draw') phrase = self ? { ...describeObject('monster', names), refs: [{ mode: 'exact', name: normalize(card.name), label: card.name }] } : describeObject(object, names);
         const returnSource = object.replace(/\b(?:equal to|up to|so the number|for each)\b[^]*$/i, '');
-        if (verb === 'return' && (!to || self || !object || /\b(?:fusion materials?|excavat|remaining|rest of|end phase|end of (?:this|the) turn)\b/i.test(object + ' ' + effect.condition) || !((DESCRIBE_SOURCES.field(returnSource) || !/(?:gy|graveyard|banishw*|hand|deck)/i.test(returnSource) && /(?:monsters?|cards?|spells?|traps?|targets?)/i.test(returnSource)) && (!DESCRIBE_SOURCES.gy(returnSource) || /controls (?:and|or)[^]*\b(?:in|from) (?:their|your|the) (?:gy|graveyard)/i.test(returnSource)) && !DESCRIBE_SOURCES.banished(returnSource) && (!DESCRIBE_SOURCES.extra(returnSource) || /pendulum zone|you control|your field/i.test(returnSource)) || to === 'deck' && /\b(?:your opponent's|their) hand\b/i.test(object)))) continue;
+        if (verb === 'return' && (!to || self || !object || /\b(?:fusion materials?|excavat|remaining|rest of|end phase|end of (?:this|the) turn)\b/i.test(object + ' ' + effect.condition) || !((DESCRIBE_SOURCES.field(returnSource) || !/\b(?:gy|graveyard|banish\w*|hand|deck)\b/i.test(returnSource) && /\b(?:monsters?|cards?|spells?|traps?|targets?)\b/i.test(returnSource)) && (!DESCRIBE_SOURCES.gy(returnSource) || /controls (?:and|or)[^]*\b(?:in|from) (?:their|your|the) (?:gy|graveyard)/i.test(returnSource)) && !DESCRIBE_SOURCES.banished(returnSource) && (!DESCRIBE_SOURCES.extra(returnSource) || /pendulum zone|you control|your field/i.test(returnSource)) || to === 'deck' && /\b(?:your opponent's|their) hand\b/i.test(object)))) continue;
         if (verb === 'summon' && !/^special|^ritual/.test(word)) continue;
         // A self-revival takes its source from its own condition (Zephyros), not a later material cost.
         const sourceObject = object.replace(/\bwith (?:a different|the same) name\b[^]*$/i, '');
@@ -1477,7 +1508,7 @@
     for (const raw of window.Cards || []) {
       if ((++scanned & 7) === 0) yield* labCheckpoint();
       if (raw.card_type !== 'Monster' || raw.rush || raw.custom) continue;
-      const base = labMaterial(raw), card = item.generic.where ? { ...base, labWhere: item.generic.where } : base;
+      const base = labMaterial(raw), card = { ...base, labAny: item.generic, ...(item.generic.where ? { labWhere: item.generic.where } : {}) };
       if (!fitsGeneric(card, item.generic)) continue;
       const key = JSON.stringify([card.attribute, card.type, card.level, card.monster_color, card.ability, !!card.flip, !!card.pendulum, card.is_effect]);
       if (!groups.has(key)) groups.set(key, []);
@@ -1643,6 +1674,7 @@
     return rule.same.length || rule.different.length ? rule : null;
   }
   const groupValue = (card, field) => {
+    if (card.labSure) return labSureValue(card, field);
     const color = String(card.monster_color), scaleless = /Xyz|Link/.test(color);
     const value = field === 'name' ? card.name : field === 'level' ? (scaleless ? null : card.level) : field === 'rank' ? (color.includes('Xyz') ? card.level : null) : card[field];
     return value == null || value === '' ? null : String(value);
@@ -1771,7 +1803,7 @@
       const shown = sentence.replace(/\s*\(in which case[^()]*\)/gi, '').replace(/,?\s*and cannot be Special Summoned[^]*$/i, '')
         .replace(/"§(\d+)§"/g, (m, n) => `"${names[n]}"`).replace(/\s+/g, ' ').trim();
       const procedure = shown.length > 220 ? shown.slice(0, 219) + '…' : shown;
-      recipes.push({ kind: xyz ? 'Xyz' : 'Procedure', parts, level: Number(card.level) || 0, difference: 0, sameLevel: false, procedure });
+      recipes.push({ kind: xyz ? 'Xyz' : 'Procedure', parts, level: Number(card.level) || 0, difference: 0, sameLevel: false, procedure, fusion: !xyz && String(card.monster_color).includes('Fusion') });
     }
     return recipes;
   }
@@ -1845,9 +1877,10 @@
     return [...new Set(indexedText(card).name.flatMap(name => [...(listedIndex.map.get(name) || [])]))];
   }
   function fitsMaterial(card, piece) {
+    if (card.labSure) return labSureFit(card, piece);
     if (card.card_type !== 'Monster' || piece.phrase && !fitsPhrase(card, piece.phrase)) return false;
     const own = indexedText(card).name;
-    if (piece.excluded.some(ref => ref.mode === 'exact' ? own.includes(ref.name) : own.some(name => namePart(name, ref.name)))) return false;
+    if (piece.excluded.some(ref => card.labAny ? labAnyArchetype(card.labAny, ref) : ref.mode === 'exact' ? own.includes(ref.name) : own.some(name => namePart(name, ref.name)))) return false;
     return piece.checks.every(check => check(card));
   }
   // Exactly these materials ("exact"), or these among others ("includes"). Each material goes to one part,
@@ -1867,7 +1900,44 @@
     return place(0);
   }
   const assignMaterials = (recipe, materials, exact) => labDrain(assignMaterialsTask(recipe, materials, exact));
+  // Fusion materials (user, 2026-11-07): an Any slot fills only what its description guarantees. "Any Effect monster"
+  // is "1 monster" or "1 Effect Monster", never "1 Fusion Monster", "1 Rock monster" or "1 non-Spellcaster monster";
+  // A Fusion Monster's own Special Summon procedure (contact Fusions, Thunder Dragon Titan) reads the same way.
+  // Synchro, Xyz and Link keep the existential reading (some catalog monster of the description fits), where Tuners
+  // and Levels are what the breakdown's ways explain. Each Any slot becomes one stand-in (labSure) for the match.
+  function labSureStandIn(item) {
+    if (item.sureStandIn !== undefined) return item.sureStandIn;
+    const pool = genericPool(item), first = pool.groups[0]?.[0];
+    return item.sureStandIn = first ? { ...first, name: item.name, labAny: item.generic, labSure: pool, labKey: {} } : null;
+  }
+  function labSureValue(card, field) {
+    const spec = card.labAny, one = list => list?.length === 1 ? String(list[0]) : null;
+    if (field === 'name') return card.labKey;
+    if (field === 'attribute') return one(spec.attributes);
+    if (field === 'type') return one(spec.types);
+    if (field === 'level' && spec.level && spec.level[0] != null && spec.level[0] === spec.level[1] && !(spec.kinds || []).some(kind => /Xyz|Link/.test(kind))) return String(spec.level[0]);
+    return null;
+  }
+  function labSureFit(card, piece) {
+    const pool = card.labSure, cache = pool.sure ||= new Map(), key = JSON.stringify([piece.text, piece.min, piece.checks.map(String)]);
+    if (!cache.has(key)) {
+      // Tokens are no cards a player picks: they count only when the slot asks for one.
+      const tokens = (card.labAny.kinds || []).includes('Token');
+      let sure = true;
+      for (const group of pool.groups) {
+        for (const m of group) if ((tokens || !String(m.monster_color).includes('Token')) && !fitsMaterial(m, piece)) { sure = false; break; }
+        if (!sure) break;
+      }
+      cache.set(key, sure);
+    }
+    return cache.get(key);
+  }
   function* assignMaterialsTask(recipe, materials, exact) {
+    if ((recipe.kind === 'Fusion' || recipe.fusion) && materials.some(item => item.generic)) {
+      // Level rules need a Level the slot fixes.
+      materials = materials.map(item => !item.generic ? item : (recipe.difference || recipe.sameLevel) && labSureValue({ labAny: item.generic }, 'level') === null ? null : labSureStandIn(item));
+      if (materials.includes(null)) return null;
+    }
     const items = materials, order = materials.map((m, i) => i).sort((a, b) => !!items[a].generic - !!items[b].generic);
     materials = materials.slice();
     const parts = recipe.parts, chosen = parts.map(() => -1), groups = parts.map(() => []);
@@ -2122,11 +2192,11 @@
     const have = first?.materials || [];
     if (piece?.group && have.length) {
       const { same, different } = piece.group, pick = field => groupValue(have[0], field);
-      if (!piece.group.any && same.includes('attribute')) request.attributes = [pick('attribute')];
-      if (!piece.group.any && same.includes('type')) request.types = [pick('type')];
-      if (!piece.group.any && same.includes('level') && !level) request.stats = { ...(request.stats || {}), level: [pick('level'), pick('level')] };
-      if (different.includes('attribute')) request.not.attribute = [...new Set([...request.not.attribute, ...have.map(m => m.attribute)])];
-      if (different.includes('type')) request.not.type = [...new Set([...request.not.type, ...have.map(m => m.type)])];
+      if (!piece.group.any && same.includes('attribute') && pick('attribute')) request.attributes = [pick('attribute')];
+      if (!piece.group.any && same.includes('type') && pick('type')) request.types = [pick('type')];
+      if (!piece.group.any && same.includes('level') && !level && pick('level')) request.stats = { ...(request.stats || {}), level: [pick('level'), pick('level')] };
+      if (different.includes('attribute')) request.not.attribute = [...new Set([...request.not.attribute, ...have.map(m => groupValue(m, 'attribute')).filter(Boolean)])];
+      if (different.includes('type')) request.not.type = [...new Set([...request.not.type, ...have.map(m => groupValue(m, 'type')).filter(Boolean)])];
     }
     if (piece?.checks.includes(MATERIAL_PLACES[1][1])) request.not.monster_color = [...new Set([...request.not.monster_color, 'Fusion', 'Synchro', 'Xyz', 'Link'])];
     if (piece?.checks.includes(MATERIAL_PLACES[0][1]) && !request.frames?.length) request.frames = ['Fusion', 'Synchro', 'Xyz', 'Link', 'Pendulum'];
@@ -2168,6 +2238,13 @@
       if (!item.generic) return;
       const pool = genericPool(item), ways = new Map();
       let partial = false;
+      if (recipe.kind === 'Fusion' || recipe.fusion) {
+        const option = base[s], needs = exact ? null : recipeNeeds(card, used), complete = !needs || needs.text === 'nothing more';
+        const names = [...new Set(pool.groups.flatMap(group => group.filter(m => (item.generic.kinds || []).includes('Token') || !String(m.monster_color).includes('Token')).map(m => m.name)))].sort((a, b) => a.localeCompare(b));
+        detail.slots.push({ index: s, name: item.name, partial: false, sure: true,
+          ways: option ? [{ role: option.text || '', scale: '', complete, needs: complete ? null : needs, count: names.length, names, request: wayRequest(item.generic, option, '') }] : [] });
+        return;
+      }
       for (const group of detailed ? pool.groups.flatMap(group => group.map(m => [m])) : pool.groups) {
         if (performance.now() > deadline) { partial = true; break; }
         const witness = group[0], trial = materials.slice();
@@ -2416,7 +2493,7 @@
     for (const step of via) {
       if (step.name === card.name) continue;
       const generic = via.generic?.has(step) ? GENERIC_STEP : 0;
-      let first = relatedRank(card, step, 'access');
+      let first = relatedRank(card, step, 'access', bridgeActions(step));
       for (const way of extraDeckMonster(step) ? lineSummons(card, step) : []) first = Math.min(first, way.rank);
       if (first + generic >= best.rank) continue;
       const found = chainRank(card, step, target, generic);
@@ -2440,18 +2517,37 @@
   function usableAfter(target, phrase) {
     const action = phrase.action;
     if (action !== 'send' && action !== 'banish') return true;
+    // Banished face-down (Different Dimension Capsule), a card has no effect there.
+    if (action === 'banish' && /\bface-down\b/i.test(phrase.describeWhere || '')) return false;
     const own = indexedText(target), key = action === 'send' ? 'gyUse' : 'banishedUse', text = `${target.effect || ''}\n${target.pendulum_effect || ''}`;
     own[key] ??= (action === 'send' ? GY_USE : BANISHED_USE).some(pattern => pattern.test(text));
     if (own[key]) return true;
     return !!phrase.destroy && (own.destroyedUse ??= DESTROYED_USE.test(text));
   }
   // The phrases relatedRank ranks for Access, as Starters and Ideas use them: a send or banish counts only for a card that
-  // works from there (usableAfter).
-  function accessPhrases(card, target) {
-    const extra = extraDeckMonster(target), actions = accessActions[extra ? 'extra' : 'main'];
+  // works from there (usableAfter). actions: what counts (the ⚙ by default; bridgeActions for a line's first step).
+  function accessPhrases(card, target, actions = null) {
+    const extra = extraDeckMonster(target);
+    actions ||= accessActions[extra ? 'extra' : 'main'];
     return (indexedText(card).fetch ||= fetchClauses(card)).filter(phrase => actions.has(phrase.action) && (extra ? phrase.fromExtra : phrase.fromMain) &&
       usableAfter(target, phrase) && summonAllowed(target, phrase, card, 'access'));
   }
+  // What a line's first step may do to its Main Deck step (user, 2026-11-09): the ⚙ says how the line gets the card, its
+  // last step; the step before only has to get the step card where its effect works, so a search or a Special Summon
+  // counts there whatever the ⚙ says (Fusion Deployment Special Summons Medius the Pure, whose Summon trigger adds
+  // Artmage Power Patron: a line with only Search ticked). effectUse still checks that the step's effect works from
+  // there. An Extra Deck step keeps the ⚙ (its own Summons by the starter: lineSummons).
+  const bridgeSets = new WeakMap();
+  function bridgeActions(step) {
+    const own = accessActions[extraDeckMonster(step) ? 'extra' : 'main'];
+    if (extraDeckMonster(step)) return own;
+    if (!bridgeSets.has(own)) bridgeSets.set(own, new Set([...own, 'add', 'summon']));
+    return bridgeSets.get(own);
+  }
+  // "you cannot Normal Summon/Set or Special Summon monsters with the added monster's name, also your monsters with that
+  // name cannot activate their effects" (Fusion Conscription): the monster it got does nothing that turn.
+  const FORBIDS_STEP = /\byour monsters with (?:that|the same|the added monster's) name cannot activate (?:their|its) effects\b/i;
+  const forbidsStep = (step, phrase) => step.card_type === 'Monster' && FORBIDS_STEP.test(phrase.effect?.text || '');
   // A monster the starter Special Summons from the Extra Deck by its own effect, with nothing but itself as material
   // ("attach this card ... to that monster as material (this is treated as an Xyz Summon)") or with none: a move of
   // the line like the Normal Summon, counted whatever the ⚙ says. An effect that needs another monster you control
@@ -2554,7 +2650,7 @@
     if (!target || card.name === target.name || extraDeckMonster(card) || card.card_type === 'Skill') return { rank: Infinity };
     // Most cards take nothing out of a Deck: they reach no step, and are Starters only through a material line (for speed:
     // measured on the phone, Dark Magician took 6.7 s before this).
-    const own = indexedText(card).fetch ||= fetchClauses(card), decks = { main: own.filter(phrase => accessActions.main.has(phrase.action) && phrase.fromMain),
+    const own = indexedText(card).fetch ||= fetchClauses(card), bridge = bridgeActions({ card_type: 'Spell' }), decks = { main: own.filter(phrase => bridge.has(phrase.action) && phrase.fromMain),
       extra: own.filter(phrase => accessActions.extra.has(phrase.action) && phrase.fromExtra) };
     if (!decks.main.length && !decks.extra.length && !lineSummonPhrases(card).length) return via.material?.get(card) || { rank: Infinity };
     // The steps it reaches, once; a step of a kind none of its effects can fetch ("1 Spell" for a monster step) is not tried.
@@ -2581,7 +2677,7 @@
     // Through one step: the card's effect that gets the step, then the step's that gets the card.
     let best = { rank: Infinity }, tries = 0;
     for (const { card: step, rank: second } of reached) {
-      for (const first of accessPhrases(card, step)) {
+      for (const first of accessPhrases(card, step, bridgeActions(step))) {
         const firstRank = fetchRank(step, first);
         if (firstRank === Infinity) continue;
         // A starter that works only "During the End Phase" (Watch Cat) leaves the step no Main Phase.
@@ -2591,7 +2687,7 @@
           if (fetchRank(target, next) === Infinity) continue;
           // "Special Summon 1 Level 3 Fiend monster ..., but negate its effects" (Tour Guide From the Underworld), as in chainRank.
           const negated = place === 'summoned' && /\b(?:its|their) effects (?:are|is) negated\b|\bnegate (?:its|their) effects\b|\bwith (?:its|their) effects negated\b/i.test(first.effect?.text || '');
-          const stepNeed = negated ? 'effects that its Summon does not negate' : effectUse(step, next, place, first.summon, !open?.normal) ? '' : effectNeed(step, next, place, first.summon, !open?.normal);
+          const stepNeed = negated ? 'effects that its Summon does not negate' : forbidsStep(step, first) ? 'effects that its first card does not forbid that turn' : effectUse(step, next, place, first.summon, !open?.normal) ? '' : effectNeed(step, next, place, first.summon, !open?.normal);
           const chance = chanceOf(first.effect) || chanceOf(next.effect), total = IDEA_STEP + 10 * (1 + !!starter + !!stepNeed) + actionRank(firstRank, first) + second + (chance ? CHANCE_STEP : 0);
           if (total < best.rank) best = { rank: total, via: step, how: { move: first.destroy ? 'destroy' : 'get', action: next.action, chance, idea: { starter, step: stepNeed, generic: second >= GENERIC_STEP } } };
         }
@@ -2703,7 +2799,7 @@
   function chainRank(card, step, target, generic = 0) {
     let best = { rank: Infinity };
     const resolves = resolvesToGY(card), summons = phrase => summonsAlone(phrase, step);
-    const firsts = [...accessPhrases(card, step).filter(summons).map(phrase => ({ phrase, rank: actionRank(fetchRank(step, phrase), phrase), summon: phrase.summon, material: null })), ...lineSummons(card, step).map(way => ({ ...way, extra: true }))];
+    const firsts = [...accessPhrases(card, step, bridgeActions(step)).filter(summons).map(phrase => ({ phrase, rank: actionRank(fetchRank(step, phrase), phrase), summon: phrase.summon, material: null })), ...lineSummons(card, step).map(way => ({ ...way, extra: true }))];
     for (const { phrase: first, rank: own, summon, material, extra } of firsts) {
       const rank = own + generic;
       const opening = rank < best.rank && (effectUse(card, first, 'hand', '', true) || resolves && effectUse(card, first, 'gy', '', true));
@@ -2711,7 +2807,7 @@
       // Special Summoned face-down, a monster cannot use its effects; destroyed in the Deck, a card is in the GY.
       const place = extra ? 'summoned' : first.destroy ? 'destroyed' : first.action === 'summon' && /\bin face-down Defense Position\b/i.test(first.effect?.text || '') && !/\bor face-down Defense Position\b/i.test(first.effect?.text || '') ? 'set' : PLACE[first.action];
       // "its effects are negated" (Instant Contact while "Elemental HERO Neos" is not there): the Summoned step does nothing.
-      if (place === 'summoned' && /\b(?:its|their) effects (?:are|is) negated\b|\bnegate (?:its|their) effects\b|\bwith (?:its|their) effects negated\b/i.test(first.effect?.text || '')) continue;
+      if (place === 'summoned' && /\b(?:its|their) effects (?:are|is) negated\b|\bnegate (?:its|their) effects\b|\bwith (?:its|their) effects negated\b/i.test(first.effect?.text || '') || forbidsStep(step, first)) continue;
       // The starter Normal Summoned (or Summoned by itself) stays on the field, unless its effect takes it away: it may
       // pay the step's cost. An effect "During the End Phase" (Kuribandit, Watch Cat) leaves no Main Phase: the step can
       // then only use an effect that starts by itself (Summoned, sent, banished), a Quick Effect or a Quick-Play Spell.
@@ -3182,7 +3278,10 @@
       env.fetchRanks?.set(card, rank); if (rank === Infinity) return false;
     }
     if (q.lab) { const rank = labRank(card, env.lab); env.labRanks?.set(card, rank); if (rank === Infinity) return false; }
-    return !q.pointsEnabled || inRange(env.points(card), ...q.points);
+    if (!q.pointsEnabled) return true;
+    // Genesys format: Link and Pendulum Monsters are not legal, so the points filter leaves them out (user, 2026-11-09).
+    if (card.card_type === 'Monster' && (String(card.monster_color).includes('Link') || !!card.pendulum)) return false;
+    return inRange(env.points(card), ...q.points);
   }
   const element = (tag, text, cls) => { const n = document.createElement(tag); if (text) n.textContent = text; if (cls) n.className = cls; return n; };
   let clearSearch = () => {}, syncFetch = () => {}, syncLab = () => {};
@@ -3440,7 +3539,7 @@
       grid.append(item);
     }
     // Phones: the deck's quick chat (💬) and the opening odds (🎲) live here too.
-    for (const [button, label, open] of [[deckChatButton, '💬 Quick chat', showDeckChat], [oddsButton, '🎲 Opening odds', showOdds]]) {
+    for (const [button, label, open] of [[deckChatButton, '💬 Quick chat', showDeckChat], [oddsButton, '🎲 Opening odds', showOdds], [sidingButton, '⇄ Siding patterns', showSiding]]) {
       if (!button?.isConnected) continue;
       const item = element('button', label); item.type = 'button'; item.onclick = () => { closeDeckMenu(); open(); };
       grid.append(item);
@@ -3469,7 +3568,7 @@
         }
       }
     })));
-    for (const button of [deckChatButton, oddsButton]) if (button && button.hidden !== phone) button.hidden = phone;
+    for (const button of [deckChatButton, oddsButton, sidingButton]) if (button && button.hidden !== phone) button.hidden = phone;
     if (phone && !deckMenuButton?.isConnected) {
       deckMenuButton = element('button', '⋯ Deck', 'dblite-deck-more'); deckMenuButton.type = 'button';
       deckMenuButton.title = 'Import, export, clear, set as default, new, rename, delete, save as'; deckMenuButton.setAttribute('aria-haspopup', 'dialog'); deckMenuButton.setAttribute('aria-expanded', 'false');
@@ -3509,10 +3608,37 @@
     area.focus({ preventScroll: true });
   }
   document.addEventListener('pointerdown', e => { if (deckChatPanel && !deckChatPanel.contains(e.target) && e.target !== deckChatButton) closeDeckChat(); });
-  // Opening odds: the chance of opening a starter (and a starter plus an extender) with the deck in the
-  // constructor, from cards marked S (starter) and E (extender). Exact hypergeometric arithmetic over the
-  // Main Deck; 5 cards going first, 6 going second. Marks are kept per deck in this browser.
+  // Opening odds: how stable the deck in the constructor is. Cards get roles (Starter, Non-engine, Brick,
+  // Normal Summon), kept per deck in this browser. The core measure is plays: the most separate starts a hand
+  // makes (a Starter alone, a 🔗 Starter with one of its partners, which that play uses; at most one play needs
+  // the Normal Summon). Every chance is exact multivariate hypergeometric arithmetic over the Main Deck: 5 cards
+  // going first, 6 going second. A condition asks for at least n plays, and at least / exactly / at most n cards
+  // of the other roles; one card fills one need.
   const ODDS_KEY = 'dbetter-deck-odds';
+  // A card's roles carry over between decks: the last roles (and partners) set on it in any deck.
+  const CARD_ROLES_KEY = 'dbetter-card-roles';
+  // [key, name, plural, letter, what it means]
+  const ODDS_ROLES = [
+    ['starters', 'Starter', 'Starters', 'S', 'Starter: one play on its own (with 🔗: together with one of its partners)'],
+    ['handtraps', 'Non-engine', 'Non-engine', 'NE', 'Non-engine: a hand trap or board breaker, it stops or breaks the opponent\'s plays'],
+    ['bricks', 'Brick', 'Bricks', 'B', 'Brick: bad to open (dead alone, or a copy you never want twice)'],
+    ['normals', 'Normal Summon', 'Normal Summons', 'NS', 'Normal Summon: its play uses your one Normal Summon of the turn (only one such play counts)'],
+  ];
+  const ODDS_BUILT_IN = [
+    ['starter', [['starters', 'min', 1]]],
+    ['two', [['starters', 'min', 2]]],
+    ['trap', [['handtraps', 'min', 1]]],
+    ['starter-trap', [['starters', 'min', 1], ['handtraps', 'min', 1]]],
+    ['clean', [['bricks', 'max', 0]]],
+    ['starter-clean', [['starters', 'min', 1], ['bricks', 'max', 0]]],
+    // Two cards that both want the Normal Summon: only one of them plays.
+    ['normal-clash', [['normals', 'min', 2]]],
+  ];
+  // Monsters and Traps used from the hand on the opponent's turn: Ash Blossom, Maxx "C", Effect Veiler, Nibiru,
+  // Infinite Impermanence.
+  // Monsters whose play is their Normal Summon ("If this card is Normal Summoned: You can add ...").
+  const NORMAL_SUMMON_TEXT = /(?:if|when) this card is Normal Summoned/i;
+  const HAND_TRAP_TEXT = /\(Quick Effect\)[^.]*?(?:discard this card|send this card from your hand|reveal this card in your hand|banish this card from your hand|Special Summon this card from your hand)|during (?:your opponent's|either player's) turn[^.]*?(?:discard this card|send this card from your hand)|activate this card from your hand/i;
   let oddsPanel = null, oddsButton = null;
   function oddsMarks() { try { return JSON.parse(localStorage.getItem(ODDS_KEY) || '{}') || {}; } catch { return {}; } }
   function mainDeck() {
@@ -3532,7 +3658,266 @@
     }
     return total ? { starter: starter / total, combo: combo / total, brick: 1 - starter / total, expected: hand * (a + c) / size } : null;
   }
-  function closeOdds() { oddsPanel?.remove(); oddsPanel = null; oddsButton?.setAttribute('aria-expanded', 'false'); }
+  // classes: cards that share the same roles, [{ roles: [key, ...], n }]; the rest of the `size` cards have none.
+  // A two-card starter's class has combo (it starts only with a card of a class whose partnerOf lists that combo,
+  // a card of its own).
+  // rules: lists of [role, 'min' | 'max' | 'exact', n]. Returns each rule list's chance for a hand of `hand`
+  // (null when the hand or the classes do not fit the deck), from every split of the hand over the classes.
+  // Results are kept: the same deck split, hand and rules give the same chances (the score, each row,
+  // each −1/+1 copy and deck size reuse them).
+  const chanceCache = new Map();
+  // Every hand is listed (exact) up to 65,000 hands; beyond, the chances are estimated from 20,000 random hands
+  // (the same seed every time) and the result says so (result.sampled). Decided by the deck alone, never by time,
+  // so a deck always gets the same answer. Measured 0.1–1.6 µs a hand (Node, 2026-11-10): at most about 105 ms.
+  // The user's deck with five 🔗 Starters peaks at 62,434 hands and stays exact; 20 different 🔗 Starters with
+  // their own partners reach 3.8 million hands (7.6 s when listed).
+  const ODDS_EXACT_HANDS = 65000, ODDS_SAMPLED_HANDS = 20000;
+  function handChances(classes, size, hand, rules) {
+    const key = JSON.stringify([classes, size, hand, rules]), kept = chanceCache.get(key);
+    if (kept) return kept;
+    const result = countChances(classes, size, hand, rules);
+    // Kept small: the keys are long, and a big cache made the page pause to free memory.
+    if (chanceCache.size > 3000) chanceCache.clear();
+    chanceCache.set(key, result); return result;
+  }
+  // Binomials up to 64 cards, worked out once.
+  const BINOMIALS = (() => { const t = []; for (let n = 0; n <= 64; n++) { t[n] = [1]; for (let k = 1; k <= n; k++) t[n][k] = t[n - 1][k - 1] + (k < n ? t[n - 1][k] : 0); } return t; })();
+  const binomial = (n, k) => k < 0 || k > n ? 0 : n <= 64 ? BINOMIALS[n][k] : choose(n, k);
+  function countChances(classes, size, hand, rules) {
+    const bits = Object.fromEntries(ODDS_ROLES.map(([key], i) => [key, 1 << i])), STARTER = bits.starters, NORMAL = bits.normals;
+    if (!(size > 0) || hand < 0 || hand > size) return rules.map(() => null);
+    // Each rule once: its "at most" limits, every set of its "at least" needs (Hall's condition), and the needs one by one.
+    const compiled = new Map(), index = rules.map(rule => {
+      const key = JSON.stringify(rule); if (compiled.has(key)) return compiled.get(key).at;
+      const maxes = [], needs = [];
+      for (const [role, op, n] of rule) {
+        const bit = bits[role] || 0;
+        if (op === 'max' || op === 'exact') maxes.push([bit, n]);
+        if ((op === 'min' || op === 'exact') && n > 0) needs.push([bit, n]);
+      }
+      const unions = new Map();
+      for (let m = 1; m < 1 << needs.length; m++) { let union = 0, want = 0; needs.forEach(([bit, n], i) => { if (m >> i & 1) { union |= bit; want += n; } }); unions.set(union, Math.max(want, unions.get(union) || 0)); }
+      compiled.set(key, { at: compiled.size, maxes, hall: [...unions], flat: needs.flatMap(([bit, n]) => Array(n).fill(bit)), needMask: needs.reduce((m, [bit]) => m | bit, 0), known: new Map() });
+      return compiled.get(key).at;
+    });
+    // Only the roles these rules ask about tell cards apart; two-card starters only when a rule needs a Starter.
+    // Cards alike for these rules are counted as one group (with "2+ Starters and 1+ Extender", hand traps and
+    // Bricks are just other cards), so fewer hands need checking.
+    const pairing = [...compiled.values()].some(c => c.needMask & STARTER);
+    // Plays need the Normal Summon role too: only one play may use it.
+    const asked = [...compiled.values()].reduce((m, c) => c.maxes.reduce((x, [bit]) => x | bit, m | c.needMask), 0) | (pairing ? NORMAL : 0);
+    const merged = new Map(); let counted = 0;
+    for (const c of classes) {
+      if (!(c.n > 0)) continue; counted += c.n;
+      const mask = [...new Set(c.roles)].reduce((m, role) => m | (bits[role] || 0), 0) & asked;
+      const combo = pairing && c.combo != null && mask & STARTER ? c.combo : null, partnerOf = pairing && c.partnerOf?.length ? c.partnerOf : null;
+      // A two-card starter counts as a Starter only with a partner: "plain" leaves that role out.
+      const key = mask + '|' + combo + '|' + partnerOf;
+      // "plain" leaves out the Starter role where a play is not sure: a 🔗 Starter, or one using the Normal Summon.
+      const capped = pairing && mask & STARTER && mask & NORMAL ? true : false;
+      const group = merged.get(key) || merged.set(key, { n: 0, mask, plain: combo != null || capped ? mask & ~STARTER : mask, capped, ...combo != null ? { combo } : {}, ...partnerOf ? { partnerOf } : {} }).get(key);
+      group.n += c.n;
+    }
+    const filler = size - counted;
+    if (filler < 0) return rules.map(() => null);
+    const blank = merged.get('0|null|null') || merged.set('0|null|null', { n: 0, mask: 0, plain: 0 }).get('0|null|null');
+    blank.n += filler;
+    // The group of other cards goes last.
+    merged.delete('0|null|null');
+    const groups = [...merged.values(), blank];
+    const paired = groups.some(g => g.combo != null || g.capped);
+    const checks = [...compiled.values()];
+    // Only the role sets the rules ask about are counted in each hand.
+    const used = [...new Set(checks.flatMap(c => [...c.maxes.map(([bit]) => bit), ...c.hall.map(([union]) => union)]))], slot = new Map(used.map((u, i) => [u, i]));
+    for (const c of checks) { c.limits = c.maxes.map(([bit, n]) => [slot.get(bit), n]); c.wants = c.hall.map(([union, want]) => [slot.get(union), want]); }
+    for (const g of groups) { g.hits = used.flatMap((u, i) => g.mask & u ? [i] : []); g.plainHits = used.flatMap((u, i) => g.plain & u ? [i] : []); }
+    const hits = checks.map(() => 0), taken = groups.map(() => 0), inHand = [];
+    const hold = new Int32Array(used.length), holdPlain = new Int32Array(used.length);
+    const hall = (counts, wants) => { for (let i = 0; i < wants.length; i++) if (counts[wants[i][0]] < wants[i][1]) return false; return true; };
+    // The few hands the two quick checks cannot settle: give each need its own card, and each two-card starter a partner.
+    const assign = c => {
+      const cards = []; for (const i of inHand) for (let k = 0; k < taken[i]; k++) cards.push(groups[i]);
+      const used = cards.map(() => false); let summoned = false;
+      const fill = k => {
+        if (k === c.flat.length) return true;
+        const bit = c.flat[k], tried = new Set();
+        for (let i = 0; i < cards.length; i++) {
+          const card = cards[i]; if (used[i] || tried.has(card) || !(card.mask & bit)) continue;
+          // One play per turn may use the Normal Summon.
+          const summon = bit === STARTER && card.capped; if (summon && summoned) continue;
+          tried.add(card); used[i] = true; if (summon) summoned = true;
+          if (bit === STARTER && card.combo != null) {
+            const partners = new Set();
+            for (let j = 0; j < cards.length; j++) {
+              if (used[j] || partners.has(cards[j]) || !cards[j].partnerOf?.includes(card.combo)) continue;
+              partners.add(cards[j]); used[j] = true; if (fill(k + 1)) return true; used[j] = false;
+            }
+          } else if (fill(k + 1)) return true;
+          used[i] = false; if (summon) summoned = false;
+        }
+        return false;
+      };
+      return fill(0);
+    };
+    const count = (g, t) => {
+      for (let i = 0; i < g.hits.length; i++) hold[g.hits[i]] += t;
+      if (paired) for (let i = 0; i < g.plainHits.length; i++) holdPlain[g.plainHits[i]] += t;
+    };
+    // The search's answer depends only on the cards in hand that matter to the rule: two-card starters, partners,
+    // and cards with a role it needs. Each such hand is searched once.
+    const settle = c => {
+      let key = 0;
+      for (let h = 0; h < inHand.length; h++) { const i = inHand[h], g = groups[i]; if (g.combo != null || g.partnerOf || g.capped || g.mask & c.needMask) key = key * 141 + i * 7 + taken[i]; }
+      let ok = c.known.get(key); if (ok === undefined) c.known.set(key, ok = assign(c));
+      return ok;
+    };
+    // When every rule is "at least n plays" (the plays table), each hand's number of plays is worked out once:
+    // between the sure plays and every Starter in hand, searched from the top, kept per hand of relevant cards.
+    const playsOnly = paired && checks.every(c => !c.maxes.length && c.flat.length && c.flat.every(bit => bit === STARTER));
+    const starterSlot = slot.get(STARTER), playsKnown = new Map();
+    // The most separate starts in this hand: each Starter card used or not, a 🔗 one with a partner it uses up,
+    // at most one using the Normal Summon; stops early when the cards left cannot beat the best found.
+    const mostPlays = floor => {
+      const cards = []; for (const i of inHand) for (let k = 0; k < taken[i]; k++) cards.push(groups[i]);
+      const used = cards.map(() => false); let best = floor, summoned = false;
+      const starts = cards.map((card, i) => card.mask & STARTER ? i : -1).filter(i => i >= 0);
+      const walkStarts = (at, plays) => {
+        if (plays > best) best = plays;
+        if (at === starts.length || plays + starts.length - at <= best) return;
+        const i = starts[at], card = cards[i];
+        if (!used[i] && !(card.capped && summoned)) {
+          used[i] = true; if (card.capped) summoned = true;
+          if (card.combo != null) {
+            const partners = new Set();
+            for (let j = 0; j < cards.length; j++) {
+              if (used[j] || partners.has(cards[j]) || !cards[j].partnerOf?.includes(card.combo)) continue;
+              partners.add(cards[j]); used[j] = true; walkStarts(at + 1, plays + 1); used[j] = false;
+            }
+          } else walkStarts(at + 1, plays + 1);
+          used[i] = false; if (card.capped) summoned = false;
+        }
+        walkStarts(at + 1, plays);
+      };
+      walkStarts(0, 0);
+      return best;
+    };
+    const playsIn = () => {
+      const most = hold[starterSlot], sure = holdPlain[starterSlot];
+      if (most === sure) return most;
+      let key = 0;
+      for (let h = 0; h < inHand.length; h++) { const i = inHand[h], g = groups[i]; if (g.mask & STARTER || g.partnerOf) key = key * 141 + i * 7 + taken[i]; }
+      let plays = playsKnown.get(key);
+      if (plays === undefined) playsKnown.set(key, plays = mostPlays(sure));
+      return plays;
+    };
+    const leaf = ways => {
+      if (playsOnly) { const plays = playsIn(); for (let r = 0; r < checks.length; r++) if (plays >= checks[r].flat.length) hits[r] += ways; return; }
+      for (let r = 0; r < checks.length; r++) {
+        const c = checks[r]; let ok = true;
+        for (let i = 0; i < c.limits.length; i++) if (hold[c.limits[i][0]] > c.limits[i][1]) { ok = false; break; }
+        // Necessary: two-card starters counted as plain Starters. Enough: two-card starters not counted as Starters.
+        if (ok) ok = hall(hold, c.wants) && (!paired || hall(holdPlain, c.wants) || settle(c));
+        if (ok) hits[r] += ways;
+      }
+    };
+    const last = groups.length - 1;
+    const walk = (i, left, ways) => {
+      const g = groups[i];
+      if (i === last) {
+        if (left > g.n) return;
+        taken[i] = left; if (left) { inHand.push(i); count(g, left); }
+        leaf(ways * binomial(g.n, left));
+        if (left) { inHand.pop(); count(g, -left); } taken[i] = 0; return;
+      }
+      const top = Math.min(g.n, left);
+      for (let k = 0; k <= top; k++) {
+        taken[i] = k; if (k) { inHand.push(i); count(g, k); }
+        walk(i + 1, left - k, ways * binomial(g.n, k));
+        if (k) { inHand.pop(); count(g, -k); }
+      }
+      taken[i] = 0;
+    };
+    const sample = () => {
+      let seed = 0x2545F491;
+      const random = () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+      const pool = []; groups.forEach((g, i) => { for (let k = 0; k < g.n; k++) pool.push(i); });
+      for (let n = 0; n < ODDS_SAMPLED_HANDS; n++) {
+        for (let k = 0; k < hand; k++) { const j = k + Math.floor(random() * (pool.length - k)); [pool[k], pool[j]] = [pool[j], pool[k]]; taken[pool[k]]++; }
+        for (let i = 0; i < groups.length; i++) if (taken[i]) { inHand.push(i); count(groups[i], taken[i]); }
+        leaf(1);
+        for (const i of inHand) { count(groups[i], -taken[i]); taken[i] = 0; }
+        inHand.length = 0;
+      }
+      const estimate = index.map(at => hits[at] / ODDS_SAMPLED_HANDS); estimate.sampled = ODDS_SAMPLED_HANDS;
+      return estimate;
+    };
+    // How many hands listing would take (counted, not listed).
+    let splits = [1];
+    for (const g of groups) { const next = []; for (let t = 0; t <= hand; t++) { let sum = 0; for (let k = 0; k <= Math.min(g.n, t); k++) sum += splits[t - k] || 0; next[t] = sum; } splits = next; }
+    if (splits[hand] > ODDS_EXACT_HANDS) return sample();
+    walk(0, hand, 1);
+    const total = binomial(size, hand);
+    return index.map(at => hits[at] / total);
+  }
+  // entries: [{ name, n }]; own: the deck's marks. Cards that play the same part make one class: the same
+  // roles, the same two-card combo (own.pairs: a starter → the cards it needs one of) and partners of the
+  // same combos. So "Nervedo needs any Spell/Trap" adds two or three classes, not one per Spell.
+  function oddsClasses(entries, own) {
+    const byKey = new Map(), pairs = own.pairs || {}, here = new Set(entries.map(e => e.name));
+    const rolesOf = name => ODDS_ROLES.map(([key]) => key).filter(key => own[key]?.includes(name));
+    // A starter's combo: its roles and the partners in this deck (none left: a starter that never starts).
+    const comboOf = name => own.starters?.includes(name) && pairs[name]?.length ? rolesOf(name).join() + '>' + pairs[name].filter(p => here.has(p)).sort().join('|') : null;
+    const combos = new Map();
+    for (const { name } of entries) { const combo = comboOf(name); if (combo != null) for (const p of pairs[name]) if (here.has(p)) (combos.get(p) || combos.set(p, new Set()).get(p)).add(combo); }
+    for (const { name, n } of entries) {
+      const roles = rolesOf(name), combo = comboOf(name), partnerOf = [...combos.get(name) || []].sort();
+      if (!(n > 0) || !roles.length && !partnerOf.length) continue;
+      const key = roles.join() + '#' + (combo ?? '') + '#' + partnerOf.join('&');
+      const item = byKey.get(key) || byKey.set(key, { roles, n: 0, ...combo != null ? { combo } : {}, ...partnerOf.length ? { partnerOf } : {} }).get(key);
+      item.n += n;
+    }
+    return [...byKey.values()];
+  }
+  function ruleText(rule) {
+    // "1+ play and 1+ play" is "2+ plays": at-least parts of one role add up.
+    const parts = [];
+    for (const [role, op, n] of rule) { const same = op === 'min' && parts.find(p => p[0] === role && p[1] === 'min'); if (same) same[2] += n; else parts.push([role, op, n]); }
+    return parts.map(([role, op, n]) => {
+      if (role === 'starters' && op === 'min') return n === 1 ? '1+ play' : `${n}+ plays`;
+      const [, one, many] = ODDS_ROLES.find(([key]) => key === role) || [role, role, role];
+      if (op === 'max') return n ? `at most ${n} ${n === 1 ? one : many}` : `no ${one}`;
+      if (op === 'exact') return `exactly ${n} ${n === 1 ? one : many}`;
+      return n === 1 ? `1+ ${one}` : `${n}+ ${many}`;
+    }).join(' and ').replace(/^./, c => c.toUpperCase());
+  }
+  const oddsGrade = p => p >= .95 ? [5, 'very stable'] : p >= .9 ? [4, 'stable'] : p >= .8 ? [3, 'fair'] : p >= .65 ? [2, 'shaky'] : [1, 'bricky'];
+  let oddsWatch = 0;
+  function closeOdds() {
+    clearInterval(oddsWatch); oddsWatch = 0;
+    oddsPanel?.remove(); oddsPanel = null; oddsButton?.setAttribute('aria-expanded', 'false');
+    document.querySelectorAll('.dblite-odds-badge').forEach(n => n.remove());
+    document.getElementById('deck_constructor')?.classList.remove('dblite-odds-open');
+  }
+  // The menu takes the place of the search panel (its search and results), so the deck stays in view;
+  // without one (phones, narrow windows) it opens beside the button.
+  function oddsDock() {
+    const search = document.querySelector('#deck_constructor .dblite-builder-search'), results = document.querySelector('#deck_constructor .dblite-results-bg');
+    const rects = [search, results].filter(n => n?.offsetParent).map(n => n.getBoundingClientRect()).filter(r => r.width > 0);
+    if (!rects.length) return null;
+    const left = Math.min(...rects.map(r => r.left)), top = Math.min(...rects.map(r => r.top)), right = Math.max(...rects.map(r => r.right)), bottom = Math.max(...rects.map(r => r.bottom));
+    return right - left >= 360 && bottom - top >= 360 ? { left, top, width: right - left, height: bottom - top } : null;
+  }
+  function placeOdds(panel) {
+    const dock = phoneLayout() ? null : oddsDock();
+    panel.classList.toggle('dblite-odds-docked', !!dock);
+    if (dock) {
+      const left = Math.max(8, dock.left), top = Math.max(8, dock.top), right = Math.min(innerWidth - 8, dock.left + dock.width), bottom = Math.min(innerHeight - 8, dock.top + dock.height);
+      Object.assign(panel.style, { left: left + 'px', top: top + 'px', width: right - left + 'px', height: bottom - top + 'px' }); return;
+    }
+    Object.assign(panel.style, { width: '', height: '' });
+    const r = anchorRect(oddsButton), width = panel.offsetWidth || 460;
+    panel.style.left = Math.max(8, Math.min(r.right, innerWidth - width - 8)) + 'px'; panel.style.top = Math.max(8, Math.min(r.top, innerHeight - panel.offsetHeight - 8)) + 'px';
+  }
   function showOdds() {
     if (oddsPanel) { closeOdds(); return; }
     const name = window.deck?.data || 'This deck';
@@ -3541,59 +3926,306 @@
     panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Opening odds'); oddsButton.setAttribute('aria-expanded', 'true');
     const header = element('header'), close = element('button', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close opening odds'); close.onclick = () => { closeOdds(); oddsButton.focus(); };
     header.append(element('strong', 'Opening odds · ' + name), close);
-    const summary = element('div', '', 'dblite-odds-summary'), list = element('div', '', 'dblite-odds-list');
-    const tools = element('div', '', 'dblite-odds-tools'), suggest = element('button', 'Suggest starters'), clear = element('button', 'Clear marks');
+    const score = element('div', '', 'dblite-odds-score'), summary = element('div', '', 'dblite-odds-summary');
+    const tools = element('div', '', 'dblite-odds-tools'), suggest = element('button', 'Suggest roles'), clear = element('button', 'Clear roles');
     suggest.type = clear.type = 'button';
-    suggest.title = 'Mark as starters the deck cards that search or Special Summon another card of this deck from the Deck';
+    suggest.title = 'Cards you gave roles in other decks keep those roles. For the others: mark as Starters the deck cards that search or Special Summon another card of this deck from the Deck, as Non-engine the hand traps (cards used from the hand on the opponent\'s turn), and as Normal Summons the monsters with an effect when Normal Summoned';
     tools.append(suggest, clear);
-    panel.append(header, summary, tools, list);
-    const deck = mainDeck(), counts = new Map();
-    for (const card of deck) counts.set(card.name, { card, n: (counts.get(card.name)?.n || 0) + 1 });
-    const marks = oddsMarks(), own = marks[name] ||= { starters: [], extenders: [] };
-    const save = () => { const all = oddsMarks(); all[name] = own; try { localStorage.setItem(ODDS_KEY, JSON.stringify(all)); } catch {} };
+    const builder = element('details', '', 'dblite-odds-builder'), list = element('div', '', 'dblite-odds-list'), size = element('p', '', 'dblite-odds-size');
+    const sample = element('div', '', 'dblite-odds-sample');
+    const section = text => element('h3', text, 'dblite-odds-heading');
+    // Two tabs under the score: the odds, and the cards with their roles.
+    const tabs = element('div', '', 'dblite-odds-tabs'), oddsTab = element('div', '', 'dblite-odds-pane'), cardsTab = element('div', '', 'dblite-odds-pane');
+    tabs.setAttribute('role', 'tablist');
+    const tabButtons = [['Odds', oddsTab], ['Cards and roles', cardsTab]].map(([text, pane]) => {
+      const button = element('button', text); button.type = 'button'; button.setAttribute('role', 'tab');
+      button.onclick = () => { showTab(pane); update(); }; tabs.append(button); return [button, pane];
+    });
+    const showTab = pane => tabButtons.forEach(([button, p]) => { p.hidden = p !== pane; button.setAttribute('aria-selected', String(p === pane)); });
+    const plays = element('div', '', 'dblite-odds-plays');
+    oddsTab.append(section('Plays in hand'), plays, section('Conditions'), summary, builder, section('Deck size'), size, section('Sample hand'), sample);
+    const cardsHint = element('p', 'S Starter · NE Non-engine (hand trap or board breaker) · B Brick · NS Normal Summon. 🔗 a Starter that needs another card in hand: give it the cards that make it a play. −1 / +1 copy: what one copy fewer or more does to the stability, in points (at 40 cards, −1 swaps that copy for a card without a role; +1 only below 60 cards). The deck shows each card\'s roles while this menu is open.', 'dblite-odds-note');
+    const carriedBox = element('div');
+    cardsTab.append(tools, cardsHint, carriedBox, list);
+    panel.append(header, score, tabs, oddsTab, cardsTab);
+    let deck = [], counts = new Map();
+    const readDeck = () => { deck = mainDeck(); counts = new Map(); for (const card of deck) counts.set(card.name, { card, n: (counts.get(card.name)?.n || 0) + 1 }); };
+    readDeck();
+    const marks = oddsMarks(), own = marks[name] ||= {};
+    for (const [key] of ODDS_ROLES) own[key] = Array.isArray(own[key]) ? own[key] : [];
+    own.pairs = own.pairs && typeof own.pairs === 'object' ? own.pairs : {};
+    own.conditions = (Array.isArray(own.conditions) ? own.conditions : []).filter(c => Array.isArray(c?.rule) && c.rule.every(([role, op]) => ODDS_ROLES.some(([key]) => key === role) && (role !== 'starters' || op === 'min')));
+    // Cards this deck has its own roles for; the others take the roles they have in your other decks.
+    const known = new Set(Array.isArray(own.known) ? own.known : [...ODDS_ROLES.flatMap(([key]) => own[key]), ...Object.keys(own.pairs)]);
+    const library = () => { try { return JSON.parse(localStorage.getItem(CARD_ROLES_KEY) || '{}') || {}; } catch { return {}; } };
+    const takeFrom = (lib, cardName) => {
+      const entry = lib[cardName]; if (!entry) return false;
+      for (const [key] of ODDS_ROLES) if (entry.roles?.includes(key) && !own[key].includes(cardName)) own[key] = [...own[key], cardName];
+      if (entry.pairs?.length) own.pairs[cardName] = [...entry.pairs];
+      return true;
+    };
+    const save = () => {
+      const all = oddsMarks(); for (const cardName of counts.keys()) known.add(cardName);
+      own.known = [...known]; all[name] = own;
+      try { localStorage.setItem(ODDS_KEY, JSON.stringify(all)); } catch { /* Kept for this page. */ }
+    };
+    // Roles you set yourself become the card's roles for your other decks.
+    const remember = cardName => {
+      const lib = library(), roles = ODDS_ROLES.map(([key]) => key).filter(key => own[key].includes(cardName));
+      if (roles.length || own.pairs[cardName]) lib[cardName] = { roles, ...own.pairs[cardName] ? { pairs: own.pairs[cardName] } : {} }; else delete lib[cardName];
+      try { localStorage.setItem(CARD_ROLES_KEY, JSON.stringify(lib)); } catch { /* This deck keeps them. */ }
+    };
+    // New cards in the deck take their roles from your other decks.
+    const carryOver = () => {
+      const lib = library(); let carried = 0;
+      for (const cardName of counts.keys()) if (!known.has(cardName) && takeFrom(lib, cardName)) carried++;
+      if (carried) { save(); carriedBox.replaceChildren(element('p', `Roles of ${carried} card${carried === 1 ? '' : 's'} taken from your other decks.`, 'dblite-odds-note')); }
+    };
+    carryOver();
     const pct = value => value == null ? '–' : (value * 100).toFixed(1).replace(/\.0$/, '') + '%';
-    function update() {
-    if (window.DBETTERRebuilding) return;
-      const size = deck.length, isS = n => own.starters.includes(n), isE = n => own.extenders.includes(n);
-      let a = 0, b = 0, c = 0;
-      for (const { card, n } of counts.values()) { if (isS(card.name) && isE(card.name)) c += n; else if (isS(card.name)) a += n; else if (isE(card.name)) b += n; }
-      const first = openingOdds(size, a, b, c, 5), second = openingOdds(size, a, b, c, 6);
-      summary.replaceChildren();
-      if (!size) { summary.textContent = 'Put cards in the Main Deck first.'; return; }
-      const table = element('table'), head = element('tr');
-      head.append(element('th', `${size} cards · ${a + c} starters · ${b + c} extenders`), element('th', 'First (5)'), element('th', 'Second (6)'));
-      table.append(head);
-      for (const [label, key] of [['At least 1 starter', 'starter'], ['Starter + extender', 'combo'], ['No starter', 'brick'], ['Starters in hand', 'expected']]) {
-        const row = element('tr');
-        row.append(element('td', label), element('td', key === 'expected' ? (first?.expected ?? 0).toFixed(2) : pct(first?.[key])), element('td', key === 'expected' ? (second?.expected ?? 0).toFixed(2) : pct(second?.[key])));
-        table.append(row);
+    const points = value => (value > 0 ? '+' : value < 0 ? '−' : '±') + Math.abs(value * 100).toFixed(1);
+    const rules = () => [...ODDS_BUILT_IN.map(([id, rule]) => ({ id, rule })), ...own.conditions.filter(c => Array.isArray(c?.rule) && c.rule.length)];
+    const scoreRule = () => rules().find(r => r.id === own.score) || rules()[0];
+    const entries = () => [...counts.values()].map(({ card, n }) => ({ name: card.name, n }));
+    // The score: the chosen condition, going first and second (the average of both).
+    const stability = (list = entries(), extra = 0) => {
+      const n = list.reduce((sum, e) => sum + e.n, 0) + extra, classes = oddsClasses(list, own), rule = [scoreRule().rule];
+      const five = handChances(classes, n, 5, rule), six = handChances(classes, n, 6, rule), first = five[0], second = six[0];
+      return first == null || second == null ? null : { first, second, both: (first + second) / 2, sampled: five.sampled || six.sampled };
+    };
+    const roleOf = cardName => ODDS_ROLES.filter(([key]) => own[key].includes(cardName));
+    // Each card of the deck shows its roles (S, E, H, B, N, 🔗) while the menu is open.
+    let badgeCount = 0, badgeScale = '';
+    function paintBadges() {
+      document.querySelectorAll('.dblite-odds-badge').forEach(n => n.remove()); badgeCount = 0;
+      for (const node of document.querySelectorAll('.deck_cards .cardfront')) {
+        const cardName = window.jQuery?.(node).data('name'); if (!cardName || !counts.has(cardName)) continue;
+        const text = [...roleOf(cardName).map(([, , , letter]) => letter), ...own.pairs[cardName]?.length && own.starters.includes(cardName) ? ['🔗'] : []].join(' ');
+        if (!text) continue;
+        // DuelingBook draws deck cards large and scales them down: the badge undoes that scale.
+        const badge = element('span', text, 'dblite-odds-badge'), m = /matrix\(([^)]+)\)/.exec(getComputedStyle(node).transform)?.[1].split(',').map(Number);
+        const sx = m?.[0] > 0 ? m[0] : 1, sy = m?.[3] > 0 ? m[3] : 1; badgeScale = String(sx);
+        Object.assign(badge.style, { transform: `scale(${1 / sx}, ${1 / sy})`, left: 2 / sx + 'px', top: 2 / sy + 'px' });
+        node.append(badge); badgeCount++;
       }
+    }
+    // A click shows at once (buttons, badges); the numbers follow once the page has drawn it, one piece at a
+    // time: the score (one rule), then what the open tab shows (the table and deck size, or each card's −1/+1),
+    // then the rest. A newer click cancels older work.
+    let updateRun = 0;
+    function update() {
+      if (window.DBETTERRebuilding) return;
+      const run = ++updateRun, current = () => run === updateRun && oddsPanel === panel;
+      paintBadges(); panel.classList.add('dblite-odds-busy', 'dblite-odds-table-busy'); delete panel.dataset.settled;
+      for (const row of list.children) if (row.refresh) row.dataset.stale = '';
+      const rows = [...list.children].filter(row => row.refresh).map(row => row.refresh), odds = [refreshPlays, refreshTable, refreshSize];
+      const tasks = [refreshScore, ...oddsTab.hidden ? [...rows, ...odds] : [...odds, ...rows]];
+      const step = () => setTimeout(() => { if (!current()) return; tasks.shift()(); if (tasks.length) step(); else panel.dataset.settled = ''; }, 0);
+      requestAnimationFrame(step);
+    }
+    const roleCount = key => [...counts.values()].reduce((sum, { card, n }) => sum + (own[key].includes(card.name) ? n : 0), 0);
+    function refreshScore() {
+      const total = deck.length, classes = oddsClasses(entries(), own), chosen = scoreRule();
+      score.replaceChildren(); panel.classList.remove('dblite-odds-busy');
+      if (!total) { score.textContent = 'Put cards in the Main Deck first.'; summary.replaceChildren(); size.replaceChildren(); return; }
+      const now = stability();
+      if (!now) { score.append(element('p', `The Main Deck needs at least 6 cards for these odds (now ${total}).`, 'dblite-odds-note')); return; }
+      if (!classes.some(c => c.roles.length)) score.append(element('p', 'Mark each card’s role in Cards and roles (S Starter, NE Non-engine, B Brick, NS Normal Summon), or press Suggest roles there.', 'dblite-odds-note'));
+      else {
+        const [dots, word] = oddsGrade(now.both), big = element('strong', (now.sampled ? '≈' : '') + pct(now.both));
+        const meter = element('span', '●'.repeat(dots) + '○'.repeat(5 - dots), 'dblite-odds-dots'); meter.setAttribute('aria-hidden', 'true');
+        score.append(big, meter, element('span', `${word} · first ${pct(now.first)} · second ${pct(now.second)}`), element('small', `Stability: the chance of “${ruleText(chosen.rule)}” (★), going first and second.` + (now.sampled ? ` ≈ Estimated from ${now.sampled.toLocaleString('en')} random hands: with this many different 🔗 Starters, listing every hand would freeze the page.` : '')));
+        score.dataset.grade = dots;
+      }
+    }
+    function refreshTable() {
+      const total = deck.length, classes = oddsClasses(entries(), own), chosen = scoreRule();
+      summary.replaceChildren(); panel.classList.remove('dblite-odds-table-busy');
+      if (!total) return;
+      // Rule by rule: each one then only tells apart the cards it asks about, and each result is kept.
+      const shown = rules().filter(item => own.conditions.includes(item) || item.id === 'starter' || !item.rule.some(([role]) => !roleCount(role)));
+      const shownPct = result => result[0] == null ? '–' : (result.sampled ? '≈' : '') + pct(result[0]);
+      const [firsts, seconds] = [5, 6].map(hand => shown.map(item => shownPct(handChances(classes, total, hand, [item.rule]))));
+      const table = element('table'), head = element('tr');
+      head.append(element('th', ''), element('th', `${total} cards · ` + ODDS_ROLES.map(([key, one, many]) => { const n = roleCount(key); return `${n} ${n === 1 ? one : many}`.toLowerCase(); }).join(' · ')), element('th', 'First (5)'), element('th', 'Second (6)'));
+      table.append(head);
+      shown.forEach((item, i) => {
+        const custom = own.conditions.includes(item);
+        const row = element('tr'), star = element('button', item.id === chosen.id ? '★' : '☆', 'dblite-odds-star'), label = element('td', ruleText(item.rule));
+        star.type = 'button'; star.title = 'Use this condition for the stability score'; star.setAttribute('aria-pressed', String(item.id === chosen.id));
+        star.onclick = () => { own.score = item.id; save(); update(); };
+        const pick = element('td'); pick.append(star);
+        if (custom) { const remove = element('button', '×', 'dblite-odds-remove'); remove.type = 'button'; remove.title = 'Remove this condition'; remove.onclick = () => { own.conditions = own.conditions.filter(c => c !== item); if (own.score === item.id) delete own.score; save(); update(); }; label.append(' ', remove); }
+        row.append(pick, label, element('td', firsts[i]), element('td', seconds[i]));
+        table.append(row);
+      });
       summary.append(table);
+      const average = ODDS_ROLES.filter(([key]) => roleCount(key)).map(([key, , many]) => `${many} ${(5 * roleCount(key) / total).toFixed(2)} / ${(6 * roleCount(key) / total).toFixed(2)}`);
+      if (average.length) summary.append(element('p', 'In hand on average (first / second): ' + average.join(' · '), 'dblite-odds-note'));
     }
+    // Plays in hand: 0 (a brick), 1, 2, 3+, and the average, from "at least n plays" for each n.
+    function refreshPlays() {
+      const total = deck.length; plays.replaceChildren(); if (total < 6) return;
+      const classes = oddsClasses(entries(), own);
+      const counted = hand => handChances(classes, total, hand, Array.from({ length: hand }, (_, k) => [['starters', 'min', k + 1]]));
+      const [five, six] = [counted(5), counted(6)], first = [1, ...five], second = [1, ...six], about = five.sampled || six.sampled ? '≈' : '';
+      const table = element('table'), head = element('tr'); head.append(element('th', ''), element('th', 'Plays'), element('th', 'First (5)'), element('th', 'Second (6)')); table.append(head);
+      const line = (label, a, b, text = pct) => { const row = element('tr'); row.append(element('td'), element('td', label), element('td', about + text(a)), element('td', about + text(b))); table.append(row); };
+      line('No play (brick)', 1 - first[1], 1 - second[1]);
+      line('1 play', first[1] - first[2], second[1] - second[2]);
+      line('2 plays', first[2] - first[3], second[2] - second[3]);
+      line('3+ plays', first[3], second[3]);
+      line('Average', first.slice(1).reduce((a, b) => a + b, 0), second.slice(1).reduce((a, b) => a + b, 0), v => v.toFixed(2));
+      plays.append(table, element('p', 'A play: a Starter alone, or a 🔗 Starter with one of its partners (that play uses the partner). Only one play may use the Normal Summon.', 'dblite-odds-note'));
+    }
+    // Deck size: role-less cards are the ones added or cut.
+    function refreshSize() {
+      const total = deck.length; if (!total) return;
+      const blanks = total - oddsClasses(entries(), own).reduce((sum, c) => sum + c.n, 0), sizes = [];
+      for (let n = Math.max(40, total - blanks); n <= Math.min(60, Math.max(total + 5, 45)); n++) sizes.push(n);
+      const line = sizes.map(n => { const s = stability(entries(), n - total); return s ? `${n}: ${pct(s.both)}` : ''; }).filter(Boolean);
+      size.replaceChildren(element('span', line.join(' · ')), element('small', ` Cards without a role added or cut; now ${total}.`));
+    }
+    let openPicker = null;
     function row({ card, n }) {
-      const line = element('div', '', 'dblite-odds-row'), label = element('span', `${n} × ${card.name}`), s = element('button', 'S'), e = element('button', 'E');
-      s.type = e.type = 'button'; s.title = 'Starter: opening with it alone starts your play'; e.title = 'Extender: adds to a starter';
-      const sync = () => { s.setAttribute('aria-pressed', String(own.starters.includes(card.name))); e.setAttribute('aria-pressed', String(own.extenders.includes(card.name))); };
-      const toggle = (key) => { const set = new Set(own[key]); if (set.has(card.name)) set.delete(card.name); else set.add(card.name); own[key] = [...set]; save(); sync(); update(); };
-      s.onclick = () => toggle('starters'); e.onclick = () => toggle('extenders');
+      const line = element('div', '', 'dblite-odds-row'), label = element('span', `${n} × ${card.name}`), cut = element('small'), add = element('small');
+      const needsLine = element('em', '', 'dblite-odds-needs');
+      const buttons = ODDS_ROLES.map(([key, , , letter, title]) => {
+        const button = element('button', letter); button.type = 'button'; button.title = title; button.dataset.role = key;
+        button.onclick = () => { const set = new Set(own[key]); if (set.has(card.name)) set.delete(card.name); else set.add(card.name); own[key] = [...set]; save(); remember(card.name); sync(); update(); };
+        return button;
+      });
+      // A two-card starter: pick the cards it needs one of in the hand (another copy of itself included).
+      const pair = element('button', '🔗', 'dblite-odds-pair'); pair.type = 'button'; pair.title = 'Starter only with another card in hand: pick the cards it needs one of';
+      const picker = element('div', '', 'dblite-odds-picker'); picker.hidden = true;
+      const choices = () => [...counts.values()].filter(other => other.card.name !== card.name || other.n > 1).map(other => other.card);
+      const setPartners = names => {
+        if (names.size) { own.pairs[card.name] = [...names]; if (!own.starters.includes(card.name)) own.starters = [...own.starters, card.name]; } else delete own.pairs[card.name];
+        save(); remember(card.name); sync(); update(); drawPicker();
+      };
+      // Whole groups at once: "needs a Spell/Trap", "needs another Artmage monster".
+      function drawPicker() {
+        const chosen = new Set(own.pairs[card.name] || []), all = choices();
+        const groups = [['Spells/Traps', c => /Spell|Trap/.test(c.card_type || '')], ['Monsters', c => /Monster/.test(c.card_type || '')]];
+        for (const archetype of archetypesOf(card)) groups.push([`“${archetype}” cards`, c => archetypesOf(c).includes(archetype)], [`“${archetype}” monsters`, c => /Monster/.test(c.card_type || '') && archetypesOf(c).includes(archetype)]);
+        const chip = (text, names, cls) => {
+          const button = element('button', text, cls); button.type = 'button';
+          const on = names.length && names.every(n => chosen.has(n)); button.setAttribute('aria-pressed', String(!!on));
+          button.title = names.map(n => n === card.name ? 'another copy' : n).join(', ');
+          button.onclick = () => { const next = new Set(chosen); for (const n of names) on ? next.delete(n) : next.add(n); setPartners(next); };
+          return button;
+        };
+        picker.replaceChildren(element('small', `${card.name} starts only with one of these in hand. The partner is used by that play: it does not count as a second start.`));
+        for (const [text, test] of groups) { const names = all.filter(test).map(c => c.name); if (names.length) picker.append(chip('All ' + text, names, 'dblite-odds-group')); }
+        for (const other of all) picker.append(chip(other.name === card.name ? 'another copy' : other.name, [other.name]));
+      }
+      pair.onclick = () => {
+        if (!picker.hidden) { picker.hidden = true; openPicker = null; return; }
+        if (openPicker && openPicker !== picker) openPicker.hidden = true;
+        openPicker = picker; picker.hidden = false; drawPicker();
+      };
+      const sync = () => {
+        buttons.forEach(b => b.setAttribute('aria-pressed', String(own[b.dataset.role].includes(card.name))));
+        const needs = own.pairs[card.name]?.filter(p => counts.has(p)) || [];
+        pair.setAttribute('aria-pressed', String(!!needs.length));
+        needsLine.textContent = needs.length ? 'needs 1 of: ' + needs.map(p => p === card.name ? 'another copy' : p).join(', ') + (own.starters.includes(card.name) ? '' : ' (when marked S)') : '';
+        needsLine.hidden = !needs.length;
+      };
+      line.refresh = () => {
+        const base = stability(); if (!base) { cut.textContent = add.textContent = ''; delete line.dataset.stale; return; }
+        const changed = (d, extra = 0) => stability(entries().map(e => e.name === card.name ? { ...e, n: e.n + d } : e), extra);
+        // A deck has 40 to 60 cards: at 40, a copy out is swapped for a card without a role.
+        const swap = deck.length <= 40, less = changed(-1, swap ? 1 : 0), more = n < 3 && deck.length < 60 ? changed(1) : null;
+        cut.textContent = less ? points(less.both - base.both) : ''; cut.title = less ? (swap ? `One copy swapped for a card without a role: stability ${pct(less.both)}` : `With ${n - 1} (${deck.length - 1} cards): stability ${pct(less.both)}`) : '';
+        add.textContent = more ? points(more.both - base.both) : ''; add.title = more ? `With ${n + 1} (${deck.length + 1} cards): stability ${pct(more.both)}` : '';
+        for (const [node, value] of [[cut, less], [add, more]]) node.dataset.trend = !value ? '' : value.both - base.both > 5e-4 ? 'up' : value.both - base.both < -5e-4 ? 'down' : '';
+        delete line.dataset.stale;
+      };
       label.addEventListener('mouseenter', () => { if (typeof window.previewFront === 'function' && window.jQuery) window.previewFront(window.jQuery('<div>').data({ ...card, effect: card.effect || '', pendulum_effect: card.pendulum_effect || '' })); });
-      line.append(s, e, label); sync(); return line;
+      line.append(...buttons, pair, label, cut, add, needsLine, picker); sync(); return line;
     }
-    const render = () => { list.replaceChildren(...[...counts.values()].map(row)); update(); };
+    function render() {
+      const head = element('div', '', 'dblite-odds-row dblite-odds-row-head'); head.append(...ODDS_ROLES.map(([, , , letter]) => element('span', letter)), element('span', '🔗'), element('span', 'Card'), element('span', '−1 copy'), element('span', '+1 copy'));
+      openPicker = null; list.replaceChildren(head, ...[...counts.values()].map(row)); renderBuilder(); update();
+    }
+    // A new condition: up to 4 parts, each at least / exactly / at most n cards of a role.
+    function renderBuilder() {
+      const parts = [], rowsBox = element('div'), add = element('button', '+ and'), done = element('button', 'Add condition');
+      add.type = done.type = 'button';
+      const part = () => {
+        const line = element('div', '', 'dblite-odds-part'), op = element('select'), n = element('input'), role = element('select');
+        for (const [value, text] of [['min', 'at least'], ['exact', 'exactly'], ['max', 'at most']]) op.append(new Option(text, value));
+        for (const [key, one] of ODDS_ROLES) role.append(new Option(key === 'starters' ? 'Plays' : one, key));
+        n.type = 'number'; n.min = 0; n.max = 6; n.value = 1; op.setAttribute('aria-label', 'How many'); n.setAttribute('aria-label', 'Number of cards'); role.setAttribute('aria-label', 'Role');
+        // Plays are counted "at least": a hand with 3 plays also has 2.
+        const lock = () => { const plays = role.value === 'starters'; if (plays) op.value = 'min'; op.disabled = plays; };
+        role.onchange = lock; lock();
+        line.append(op, n, role); rowsBox.append(line); parts.push({ op, n, role }); add.disabled = parts.length >= 4;
+      };
+      add.onclick = part;
+      done.onclick = () => {
+        const rule = parts.map(({ op, n, role }) => [role.value, op.value, Math.max(0, Math.min(6, Math.round(Number(n.value)) || 0))]);
+        own.conditions.push({ id: 'own-' + Date.now().toString(36), rule }); save(); renderBuilder(); update();
+      };
+      part();
+      const actions = element('div', '', 'dblite-odds-tools'); actions.append(add, done);
+      builder.replaceChildren(element('summary', 'Add your own condition'), rowsBox, actions);
+    }
+    // A random opening hand from the deck, with its roles and whether it meets the score's condition.
+    const draw = hand => {
+      const pool = [...deck];
+      for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+      const cards = pool.slice(0, hand), names = new Map();
+      for (const card of cards) names.set(card.name, (names.get(card.name) || 0) + 1);
+      const ok = handChances(oddsClasses([...names].map(([n, c]) => ({ name: n, n: c })), own), cards.length, cards.length, [scoreRule().rule])[0] === 1;
+      const out = element('ul');
+      for (const card of cards) { const item = element('li', card.name); const tags = roleOf(card.name).map(([, , , letter]) => letter).join(' '); if (tags) item.append(element('b', ' ' + tags)); out.append(item); }
+      const handClasses = oddsClasses([...names].map(([n, c]) => ({ name: n, n: c })), own); let count = 0;
+      while (count < cards.length && handChances(handClasses, cards.length, cards.length, [[['starters', 'min', count + 1]]])[0] === 1) count++;
+      sampleResult.replaceChildren(element('p', (ok ? '✓ ' : '✗ ') + (ok ? 'Meets' : 'Misses') + ` “${ruleText(scoreRule().rule)}” · ${count} play${count === 1 ? '' : 's'}`, ok ? 'dblite-odds-ok' : 'dblite-odds-miss'), out);
+    };
+    const sampleTools = element('div', '', 'dblite-odds-tools'), sampleResult = element('div');
+    for (const hand of [5, 6]) { const b = element('button', `Draw ${hand} (${hand === 5 ? 'first' : 'second'})`); b.type = 'button'; b.onclick = () => deck.length >= hand && draw(hand); sampleTools.append(b); }
+    sample.append(sampleTools, sampleResult);
     suggest.onclick = () => {
-      const names = new Set(own.starters), cards = [...counts.values()].map(item => item.card);
+      const starters = new Set(own.starters), traps = new Set(own.handtraps), normals = new Set(own.normals), cards = [...counts.values()].map(item => item.card);
       // Searches and summons only: sending to the GY or Setting is rarely a play on its own.
       const starting = new Set(['add', 'summon']);
-      for (const card of cards) if (cards.some(other => other.name !== card.name && relatedRank(card, other, 'access', starting) < Infinity)) names.add(card.name);
-      own.starters = [...names]; save(); render();
+      const lib = library(), fromDecks = new Set(cards.filter(card => lib[card.name]).map(card => card.name));
+      for (const cardName of fromDecks) for (const [key] of ODDS_ROLES) own[key] = own[key].filter(n => n !== cardName);
+      for (const card of cards) {
+        if (fromDecks.has(card.name)) { takeFrom(lib, card.name); continue; }
+        if (/Monster/.test(card.card_type || '') && NORMAL_SUMMON_TEXT.test(card.effect || '')) normals.add(card.name);
+        if (/Monster|Trap/.test(card.card_type || '') && HAND_TRAP_TEXT.test(card.effect || '')) traps.add(card.name);
+        else if (cards.some(other => other.name !== card.name && relatedRank(card, other, 'access', starting) < Infinity)) starters.add(card.name);
+      }
+      const fresh = (set, key) => [...new Set([...[...set].filter(n => !fromDecks.has(n)), ...own[key].filter(n => fromDecks.has(n))])];
+      own.starters = fresh(starters, 'starters'); own.handtraps = fresh(traps, 'handtraps'); own.normals = fresh(normals, 'normals'); save(); render();
     };
-    clear.onclick = () => { own.starters = []; own.extenders = []; save(); render(); };
+    clear.onclick = () => { for (const [key] of ODDS_ROLES) own[key] = []; own.pairs = {}; save(); render(); };
     render();
-    for (const type of ['keydown', 'keyup', 'mousedown', 'click']) panel.addEventListener(type, event => { event.stopPropagation(); if (type === 'keydown' && event.key === 'Escape') { event.preventDefault(); closeOdds(); oddsButton.focus(); } });
+    showTab(ODDS_ROLES.some(([key]) => own[key].length) ? oddsTab : cardsTab);
+    for (const type of ['keydown', 'keyup', 'keypress', 'mousedown', 'click', 'wheel']) panel.addEventListener(type, event => { event.stopPropagation(); if (type === 'keydown' && event.key === 'Escape') { event.preventDefault(); closeOdds(); oddsButton.focus(); } });
     document.body.append(panel);
-    const r = anchorRect(oddsButton); panel.style.left = Math.max(8, Math.min(r.right, innerWidth - 328)) + 'px'; panel.style.top = Math.max(8, Math.min(r.top, innerHeight - panel.offsetHeight - 8)) + 'px';
+    document.getElementById('deck_constructor')?.classList.add('dblite-odds-open');
+    placeOdds(panel);
+    let resizing = 0; const onResize = () => { clearTimeout(resizing); resizing = setTimeout(() => oddsPanel === panel ? placeOdds(panel) : removeEventListener('resize', onResize), 150); };
+    addEventListener('resize', onResize);
+    // The menu follows the deck as you build it, and the window as it resizes.
+    let seen = deck.map(c => c.name).join('\n');
+    oddsWatch = setInterval(() => {
+      if (oddsPanel !== panel) return;
+      if (!panel.isConnected || window.currentLabel !== 'deck_constructor' || (window.deck?.data || 'This deck') !== name) { closeOdds(); return; }
+      const now = mainDeck().map(c => c.name).join('\n');
+      if (now !== seen) { seen = now; readDeck(); carryOver(); render(); }
+      else {
+        const first = document.querySelector('.deck_cards .dblite-odds-badge')?.parentElement, m = first && /matrix\(([^)]+)\)/.exec(getComputedStyle(first).transform)?.[1].split(',')[0];
+        if (document.querySelectorAll('.deck_cards .dblite-odds-badge').length !== badgeCount || first && String(Number(m)) !== badgeScale) paintBadges();
+      }
+    }, 700);
   }
-  document.addEventListener('pointerdown', e => { if (oddsPanel && !oddsPanel.contains(e.target) && e.target !== oddsButton) closeOdds(); });
+  // A floating menu closes on a click outside it; the docked one stays while you build the deck.
+  document.addEventListener('pointerdown', e => { if (oddsPanel && !oddsPanel.classList.contains('dblite-odds-docked') && !oddsPanel.contains(e.target) && e.target !== oddsButton) closeOdds(); });
   function soloControls() {
     const root = document.getElementById('deck_constructor'); if (!root || soloButton) return;
     const wrap = element('div', '', 'dblite-solo-launch'); soloButton = element('button', 'Solo'); soloButton.type = 'button';
@@ -3633,11 +4265,14 @@
     deckChatButton.setAttribute('aria-label', 'Quick chat messages for this deck'); deckChatButton.title = 'Quick chat messages for this deck'; deckChatButton.setAttribute('aria-expanded', 'false'); deckChatButton.onclick = showDeckChat;
     oddsButton = element('button', '🎲', 'dblite-solo-gear dblite-odds-button'); oddsButton.type = 'button';
     oddsButton.setAttribute('aria-label', 'Opening odds for this deck'); oddsButton.title = 'Opening odds: the chance of opening a starter with this deck'; oddsButton.setAttribute('aria-expanded', 'false'); oddsButton.onclick = showOdds;
+    sidingButton = element('button', '⇄', 'dblite-solo-gear dblite-siding-button'); sidingButton.type = 'button';
+    sidingButton.setAttribute('aria-label', 'Siding patterns for this deck'); sidingButton.title = 'Siding patterns: the cards you side in and out for each matchup'; sidingButton.setAttribute('aria-haspopup', 'dialog'); sidingButton.setAttribute('aria-expanded', 'false'); sidingButton.onclick = showSiding;
     overviewButton = element('button', '⤢', 'dblite-solo-gear dblite-overview-button'); overviewButton.type = 'button';
     overviewButton.setAttribute('aria-label', 'Sizes of the card overview, the search and the deck'); overviewButton.title = 'Sizes: a wider card overview, a smaller picture or bigger text; the deck makes room'; overviewButton.setAttribute('aria-expanded', 'false'); overviewButton.onclick = showOverviewSettings;
-    // Room for the chat, odds and sizes buttons (inline, so it applies before the stylesheet reloads).
-    soloButton.style.setProperty('width', '72px', 'important'); for (const button of [deckChatButton, oddsButton, overviewButton]) button.style.setProperty('font-size', '12px', 'important');
-    wrap.append(soloButton, soloGear, deckChatButton, oddsButton, overviewButton, status); root.append(wrap); root.classList.toggle('dblite-solo-ready', true);
+    // Room for the chat, odds, siding and sizes buttons (inline, so it applies before the stylesheet reloads).
+    soloButton.style.setProperty('width', '50px', 'important'); for (const button of [soloGear, deckChatButton, oddsButton, sidingButton, overviewButton]) button.style.setProperty('width', '26px', 'important');
+    for (const button of [deckChatButton, oddsButton, sidingButton, overviewButton]) button.style.setProperty('font-size', '12px', 'important');
+    wrap.append(soloButton, soloGear, deckChatButton, oddsButton, sidingButton, overviewButton, status); root.append(wrap); root.classList.toggle('dblite-solo-ready', true);
   }
   function cancelPractice(message) {
     if (window.callbackAfterSave === practicePlan?.launch) window.callbackAfterSave = null;
@@ -4295,7 +4930,7 @@
       const reverse = reverseOf(fetchInput.value), target = reverse && catalogCard(reverse.id), synergy = reverse?.mode === 'synergy';
       // Starters share Access's ⚙ (user, 2026-10-30): each step of a chain counts what Access counts.
       fetchRow.hidden = !reverse; accessGear.hidden = !reverse || !['access', 'starters', 'ideas'].includes(reverse.mode); if (accessGear.hidden) accessOptions.hidden = true;
-      const gearTitle = ['starters', 'ideas'].includes(reverse?.mode) ? 'What counts as Access, at each step of a Starter' : 'What counts as Access';
+      const gearTitle = ['starters', 'ideas'].includes(reverse?.mode) ? 'What counts as Access: how a Starter gets the card at its last step' : 'What counts as Access';
       accessGear.title = gearTitle; accessGear.setAttribute('aria-label', gearTitle);
       // The ⚙ choices are those of the target's Deck.
       const deck = target && extraDeckMonster(target) ? 'extra' : 'main';
@@ -4557,6 +5192,854 @@
     for (const [key, value] of [['left', left], ['top', top], ['width', size], ['height', size]]) if (button.style[key] !== value) button.style[key] = value;
     refreshUndo();
   }
+  // Siding patterns (user, 2026-11-10): for each best-of-3 matchup, the cards to side in from the Side Deck and the
+  // cards to take out of the Main and Extra Deck. A matchup is shown by a card the player picks for the opposing deck,
+  // with a name. Kept per deck name in this browser, like the opening odds roles. Cards are matched by name; a planned
+  // card no longer in the deck stays in the plan, flagged, until it is taken off. "Side in" swaps the cards in the
+  // constructor the way ↶ Undo restores a deck (clearDeck, then the cards added back while loading_deck is set), and
+  // goes on the Undo stack, so ↶ or Ctrl+Z takes it back. Nothing is saved until the player saves the deck.
+  const SIDING_KEY = 'dbetter-deck-siding';
+  const SIDING_LIMITS = { main: [40, 60], extra: [0, 15], side: [0, 15] };
+  const SIDING_MATCHUPS = 40;
+  let sidingPanel = null, sidingButton = null, sidingWatch = 0, sidingClick = null, sidingPress = null;
+  // While a matchup is open a click on a deck card plans it, so a hand that moves a little while clicking must not drag the
+  // card (user, 2026-11-10): DuelingBook's cards (jQuery UI draggable, which starts after 1 px) start a drag only after
+  // SIDING_CLICK_SLOP px, and a press that moved less still counts as a click. Back to 1 px when the matchup closes.
+  const SIDING_CLICK_SLOP = 14;
+  let sidingSlowDrag = false;
+  function setSidingSlowDrag(on) {
+    if (sidingSlowDrag === on && !on) return;
+    sidingSlowDrag = on;
+    for (const slots of ['deck_arr', 'side_arr', 'extra_arr']) for (const front of Array.isArray(window[slots]) ? window[slots] : []) {
+      try { if (typeof front?.draggable === 'function') front.draggable('option', 'distance', on ? SIDING_CLICK_SLOP : 1); } catch { /* Not draggable (yet). */ }
+    }
+  }
+  function sidingStore() {
+    try { const all = JSON.parse(localStorage.getItem(SIDING_KEY) || '{}'); return all && typeof all === 'object' && !Array.isArray(all) ? all : {}; } catch { return {}; }
+  }
+  function sidingCounts(map) {
+    const out = {};
+    if (map && typeof map === 'object') for (const [name, n] of Object.entries(map)) { const k = Math.floor(Number(n)); if (name && k > 0) out[name] = Math.min(k, 60); }
+    return out;
+  }
+  // Each matchup has a plan for going first and one for going second (user, 2026-11-10); a matchup saved with one plan
+  // (before that) gets it for both.
+  const SIDING_ORDERS = [['first', 'Going first', 'second'], ['second', 'Going second', 'first']];
+  // picks: the copies chosen by a click, per card, as the number of the copy among that card's copies (0 = the first) in
+  // the Side Deck (in) or in the Main Deck then the Extra Deck (out); the others move by the default rule.
+  const sidingPicks = map => { const out = {}; if (map && typeof map === 'object') for (const [name, list] of Object.entries(map)) { const occ = [...new Set((Array.isArray(list) ? list : []).filter(n => Number.isInteger(n) && n >= 0 && n < 60))]; if (name && occ.length) out[name] = occ; } return out; };
+  const sidingPlan = p => ({ in: sidingCounts(p?.in), out: sidingCounts(p?.out), picks: { in: sidingPicks(p?.picks?.in), out: sidingPicks(p?.picks?.out) } });
+  // Which copies of each card move: the picked copies first, then the default ones (the first copies of a Side Deck card,
+  // the last copies of a Main or Extra Deck card). Indexes into list.
+  function sidingChosen(list, counts, picks, fromEnd, nameOf) {
+    const byName = new Map(), chosen = new Set();
+    list.forEach((card, i) => { const n = nameOf(card); (byName.get(n) || byName.set(n, []).get(n)).push(i); });
+    for (const [name, count] of Object.entries(counts || {})) {
+      const at = byName.get(name) || [], take = Math.min(count, at.length), mine = [];
+      for (const occ of picks?.[name] || []) if (occ < at.length && !mine.includes(occ) && mine.length < take) mine.push(occ);
+      const order = at.map((_, o) => o); if (fromEnd) order.reverse();
+      for (const occ of order) { if (mine.length >= take) break; if (!mine.includes(occ)) mine.push(occ); }
+      for (const occ of mine) chosen.add(at[occ]);
+    }
+    return chosen;
+  }
+  function sidingPatterns(deckName) {
+    const list = sidingStore()[deckName]?.matchups;
+    return (Array.isArray(list) ? list : []).filter(m => m && typeof m === 'object' && m.id).slice(0, SIDING_MATCHUPS).map(m => ({
+      id: String(m.id), label: String(m.label || '').slice(0, 40), note: String(m.note || '').slice(0, 160),
+      card: m.card?.name ? { id: m.card.id ?? null, name: String(m.card.name) } : null,
+      first: sidingPlan(m.first || m), second: sidingPlan(m.second || m),
+    }));
+  }
+  function saveSidingPatterns(deckName, matchups) {
+    const all = sidingStore();
+    if (matchups.length) all[deckName] = { matchups }; else delete all[deckName];
+    try { localStorage.setItem(SIDING_KEY, JSON.stringify(all)); return true; } catch { return false; }
+  }
+  const sidingName = m => m.label || m.card?.name || 'Unnamed matchup';
+  const sidingPlanEmpty = p => !Object.keys(p.in).length && !Object.keys(p.out).length;
+  const sidingEmpty = m => !m.label && !m.card && !m.note && sidingPlanEmpty(m.first) && sidingPlanEmpty(m.second);
+  // A Side Deck card that goes to the Extra Deck when sided in (DuelingBook's own test where it has one).
+  function sidingIsExtra(card) {
+    try { if (typeof window.isExtraDeckCard === 'function') return !!window.isExtraDeckCard(card); } catch { /* The catalog's frame below. */ }
+    return /^(Fusion|Synchro|Xyz|Link)$/.test(card?.data?.('monster_color') || '');
+  }
+  // The deck in the constructor: per list, each card's name, id and whether it belongs in the Extra Deck.
+  function sidingDeck() {
+    const read = (list, extra) => (Array.isArray(window[list]) ? window[list] : []).map(card => {
+      const name = card?.data?.('name'); return name ? { name, id: card.data('id'), extra: extra ?? sidingIsExtra(card) } : null;
+    }).filter(Boolean);
+    return { main: read('deck_filled_arr', false), extra: read('extra_filled_arr', true), side: read('side_filled_arr') };
+  }
+  // A matchup against the deck: each planned card with its copies and how many the deck has, the totals, the deck sizes
+  // after siding, and what keeps it from being sided as planned. reverse: the plan read backwards (back to game 1).
+  function sidingCheck(matchup, deck, reverse = false) {
+    const pool = list => { const map = new Map(); for (const c of list) { const e = map.get(c.name) || { n: 0, id: c.id, extra: !!c.extra }; e.n++; map.set(c.name, e); } return map; };
+    const side = pool(deck.side), kept = pool([...deck.main, ...deck.extra]);
+    const rows = (plan, from) => Object.entries(plan).map(([name, n]) => {
+      const e = from.get(name), have = e?.n || 0;
+      return { name, n, have, id: e?.id ?? null, extra: !!e?.extra, problem: !have ? 'missing' : have < n ? 'short' : '' };
+    });
+    const inRows = rows(reverse ? matchup.out : matchup.in, side), outRows = rows(reverse ? matchup.in : matchup.out, kept);
+    const total = list => list.reduce((s, r) => s + r.n, 0), moved = (list, extra) => list.reduce((s, r) => s + (r.extra === extra ? Math.min(r.n, r.have) : 0), 0);
+    const inTotal = total(inRows), outTotal = total(outRows);
+    const sizes = {
+      main: deck.main.length - moved(outRows, false) + moved(inRows, false),
+      extra: deck.extra.length - moved(outRows, true) + moved(inRows, true),
+      side: deck.side.length - moved(inRows, true) - moved(inRows, false) + moved(outRows, true) + moved(outRows, false),
+    };
+    const problems = [];
+    if (!inTotal && !outTotal) problems.push({ kind: 'empty', text: 'Pick the cards to side in and the cards to take out.' });
+    for (const r of inRows) if (r.problem) problems.push({ kind: r.problem, name: r.name, text: r.problem === 'missing' ? `${r.name}: not in your Side Deck` : `${r.name}: ${r.n} planned, ${r.have} in your Side Deck` });
+    for (const r of outRows) if (r.problem) problems.push({ kind: r.problem, name: r.name, text: r.problem === 'missing' ? `${r.name}: not in your Main or Extra Deck` : `${r.name}: ${r.n} planned, ${r.have} in your deck` });
+    if (inTotal !== outTotal) problems.push({ kind: 'balance', text: inTotal > outTotal ? `Take out ${inTotal - outTotal} more (${inTotal} in, ${outTotal} out)` : `Side in ${outTotal - inTotal} more (${inTotal} in, ${outTotal} out)` });
+    else if (!problems.length) for (const [key, label] of [['main', 'Main Deck'], ['extra', 'Extra Deck'], ['side', 'Side Deck']]) {
+      // Konami's rule for siding between games: the Main Deck and the Extra Deck keep their sizes, so a Main Deck card goes
+      // out only for a Main Deck card, an Extra Deck card for an Extra Deck card.
+      if (key !== 'side' && sizes[key] !== deck[key].length) { problems.push({ kind: 'size', text: `${label} would have ${sizes[key]} cards: it must stay at ${deck[key].length} (as many ${label} cards in as out)` }); continue; }
+      const [min, max] = SIDING_LIMITS[key];
+      if (sizes[key] > max || sizes[key] < min) problems.push({ kind: 'size', text: `${label} would have ${sizes[key]} cards (${min ? `${min} to ` : 'at most '}${max})` });
+    }
+    return { inRows, outRows, inTotal, outTotal, sizes, problems, ok: !problems.length };
+  }
+  // The three lists [main, side, extra] after siding: the first copies of a Side Deck card go in, the last copies of a
+  // Main or Extra Deck card go out (the deck keeps its order). A moved card goes after the last copy of the same card in
+  // its new list, else at its end, so siding back gives the order of game 1 whenever a copy stayed.
+  // Siding in, the copies picked by a click move (sidingChosen); siding back, the copies that came in (the last ones).
+  function sidingLists(lists, matchup, reverse, nameOf, isExtra) {
+    const [main, side, extra] = lists, ins = reverse ? matchup.out : matchup.in, outs = reverse ? matchup.in : matchup.out, picks = reverse ? {} : matchup.picks || {};
+    const split = (list, chosen, offset = 0) => [list.filter((_, i) => chosen.has(i + offset)), list.filter((_, i) => !chosen.has(i + offset))];
+    const fromSide = sidingChosen(side, ins, picks.in, false, nameOf), fromKept = sidingChosen([...main, ...extra], outs, picks.out, true, nameOf);
+    const [goingIn, sideLeft] = split(side, fromSide), [mainOut, mainLeft] = split(main, fromKept), [extraOut, extraLeft] = split(extra, fromKept, main.length);
+    const place = (list, cards) => {
+      const out = [...list];
+      for (const card of cards) { const at = out.map(nameOf).lastIndexOf(nameOf(card)); out.splice(at < 0 ? out.length : at + 1, 0, card); }
+      return out;
+    };
+    return [place(mainLeft, goingIn.filter(c => !isExtra(c))), place(sideLeft, [...mainOut, ...extraOut]), place(extraLeft, goingIn.filter(c => isExtra(c)))];
+  }
+  // A matchup against the deck as it is now. sided: the deck is already sided for it (the plan only fits backwards);
+  // the plan is then checked against the deck as it was in game 1.
+  function sidingState(matchup, deck = sidingDeck()) {
+    const check = sidingCheck(matchup, deck);
+    if (check.ok || !sidingCheck(matchup, deck, true).ok) return { check, sided: false, deck };
+    const [main, side, extra] = sidingLists([deck.main, deck.side, deck.extra], matchup, true, c => c.name, c => c.extra);
+    const before = { main, side, extra };
+    return { check: sidingCheck(matchup, before), sided: true, deck: before };
+  }
+
+  // Opening odds before and after siding (user, 2026-11-10: the two menus work together). The roles are the opening
+  // odds menu's own, per deck (dbetter-deck-odds), and Side Deck cards can have them too. A card without roles of its
+  // own in this deck takes those it has in your other decks, as in that menu. The score is that menu's chosen condition,
+  // going first (5 cards) and second (6), averaged.
+  function sidingOddsMarks(deckName) {
+    const own = { ...oddsMarks()[deckName] || {} };
+    for (const [key] of ODDS_ROLES) own[key] = Array.isArray(own[key]) ? [...own[key]] : [];
+    own.pairs = own.pairs && typeof own.pairs === 'object' ? own.pairs : {};
+    own.conditions = (Array.isArray(own.conditions) ? own.conditions : []).filter(c => Array.isArray(c?.rule) && c.rule.length && c.rule.every(([role, op]) => ODDS_ROLES.some(([key]) => key === role) && (role !== 'starters' || op === 'min')));
+    const known = new Set(Array.isArray(own.known) ? own.known : [...ODDS_ROLES.flatMap(([key]) => own[key]), ...Object.keys(own.pairs)]);
+    let library = {}; try { library = JSON.parse(localStorage.getItem(CARD_ROLES_KEY) || '{}') || {}; } catch { /* No roles from other decks. */ }
+    return { own, known, library };
+  }
+  function sidingRolesOf(marks, cardName) {
+    const mine = ODDS_ROLES.map(([key]) => key).filter(key => marks.own[key].includes(cardName));
+    if (mine.length || marks.known.has(cardName)) return mine;
+    return ODDS_ROLES.map(([key]) => key).filter(key => marks.library[cardName]?.roles?.includes(key));
+  }
+  // Sets one role of a card for this deck, in the opening odds menu's storage; as there, roles set by hand become the
+  // card's roles for your other decks too.
+  function setSidingRole(deckName, cardName, key, on) {
+    const marks = sidingOddsMarks(deckName), all = oddsMarks(), own = all[deckName] && typeof all[deckName] === 'object' ? all[deckName] : {};
+    const roles = new Set(sidingRolesOf(marks, cardName)); if (on) roles.add(key); else roles.delete(key);
+    for (const [role] of ODDS_ROLES) { const list = (Array.isArray(own[role]) ? own[role] : []).filter(n => n !== cardName); if (roles.has(role)) list.push(cardName); own[role] = list; }
+    // A card new to this deck takes its 🔗 partners from your other decks too, as the opening odds menu does (else it
+    // would become a one-card Starter here, and lose its partners for the other decks below).
+    const inherited = !marks.known.has(cardName) && marks.library[cardName]?.pairs;
+    if (Array.isArray(inherited) && inherited.length && !own.pairs?.[cardName]) own.pairs = { ...own.pairs && typeof own.pairs === 'object' ? own.pairs : {}, [cardName]: [...inherited] };
+    own.known = [...new Set([...marks.known, cardName])]; all[deckName] = own;
+    try { localStorage.setItem(ODDS_KEY, JSON.stringify(all)); } catch { return; }
+    const lib = marks.library, pairs = own.pairs?.[cardName];
+    if (roles.size || pairs) lib[cardName] = { roles: [...roles], ...pairs ? { pairs } : {} }; else delete lib[cardName];
+    try { localStorage.setItem(CARD_ROLES_KEY, JSON.stringify(lib)); } catch { /* This deck keeps them. */ }
+  }
+  // A Main Deck (card names): how many cards play each role, and the score (null without any role).
+  function sidingStability(marks, names) {
+    const counts = new Map(); for (const n of names) counts.set(n, (counts.get(n) || 0) + 1);
+    const own = { pairs: {} }; for (const [key] of ODDS_ROLES) own[key] = [];
+    for (const cardName of counts.keys()) {
+      for (const key of sidingRolesOf(marks, cardName)) own[key].push(cardName);
+      const pairs = marks.own.pairs[cardName] || (!marks.known.has(cardName) && marks.library[cardName]?.pairs);
+      if (Array.isArray(pairs) && pairs.length) own.pairs[cardName] = pairs;
+    }
+    const entries = [...counts].map(([name, n]) => ({ name, n })), classes = oddsClasses(entries, own);
+    const roles = Object.fromEntries(ODDS_ROLES.map(([key]) => [key, entries.reduce((s, e) => s + (own[key].includes(e.name) ? e.n : 0), 0)]));
+    const rule = [...ODDS_BUILT_IN.map(([id, r]) => ({ id, rule: r })), ...marks.own.conditions].find(r => r.id === marks.own.score)?.rule || ODDS_BUILT_IN[0][1];
+    if (!classes.length || !names.length) return { roles, rule, score: null };
+    const first = handChances(classes, names.length, 5, [rule])[0], second = handChances(classes, names.length, 6, [rule])[0];
+    return { roles, rule, score: first == null || second == null ? null : { first, second, both: (first + second) / 2 } };
+  }
+  // A matchup's odds in game 1 and after siding (only for a plan that can be sided).
+  function sidingOddsChange(matchup, state, marks) {
+    const before = sidingStability(marks, state.deck.main.map(c => c.name));
+    const after = state.check.ok ? sidingStability(marks, sidingLists([state.deck.main, state.deck.side, state.deck.extra], matchup, false, c => c.name, c => c.extra)[0].map(c => c.name)) : null;
+    return { before, after };
+  }
+  const sidingPct = v => v == null ? '–' : (v * 100).toFixed(1).replace(/\.0$/, '') + '%';
+  // "1+ play: 82.1% → 85.3%" for the order's hand (5 cards going first, 6 going second) and the change in points, or
+  // null when no card of the deck has a role.
+  function sidingOddsText({ before, after }, order = 'first') {
+    const at = s => s?.score ? s.score[order] : null, was = at(before), now = at(after);
+    if (was == null && now == null) return null;
+    const head = ruleText(before.rule) + ': ';
+    if (now == null) return { text: head + sidingPct(was) + ' in game 1', delta: null };
+    return { text: head + sidingPct(was) + ' → ' + sidingPct(now), delta: was == null ? null : now - was };
+  }
+  const sidingPoints = d => (d > 0.0005 ? '+' : d < -0.0005 ? '−' : '±') + Math.abs(d * 100).toFixed(1);
+  // The last Side in made from this menu, per deck name: the matchup, the plan and the deck it gave (DuelingBook's card
+  // ids, as ↶ Undo compares decks). The deck is sided for that plan as long as it is that deck; a plan whose cards keep
+  // copies in the Side Deck still fits forwards, so the deck alone cannot tell. Without such a record, a deck that
+  // only fits a plan backwards counts as sided for it (sided by hand).
+  const SIDED_KEY = 'dbetter-deck-sided';
+  function sidedRecord(deckName) { try { const r = JSON.parse(localStorage.getItem(SIDED_KEY) || '{}')?.[deckName]; return r && typeof r === 'object' ? r : null; } catch { return null; } }
+  function setSidedRecord(deckName, record) {
+    let all = {}; try { all = JSON.parse(localStorage.getItem(SIDED_KEY) || '{}') || {}; } catch { /* Start over. */ }
+    if (record) all[deckName] = record; else delete all[deckName];
+    try { localStorage.setItem(SIDED_KEY, JSON.stringify(all)); } catch { /* Kept for this page: inferred from the deck. */ }
+  }
+  // all: the deck's matchups. Sided for another one (other), every plan is read against that one's game 1 deck.
+  function sidingStates(matchup, deck = sidingDeck(), deckName = null, all = []) {
+    const record = deckName != null ? sidedRecord(deckName) : null;
+    if (record && record.signature === deckSignature() && SIDING_ORDERS.some(([key]) => key === record.order)) {
+      const sided = record.id !== matchup.id && all.find(m => m.id === record.id);
+      if (sided) {
+        const [main, side, extra] = sidingLists([deck.main, deck.side, deck.extra], sided[record.order], true, c => c.name, c => c.extra), before = { main, side, extra };
+        return { states: Object.fromEntries(SIDING_ORDERS.map(([key]) => [key, { check: sidingCheck(matchup[key], before), sided: false, deck: before }])), sidedFor: null, other: { matchup: sided, order: record.order } };
+      }
+      if (record.id !== matchup.id) return { states: Object.fromEntries(SIDING_ORDERS.map(([key]) => [key, { check: sidingCheck(matchup[key], deck), sided: false, deck }])), sidedFor: null };
+      const [main, side, extra] = sidingLists([deck.main, deck.side, deck.extra], matchup[record.order], true, c => c.name, c => c.extra), before = { main, side, extra };
+      return { states: Object.fromEntries(SIDING_ORDERS.map(([key]) => [key, { check: sidingCheck(matchup[key], before), sided: key === record.order, deck: before }])), sidedFor: record.order };
+    }
+    const states = Object.fromEntries(SIDING_ORDERS.map(([key]) => [key, sidingState(matchup[key], deck)]));
+    const sidedFor = SIDING_ORDERS.map(([key]) => key).find(key => states[key].sided) || null;
+    if (sidedFor) for (const [key] of SIDING_ORDERS) if (!states[key].sided) states[key] = { check: sidingCheck(matchup[key], states[sidedFor].deck), sided: false, deck: states[sidedFor].deck };
+    return { states, sidedFor };
+  }
+  // Swaps the cards in the constructor; '' when done, or why not. The deck before goes on the Undo stack.
+  function applySiding(matchup, reverse = false) {
+    if (!undoReady()) return 'Open the deck in the deck constructor first.';
+    const check = sidingCheck(matchup, sidingDeck(), reverse); if (!check.ok) return check.problems[0].text;
+    hookDeckChanges(); refreshUndo();
+    const nameOf = card => card.data('name');
+    const next = sidingLists(deckLists().map(([list]) => [...window[list] || []]), matchup, reverse, nameOf, sidingIsExtra);
+    const want = next.map(list => list.map(card => card.data('id')).join(',')).join('|'), before = deckSnapshot();
+    const rebuild = lists => {
+      undo.restoring = true;
+      try { window.clearDeck(true); window.loading_deck = true; deckLists().forEach(([, add], i) => { for (const card of lists[i]) window[add](card); }); }
+      finally { window.loading_deck = false; undo.restoring = false; }
+      window.initializeDeckCards?.(); window.countMain?.(); window.countSide?.(); window.countExtra?.(); window.countPoints?.();
+    };
+    rebuild(next.map(list => list.map(card => { const copy = window.newCardFront(); copy.copyCard(card); return copy; })));
+    if (deckSignature() !== want) { rebuild(before.lists); refreshUndo(); return 'DuelingBook refused a card; the deck is unchanged.'; }
+    window.setUnsavedChanges?.();
+    // DuelingBook's own Clear Deck → Undo must not bring back an older deck afterwards.
+    window.tempMainState = []; window.tempSideState = []; window.tempExtraState = [];
+    const clear = document.querySelector('#deck_constructor #clear_btn');
+    if (clear) window.jQuery ? window.jQuery(clear).val('Clear Deck') : clear.value = 'Clear Deck';
+    if (before.deck !== undo.deck) undo.stack.length = 0;
+    undo.stack.push(before); undo.deck = before.deck; undo.recorded = undo.gesture;
+    if (undo.stack.length > UNDO_LIMIT) undo.stack.shift();
+    refreshUndo(); return '';
+  }
+
+  // Export (user, 2026-11-10): a page to print or save as PDF with the browser's own dialog. First the deck as in game 1
+  // (Main, Extra and Side Deck, with the card pictures), then a page per matchup: its card, name and note, and for going
+  // first and going second what comes in and goes out, whether it can be sided, and the opening odds. Pictures are
+  // DuelingBook's; drawing them into an image file would need its image server to allow it, so there is no image export.
+  // Spellspeed's icon (icon48.png), inline: the extension's files are not open to the page.
+  const SPELLSPEED_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAHUElEQVR4nOxaC2wURRie2WsLFAmUEA0EWjhbNbRXJAi01UArpiUBhKSAAV9EjRCk+IgxJJimEZ8hJgZDQBOjBiIGJNRQQNGWUinxUSpQDBLv0ZOINVgRLLW93szvf3f7mJk97vaOEiThT7fT3Xns98//z//aauQGJ43c4HSTgetNGeQqae1FXwHn5D7GyQTgRON4Q7hGwjzWz8N46a10H/0Va43LuGechnAtL1D2xYGSgkuJ3k/JVdCai95NAKQm8lLgFF8OShsDBJELZLCgX9Y9NZ9zfTz+HQxpmfc2lU347UoY0lahmovelwFoDDzooG2tAJ5ZoAnoYPWWCOPNlkUZyXOFBlYnwpG2CnGgT5pgmdIK4Iydl1oW4cxorfEgtaakhibCkZYE1v7lywUOE4kEGqyd5OQK4GlMEgZoYo0HU2KW5HTm/k6EJS0JIIZiWU0iCKmpy2DpsMKEqCY6M1yVGJXGc66dSoQlLQng+h4DBEhngKjiF3Rc0XkGdqY4sTFDebgjEZa0JIAv98gH1q7zxARPTLCgMA3iPE7jSurw3HxvIixpSQDXLhatDf6E0XY34/0mBHk+js53AaPvY9uo6nrs7AiSEtWK0++TYUlLAsBIYXQHWdQa9TDGZ2+fWNAe6Vt2JrAFWWpHcMOizBHyyW6P+2Fj7oNt/o9RIo/JJpToTMiS4gAdybCkLIGn/vAXg6DDyMRKA3yEdtw56Wcg2ptRBwX0tKfQ/ag4f8jQ3mdwfnd8ayWoF4sahsFngKL+SweTU5c65pIWfgtB/Y7bP6SOUi727SoqQolBrazzRLZOppW6Bgww4B7xpfjXdHXMgYKCfhz4Ava7F7SdGaP2l5S5tyLG05bOi9bHYkLT6I/J8KTMAHCtOHYwzRjm6SU+X6467rMp+Z9i/3caydig9kWlwskqy9pYaiMw0XVkft6FZHhSZgAPlocIEsAodIiL0bfjj6arEMvKhd8GJ6s9B2e7W3AzGkDyC7pH59H7pOqTMgPLg8EcXHy8GS0yo4XF1T8FZqrj66dOOo4S2jZA2JZ46zEt/DzOHxDDEPNsETL4DGRRViR7XMsJUc63Rh+oIPvZizj2nqrWwEK1r7ki34sSfFc+uMb6dPAZwJd4LNC6E+Km9bh70cnAE+qcA7MKziOm11FKm6a1tWXa1uwP1eH8C6pHZ0y7BgywiAdWokvT40YOBHmt8kTXcHXeyJG9G3HciJye0c+pfa0L7/oHmzfUfKB9ad4x4oBSYgAX9iS02xxuywpdrlXnoe0PYfMDbkBt5ZfeW23rcu2IEiOdIQ4pNQY4nRIL1NRMymwBQdrilyU7wYW6XoD9vu5Qdo9t3TCZDKZnjsRWzvQ/JQaW+/15uPhwU/fjpJFolWr2l9y+W5375xj/S3hWQhrJnHNswbhesa9059nRYYBXQNgU4tCERshxMMf60f4TagVaeuIOBjPAa/eV5G9W51U0+aqxSrEqxF2lrZXju8W+aXvPZbOBviacP05KcigdfAbQUBYzBbxg+rbum5lv87j3N/orUWKbNaKVtVbmnhP7Ju88laWF+/fh/ClqPsFC2knikByrUMQDx6s+YGC2o2GGe7UdvLcM2d5OwqSq8YE8v9gXORO3ZGbvpkDKxXDCcGKnVuT6iENyzgBHC6TmtJw0ZAcxXKYUxLEVTb8U4tL1uJeLDs11n1DX+jWzcxuCnW8k+MCkTCxpEpMuA4UgW5+jw7J7q3ctpUwcN+froFvjGV+hT3ikaU7+UXWdmXt87yDIZZbHVdNL5wfYMQPVHf5iwqVYxTvs8r9Vun03qaqlcyyWAxsB+IamSvdBdZ2S+s71ANqzks5zsZgVlezgM0CYkANHPS6s21VRJNnz8kOBUeEwNCOonlmt7vds4PcEVgDAq2oIbRW7jHvq+AA7ZoCBEAOhsyIZ4cNif+nRs8NcBA4iuDswjGyuq5OzsJL6wEP44AOpqCUl9lYyk9VPj5MUyJkEwKgDRcVNw6HMtUbXvG+COdl94f0IbroO7vHyPYFRJnOf+5fg8+0YzGlmxU2p/wihdFfH6uRJjEiO/ACC8yixyrrKFv+oyMv7BthibMcKOjxiIAuaShsCe9G6zMC+uXL9SK4XETmmSkn/HTEw72QwB/rYeNED405lIhM1ajhh1UbpVBw/NW7xi9nVxvDoTnMAkZKqkKuPeeziluy2UBuVPTTYKnYg5tJxxkNKB9gRA2Guh9Asfu0SlGqCGRsJ40m8/MEeimNWRwdfhXB1TCOpYvIkux0HDCFSxY3JVgfijI9IwrdmYjtJkZJKABfOAbV2qe4kV5kgin3XPa5RehejWL02ivctJA1KKgFcvx+uULsEG3hiszZyqd0WS1lqSMhHJA1KLoEBvhFBdtt0PsGXGQL2mqf9C431ZQb71nfWTPqQpEGOvlKWH8LyIMuoQkbcFKjL+LJoXOrn0njP1Hs8sgxrn53o51sCa9xBkiZd1WfW/wPd/FeD6003PAP/AQAA//9LEMIfAAAABklEQVQDAATm+oXn7i6zAAAAAElFTkSuQmCC';
+  const sidingEscape = text => String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  // The odds in the menu and the export can be turned off (user, 2026-11-10: "toggle the statistics on and off").
+  const SIDING_ODDS_KEY = 'dbetter-siding-odds';
+  function sidingShowOdds() { try { return localStorage.getItem(SIDING_ODDS_KEY) !== 'off'; } catch { return true; } }
+  function setSidingShowOdds(on) { try { if (on) localStorage.removeItem(SIDING_ODDS_KEY); else localStorage.setItem(SIDING_ODDS_KEY, 'off'); } catch { /* For this page. */ } }
+  // The deck view as it is on screen (user, 2026-11-10: "just the deck view as it is … this is what people will be the
+  // most used to seeing"): DuelingBook's Main, Side and Extra Deck boxes, copied with the styles they have on screen (the
+  // theme included) and placed as on screen; Spellspeed's own marks and DuelingBook's buttons are left out. Fonts come
+  // along as the page's @font-face rules, with absolute addresses. null when the boxes are not on screen.
+  const SNAPSHOT_STYLES = ['display', 'position', 'left', 'top', 'right', 'bottom', 'width', 'height', 'box-sizing', 'margin', 'padding',
+    'border-width', 'border-style', 'border-color', 'border-radius', 'background-color', 'background-image', 'background-size', 'background-position',
+    'background-repeat', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align',
+    'text-transform', 'text-shadow', 'text-overflow', 'white-space', 'word-break', 'overflow', 'opacity', 'visibility', 'transform', 'transform-origin',
+    'z-index', 'box-shadow', 'filter', 'object-fit', 'vertical-align', 'writing-mode', 'flex-direction', 'align-items', 'justify-content', 'gap'];
+  // Every address the export reads or writes passes a check first: a data: URL made here, or what DuelingBook's own check
+  // accepts (rules.pageImage: https on duelingbook.com or a subdomain, data:image/, blob: or page-relative). Anything
+  // else is left out of the export.
+  const sidingCssUrl = value => { const safe = /^data:[\w.+-]+\/[\w.+-]+;base64,[\w+/=]*$/.test(value) ? value : window.DBLiteRules?.pageImage(value); return safe ? `url("${safe}")` : ''; };
+  const SVG = 'http://www.w3.org/2000/svg';
+  const SNAPSHOT_SKIP = '.dblite-siding-mark,.dblite-odds-badge,.dblite-deck-undo,script,style,input,select,textarea,button,iframe';
+  function sidingDeckSnapshot() {
+    const boxes = ['.deck_bg', '.side_bg', '.extra_bg'].map(s => document.querySelector('#deck_constructor ' + s)).filter(n => n?.offsetWidth);
+    if (!boxes.length) return null;
+    const rects = boxes.map(n => n.getBoundingClientRect()), k = rects[0].width / boxes[0].offsetWidth || 1;
+    const left = Math.min(...rects.map(r => r.left)), top = Math.min(...rects.map(r => r.top));
+    const width = (Math.max(...rects.map(r => r.right)) - left) / k, height = (Math.max(...rects.map(r => r.bottom)) - top) / k;
+    const copy = node => {
+      if (node.nodeType === 3) return document.createTextNode(node.nodeValue);
+      if (node.nodeType !== 1 || node.matches(SNAPSHOT_SKIP)) return null;
+      const css = getComputedStyle(node); if (css.display === 'none') return null;
+      const clone = document.createElement(node.tagName === 'IMG' ? 'img' : node.tagName === 'CANVAS' ? 'span' : 'div');
+      if (node.tagName === 'IMG') { const safe = window.DBLiteRules?.pageImage(node.currentSrc || node.src); if (safe) clone.src = safe; clone.alt = ''; }
+      clone.setAttribute('style', SNAPSHOT_STYLES.map(p => { const v = css.getPropertyValue(p); return v ? p + ':' + v : ''; }).filter(Boolean).join(';'));
+      for (const child of node.childNodes) { const c = copy(child); if (c) clone.append(c); }
+      return clone;
+    };
+    const box = document.createElement('div');
+    box.setAttribute('style', 'position:relative;width:' + width + 'px;height:' + height + 'px');
+    boxes.forEach((node, i) => { const c = copy(node); if (!c) return; c.style.position = 'absolute'; c.style.left = (rects[i].left - left) / k + 'px'; c.style.top = (rects[i].top - top) / k + 'px'; c.style.right = c.style.bottom = 'auto'; c.style.margin = '0'; box.append(c); });
+    const fonts = [];
+    for (const sheet of document.styleSheets) {
+      let rules; try { rules = sheet.cssRules; } catch { continue; }
+      for (const rule of rules || []) if (rule.type === 5) fonts.push(rule.cssText.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (all, q, u) => { try { return sidingCssUrl(new URL(u, sheet.href || location.href).href) || all; } catch { return all; } }));
+    }
+    return { html: box.outerHTML, width, height, fonts: fonts.join('\n') };
+  }
+  // The export takes the colours of the theme chosen in Spellspeed (user, 2026-11-10: "the full white is a bit harsh … the
+  // printed page should match the chosen theme"): the panel, text, muted, accent and "you" colours of the page.
+  const SIDING_EXPORT_COLOURS = { bg: ['--dbt-panel', '#eef1f0'], bg2: ['--dbt-panel-2', '#dfe5e2'], text: ['--dbt-text', 'CanvasText'], muted: ['--dbt-muted', '#4c5a5f'],
+    accent: ['--dbt-accent', '#1f6e89'], onAccent: ['--dbt-on-accent', '#ffffff'], out: ['--dbt-you', '#b43b42'], line: ['--dbt-line', '#697873'] };
+  function sidingExportColours() {
+    const css = getComputedStyle(document.documentElement), out = {};
+    for (const [key, [variable, fallback]] of Object.entries(SIDING_EXPORT_COLOURS)) {
+      const value = css.getPropertyValue(variable).trim();
+      out[key] = value && /^[#a-z0-9(),.%\s-]+$/i.test(value) && value !== 'transparent' ? value : fallback;
+    }
+    return out;
+  }
+  function sidingPrintHtml(deckName, matchups = sidingPatterns(deckName), shot = null, showOdds = sidingShowOdds()) {
+    let deck = sidingDeck();
+    // A deck sided from the menu prints as it was in game 1.
+    const record = sidedRecord(deckName), sided = record && record.signature === deckSignature() && matchups.find(m => m.id === record.id);
+    if (sided && sided[record.order]) { const [main, side, extra] = sidingLists([deck.main, deck.side, deck.extra], sided[record.order], true, c => c.name, c => c.extra); deck = { main, side, extra }; }
+    const marks = sidingOddsMarks(deckName), esc = sidingEscape;
+    const pic = card => { const known = card && (catalogCard(card.id, card.name) || card); return known?.id != null ? '<img src="' + esc(imageUrl(known)) + '" alt="">' : '<i></i>'; };
+    const counted = list => { const map = new Map(); for (const c of list) { const e = map.get(c.name); if (e) e.n++; else map.set(c.name, { ...c, n: 1 }); } return [...map.values()]; };
+    const cards = rows => rows.map(r => '<li>' + pic(r) + '<b>' + r.n + '</b><span>' + esc(r.name) + '</span></li>').join('');
+    // Without the deck view (not on screen): every copy as a small card drawn from DuelingBook's art (the art only), its frame
+    // coloured by its kind and its name on top, in deck order: the Main Deck in rows of 10, the Extra and Side Deck in rows of 15.
+    const frameOf = card => card?.card_type === 'Spell' ? 'spell' : card?.card_type === 'Trap' ? 'trap' : String(card?.monster_color || 'effect').toLowerCase().replace(/[^a-z]/g, '') || 'effect';
+    const tile = c => {
+      const known = catalogCard(c.id, c.name) || c;
+      return '<span class="mini ' + esc(frameOf(known)) + '" title="' + esc(c.name) + '"><b>' + esc(c.name) + '</b>' + (known?.id != null ? '<img src="' + esc(imageUrl(known)) + '" alt="">' : '<i></i>') + '</span>';
+    };
+    const block = (title, list, wide) => list.length ? '<section><h3>' + esc(title) + ' · ' + list.length + '</h3><div class="grid' + (wide ? ' wide' : '') + '">' + list.map(tile).join('') + '</div></section>' : '';
+    const game1 = sidingStability(marks, deck.main.map(c => c.name));
+    const score = showOdds && game1.score ? '<p class="odds">🎲 ' + esc(ruleText(game1.rule)) + ': ' + sidingPct(game1.score.first) + ' going first, ' + sidingPct(game1.score.second) + ' going second</p>' : '';
+    // The deck view shows the deck as it is in the constructor: sided, it says so.
+    const shown = shot ? (sided ? 'Deck as sided for ' + esc(sidingName(sided)) + ', ' + esc(SIDING_ORDERS.find(([k]) => k === record.order)[1].toLowerCase()) : 'Deck') : 'Deck as in game 1';
+    const deckView = shot ? '<div class="shot" style="zoom:' + Math.min(1.5, 690 / shot.width).toFixed(4) + '">' + shot.html + '</div>'
+      : '<div class="lists">' + block('Main Deck', deck.main) + block('Extra Deck', deck.extra, true) + block('Side Deck', deck.side, true) + '</div>';
+    const pages = ['<article class="page"><header><h1>' + esc(deckName) + '</h1><p>' + shown + ' · ' + matchups.length + ' siding pattern' + (matchups.length === 1 ? '' : 's') + '</p></header>' + score + deckView + '</article>'];
+    for (const m of matchups) {
+      const { states } = sidingStates(m, deck, null), halves = [];
+      for (const [key, title] of SIDING_ORDERS) {
+        const plan = m[key], state = states[key], { check } = state;
+        if (sidingPlanEmpty(plan)) { halves.push('<section><h2>' + title + '</h2><p class="none">No plan.</p></section>'); continue; }
+        const odds = showOdds && sidingOddsText(sidingOddsChange(plan, state, marks), key);
+        const status = check.ok ? '<p class="ok">✓ ' + check.inTotal + ' in, ' + check.outTotal + ' out · Main ' + check.sizes.main + ', Extra ' + check.sizes.extra + ', Side ' + check.sizes.side + '</p>' : '<p class="miss">⚠ ' + check.problems.map(p => esc(p.text)).join(' · ') + '</p>';
+        halves.push('<section><h2>' + title + '</h2>' + status +
+          '<h3 class="in">+ In · ' + check.inTotal + '</h3><ul class="cards">' + (cards(check.inRows) || '<li class="none">Nothing</li>') + '</ul>' +
+          '<h3 class="out">− Out · ' + check.outTotal + '</h3><ul class="cards">' + (cards(check.outRows) || '<li class="none">Nothing</li>') + '</ul>' +
+          (odds ? '<p class="odds">🎲 ' + esc(odds.text) + (odds.delta != null ? ' (' + sidingPoints(odds.delta) + ')' : '') + '</p>' : '') + '</section>');
+      }
+      pages.push('<article class="page"><header class="matchup">' + (m.card ? pic(m.card) : '') + '<div><h1>' + esc(sidingName(m)) + '</h1>' +
+        (m.card && m.label ? '<p>' + esc(m.card.name) + '</p>' : '') + (m.note ? '<p class="note">' + esc(m.note) + '</p>' : '') + '</div></header><div class="orders">' + halves.join('') + '</div></article>');
+    }
+    const c = sidingExportColours();
+    // The page is coloured to its edges: no printer margin, 12 mm inside each page instead.
+    const css = ':root{--bg:' + c.bg + ';--bg2:' + c.bg2 + ';--text:' + c.text + ';--muted:' + c.muted + ';--accent:' + c.accent + ';--on-accent:' + c.onAccent + ';--out:' + c.out + ';--line:' + c.line + '}' +
+      '@page{size:A4;margin:0}*{box-sizing:border-box}html,body{background:var(--bg)}body{margin:0;font:11px/1.35 system-ui,"Segoe UI",sans-serif;color:var(--text);-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{padding:12mm}' +
+      '.page{page-break-after:always;break-after:page}.page:last-child{page-break-after:auto;break-after:auto}h1{margin:0;font-size:20px}h2{margin:0 0 4px;font-size:14px;border-bottom:2px solid var(--accent);padding-bottom:2px}' +
+      'h3{margin:8px 0 3px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}h3.in{color:var(--accent)}h3.out{color:var(--out)}header{margin-bottom:8px}header p{margin:2px 0 0;color:var(--muted)}' +
+      '.matchup{display:flex;gap:12px;align-items:flex-start}.matchup>img{width:70px;border-radius:3px}.note{font-style:italic}' +
+      '.grid{display:grid;grid-template-columns:repeat(10,1fr);gap:3px}.grid.wide{grid-template-columns:repeat(15,1fr);gap:2px}' +
+      '.mini{display:flex;flex-direction:column;aspect-ratio:59/86;padding:5% 6%;border-radius:3px;background:#c86f2d;overflow:hidden;box-shadow:inset 0 0 0 1px #0004}' +
+      '.mini b{display:block;margin-bottom:5%;padding:1px 2px;border-radius:1px;background:#fffc;color:#111;font:700 5.5px/1.25 system-ui;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.grid.wide .mini b{font-size:4.5px}.mini img,.mini i{display:block;width:100%;aspect-ratio:1;object-fit:cover;background:#0003;box-shadow:0 0 0 1px #0005}' +
+      '.mini.normal{background:#d6b46a}.mini.ritual{background:#5a7bc6}.mini.fusion{background:#8a4fae}.mini.synchro{background:#d9d9d9}.mini.xyz{background:#2b2b2b}.mini.link{background:#2a5ea8}.mini.token{background:#9a9a9a}' +
+      '.mini.spell{background:#1d9c8a}.mini.trap{background:#b03a7f}.mini.xyz b,.mini.link b{background:#fffd}.lists section{break-inside:avoid;margin-bottom:10px}.orders{display:grid;grid-template-columns:1fr 1fr;gap:18px}' +
+      'ul.cards{list-style:none;margin:0;padding:0}ul.cards li{display:flex;align-items:center;gap:6px;min-height:24px;break-inside:avoid}ul.cards img,ul.cards i{width:17px;height:24px;object-fit:cover;border-radius:2px;flex:none;background:var(--bg2)}' +
+      'ul.cards b{min-width:12px;text-align:right}.none{color:var(--muted)}.ok{color:var(--accent);margin:0}.miss{color:var(--out);margin:0}.odds{margin:6px 0 0}' +
+      // On every printed page (a fixed element repeats on each page).
+      '.brand{position:fixed;right:12mm;bottom:6mm;display:flex;align-items:center;gap:5px;font-size:9px;color:var(--muted)}.brand img{width:14px;height:14px}' +
+      '.shot{margin-top:6px}@media screen{body{max-width:820px;margin:0 auto;padding:16px}}.howto{margin:0 0 14px;padding:10px 14px;border-radius:8px;background:var(--accent);color:var(--on-accent);font-size:13px}@media print{.howto{display:none}}';
+    return '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(deckName + ' - siding patterns') + '</title><style>' + (shot?.fonts || '') + css + '</style></head><body>' +
+      '<p class="howto">To save it as a PDF: press Ctrl+P (⌘P on a Mac) and choose <b>Save as PDF</b>. You can close this tab afterwards.</p><footer class="brand"><img src="' + SPELLSPEED_ICON + '" alt="">Made with Spellspeed · spellspeed.com</footer>' + pages.join('') + '</body></html>';
+  }
+  // Download PDF (user, 2026-11-10: "it automatically triggers the download … save as PDF might be too much for them").
+  // Each page of the export is drawn to a picture: its HTML, with every picture and font inlined, inside an SVG
+  // foreignObject drawn on a canvas (DuelingBook's image server allows reading its pictures, so the canvas stays
+  // readable). The pictures become an A4 PDF, one JPEG per page, written here (PDF 1.4: catalog, pages, one image
+  // per page); the browser downloads it. Nothing is printed, and DuelingBook's page keeps running.
+  const PDF_PAGE = { width: 794, height: 1123, margin: 45, scale: 2, quality: .85 };
+  function sidingPdf(pages) {
+    const enc = new TextEncoder(), parts = [], offsets = [];
+    let size = 0;
+    const push = chunk => { const bytes = typeof chunk === 'string' ? enc.encode(chunk) : chunk; parts.push(bytes); size += bytes.length; };
+    const object = (n, body, stream) => {
+      offsets[n] = size;
+      push(n + ' 0 obj\n' + body + (stream ? '\nstream\n' : '\nendobj\n'));
+      if (stream) { push(stream); push('\nendstream\nendobj\n'); }
+    };
+    push('%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n');
+    const kids = pages.map((_, i) => (3 + i * 3) + ' 0 R').join(' ');
+    object(1, '<< /Type /Catalog /Pages 2 0 R >>');
+    object(2, '<< /Type /Pages /Kids [' + kids + '] /Count ' + pages.length + ' >>');
+    pages.forEach((page, i) => {
+      const n = 3 + i * 3, draw = 'q 595.28 0 0 841.89 0 0 cm /Im0 Do Q';
+      object(n, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im0 ' + (n + 2) + ' 0 R >> >> /Contents ' + (n + 1) + ' 0 R >>');
+      object(n + 1, '<< /Length ' + draw.length + ' >>', enc.encode(draw));
+      object(n + 2, '<< /Type /XObject /Subtype /Image /Width ' + page.width + ' /Height ' + page.height + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + page.bytes.length + ' >>', page.bytes);
+    });
+    const count = 3 + pages.length * 3, xref = size;
+    push('xref\n0 ' + count + '\n0000000000 65535 f \n' + offsets.slice(1, count).map(o => String(o).padStart(10, '0') + ' 00000 n \n').join(''));
+    push('trailer\n<< /Size ' + count + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF\n');
+    const out = new Uint8Array(size); let at = 0; for (const part of parts) { out.set(part, at); at += part.length; }
+    return out;
+  }
+  const sidingDataUrl = blob => new Promise((done, fail) => { const reader = new FileReader(); reader.onload = () => done(reader.result); reader.onerror = fail; reader.readAsDataURL(blob); });
+  async function sidingPdfPages(html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html'), cache = new Map();
+    const inline = url => {
+      if (!url || url.startsWith('data:')) return Promise.resolve(url);
+      const full = new URL(url, location.href).href;
+      const safe = window.DBLiteRules?.pageImage(full);
+      if (!safe) return Promise.resolve('');
+      if (!cache.has(full)) cache.set(full, fetch(safe, { mode: 'cors', credentials: 'omit' }).then(r => r.ok ? r.blob() : null).then(b => b ? sidingDataUrl(b) : '').catch(() => ''));
+      return cache.get(full);
+    };
+    const inlineCss = async css => { let out = css; for (const m of [...css.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)]) { const data = await inline(m[2]); const css = data && sidingCssUrl(data); if (css) out = out.split(m[0]).join(css); } return out; };
+    doc.querySelector('.howto')?.remove();
+    await Promise.all([...doc.images].map(async img => { const safe = window.DBLiteRules?.pageImage(await inline(img.getAttribute('src'))); if (safe) img.setAttribute('src', safe); else img.removeAttribute('src'); }));
+    for (const node of doc.querySelectorAll('[style*="url"]')) node.setAttribute('style', await inlineCss(node.getAttribute('style')));
+    const css = await inlineCss([...doc.querySelectorAll('style')].map(s => s.textContent).join('\n'));
+    const brand = doc.querySelector('.brand'), { width, height, margin, scale, quality } = PDF_PAGE, out = [], colours = sidingExportColours();
+    for (const page of doc.querySelectorAll('article.page')) {
+      const holder = document.createElement('div');
+      holder.setAttribute('style', 'position:relative;width:' + width + 'px;height:' + height + 'px;box-sizing:border-box;background:' + colours.bg + ';color:' + colours.text + ';font:11px/1.35 "Segoe UI",system-ui,Roboto,Arial,sans-serif;overflow:hidden');
+      const style = document.createElement('style'); style.textContent = css + '.brand{position:absolute;right:' + margin + 'px;bottom:' + (margin / 2) + 'px}';
+      holder.append(style, document.importNode(page, true));
+      if (brand) holder.append(document.importNode(brand, true));
+      const svg = '<svg xmlns="' + SVG + '" width="' + width + '" height="' + height + '"><foreignObject width="100%" height="100%">' + new XMLSerializer().serializeToString(holder) + '</foreignObject></svg>';
+      const safe = window.DBLiteRules?.pageImage('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)); if (!safe) throw new Error('Page picture');
+      const picture = new Image(); picture.src = safe; await picture.decode();
+      const canvas = document.createElement('canvas'); canvas.width = width * scale; canvas.height = height * scale;
+      const g = canvas.getContext('2d'); g.fillStyle = colours.bg; g.fillRect(0, 0, canvas.width, canvas.height); g.scale(scale, scale); g.drawImage(picture, 0, 0);
+      const blob = await new Promise(done => canvas.toBlob(done, 'image/jpeg', quality));
+      out.push({ bytes: new Uint8Array(await blob.arrayBuffer()), width: canvas.width, height: canvas.height });
+      await new Promise(done => setTimeout(done, 0));
+    }
+    return out;
+  }
+  async function downloadSidingPdf(deckName) {
+    const loading = [...document.querySelectorAll('#deck_constructor :is(.deck_bg,.side_bg,.extra_bg) img')].filter(img => !img.complete);
+    await Promise.race([Promise.all(loading.map(img => new Promise(done => { img.addEventListener('load', done, { once: true }); img.addEventListener('error', done, { once: true }); }))), new Promise(done => setTimeout(done, 3000))]);
+    const shot = sidingDeckSnapshot();
+    // The deck view's fonts travel inline too.
+    const pages = await sidingPdfPages(sidingPrintHtml(deckName, undefined, shot));
+    if (!pages.length) throw new Error('No page');
+    const url = URL.createObjectURL(new Blob([sidingPdf(pages)], { type: 'application/pdf' }));
+    const link = document.createElement('a'); link.href = url; link.download = (deckName.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Deck') + ' - siding patterns.pdf';
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    return pages.length;
+  }
+  // The print view, if the PDF cannot be made here: in a tab of its own, unlinked from DuelingBook's (noopener), where you print it. Printing from
+  // DuelingBook's page itself (the first version, a hidden frame) froze that page while the print dialog was open, and
+  // DuelingBook lost its connection (user, 2026-11-10: "it disconnected me and told me lost connection").
+  function openSidingExport(deckName) {
+    const url = URL.createObjectURL(new Blob([sidingPrintHtml(deckName, undefined, sidingDeckSnapshot())], { type: 'text/html' }));
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+    return url;
+  }
+  function closeSiding() {
+    clearInterval(sidingWatch); sidingWatch = 0; setSidingSlowDrag(false);
+    if (sidingClick) { document.removeEventListener('click', sidingClick, true); document.removeEventListener('pointerdown', sidingPress, true); } sidingClick = sidingPress = null;
+    sidingPanel?.remove(); sidingPanel = null; sidingButton?.setAttribute('aria-expanded', 'false');
+    document.querySelectorAll('.dblite-siding-mark').forEach(n => n.remove());
+  }
+  function placeSiding(panel) {
+    const dock = phoneLayout() ? null : oddsDock();
+    panel.classList.toggle('dblite-odds-docked', !!dock);
+    if (dock) {
+      const left = Math.max(8, dock.left), top = Math.max(8, dock.top), right = Math.min(innerWidth - 8, dock.left + dock.width), bottom = Math.min(innerHeight - 8, dock.top + dock.height);
+      Object.assign(panel.style, { left: left + 'px', top: top + 'px', width: right - left + 'px', height: bottom - top + 'px' }); return;
+    }
+    Object.assign(panel.style, { width: '', height: '' });
+    const r = anchorRect(sidingButton), width = panel.offsetWidth || 460;
+    panel.style.left = Math.max(8, Math.min(r.right, innerWidth - width - 8)) + 'px'; panel.style.top = Math.max(8, Math.min(r.top, innerHeight - panel.offsetHeight - 8)) + 'px';
+  }
+  function showSiding() {
+    // The button toggles the menu; a menu no longer on the page is only cleared away.
+    if (sidingPanel) { const open = sidingPanel.isConnected; closeSiding(); if (open) return; }
+    const name = window.deck?.data || 'This deck';
+    closeSoloSettings(); closeDeckChat(); if (oddsPanel) closeOdds();
+    const panel = sidingPanel = element('section', '', 'dblite-solo-settings dblite-odds dblite-siding');
+    panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Siding patterns'); sidingButton?.setAttribute('aria-expanded', 'true');
+    const header = element('header'), close = element('button', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close siding patterns');
+    close.onclick = () => { closeSiding(); sidingButton?.focus(); };
+    const oddsToggle = element('button', '🎲', 'dblite-siding-odds-toggle'); oddsToggle.type = 'button';
+    const showToggle = () => { const on = sidingShowOdds(); oddsToggle.setAttribute('aria-pressed', String(on)); oddsToggle.title = on ? 'Hide the opening odds (here and in the export)' : 'Show the opening odds (here and in the export)'; };
+    oddsToggle.onclick = () => { setSidingShowOdds(!sidingShowOdds()); showToggle(); if (editing) refresh(); else renderList(); };
+    showToggle();
+    const tools = element('span', '', 'dblite-siding-header-tools'); tools.append(oddsToggle, close);
+    header.append(element('strong', 'Siding patterns · ' + name), tools);
+    const body = element('div', '', 'dblite-siding-body');
+    panel.append(header, body);
+    const matchups = sidingPatterns(name);
+    // order: the plan shown, going first or second; kept while the menu is open.
+    let editing = null, status = '', order = 'first';
+    const save = () => saveSidingPatterns(name, matchups.filter(m => !sidingEmpty(m) || m === editing));
+    const art = (card, cls) => {
+      const box = element('span', '', cls);
+      const known = card && (catalogCard(card.id, card.name) || card);
+      const safe = known?.id != null ? window.DBLiteRules?.pageImage(imageUrl(known)) : null;
+      if (safe) { const img = element('img'); img.alt = ''; img.loading = 'lazy'; img.src = safe; img.onerror = () => img.remove(); box.append(img); }
+      else box.textContent = '?';
+      return box;
+    };
+    const preview = (node, card) => node.addEventListener('mouseenter', () => {
+      const full = catalogCard(card.id, card.name);
+      if (full && typeof window.previewFront === 'function' && window.jQuery) window.previewFront(window.jQuery('<div>').data({ ...full, effect: full.effect || '', pendulum_effect: full.pendulum_effect || '' }));
+    });
+    const button = (text, cls, title) => { const b = element('button', text, cls); b.type = 'button'; if (title) b.title = title; return b; };
+    // The matchups: each one's card, name and plan.
+    function renderList() {
+      editing = null; paintMarks(null, false); setSidingSlowDrag(false);
+      const hint = element('p', 'For each deck you face in best-of-3: the cards you side in from your Side Deck and the ones you take out. Saved in this browser for this deck.', 'dblite-odds-note');
+      const list = element('div', '', 'dblite-siding-list');
+      const deck = sidingDeck(), marks = sidingOddsMarks(name);
+      for (const m of matchups) {
+        const { states, sidedFor } = sidingStates(m, deck, name, matchups), tile = button('', 'dblite-siding-tile');
+        const text = element('span', '', 'dblite-siding-tile-text'), top = element('span', '', 'dblite-siding-tile-top');
+        top.append(element('strong', sidingName(m)));
+        text.append(top);
+        const says = [];
+        // A line per order: what goes in and out, whether it can be sided, the odds; the cards on the line below.
+        for (const [key, title] of SIDING_ORDERS) {
+          const state = states[key], { check } = state, sided = sidedFor === key, plan = m[key];
+          const line = element('span', '', 'dblite-siding-tile-order'); line.dataset.order = key;
+          line.append(element('b', title, 'dblite-siding-tile-when'));
+          if (sidingPlanEmpty(plan)) { line.append(element('small', 'no plan yet', 'dblite-siding-tile-none')); text.append(line); says.push(`${title}: no plan`); continue; }
+          const mark = element('em', sided ? 'sided now' : check.ok ? '✓' : '⚠', check.ok ? 'dblite-odds-ok' : 'dblite-odds-miss');
+          if (sided) mark.title = 'The deck in the constructor is sided for this plan';
+          else if (!check.ok) mark.title = check.problems.map(p => p.text).join('\n');
+          line.append(element('b', `+${check.inTotal}`, 'dblite-siding-plus'), element('b', `−${check.outTotal}`, 'dblite-siding-minus'), mark);
+          const odds = sidingShowOdds() && sidingOddsText(sidingOddsChange(plan, state, marks), key);
+          if (odds) {
+            const o = element('small', '🎲 ' + odds.text.replace(/^.*?: /, '') + (odds.delta != null ? ` (${sidingPoints(odds.delta)})` : ''), 'dblite-siding-tile-odds');
+            o.title = '🎲 ' + odds.text; if (odds.delta != null) o.dataset.trend = odds.delta > 0.0005 ? 'up' : odds.delta < -0.0005 ? 'down' : '';
+            line.append(o);
+          }
+          text.append(line);
+          const cards = [check.inRows.length ? 'In: ' + check.inRows.map(r => `${r.n} ${r.name}`).join(', ') : '', check.outRows.length ? 'Out: ' + check.outRows.map(r => `${r.n} ${r.name}`).join(', ') : ''].filter(Boolean).join(' · ');
+          if (cards) { const c = element('small', cards, 'dblite-siding-tile-cards'); c.title = cards; text.append(c); }
+          says.push(`${title}: ${check.inTotal} in, ${check.outTotal} out`);
+        }
+        if (m.note) text.append(element('small', m.note, 'dblite-siding-tile-note'));
+        tile.setAttribute('aria-label', `${sidingName(m)}. ${says.join('. ')}`);
+        tile.append(art(m.card, 'dblite-siding-art'), text);
+        tile.onclick = () => renderEdit(m);
+        list.append(tile);
+      }
+      const add = button('+ New matchup', 'dblite-siding-new');
+      add.disabled = matchups.length >= SIDING_MATCHUPS;
+      const exporting = button('Download PDF', 'dblite-siding-export', 'A PDF file: the deck as shown here, then a page per matchup with its plans for going first and second');
+      exporting.disabled = !matchups.length;
+      exporting.onclick = async () => {
+        save(); exporting.disabled = true; exporting.textContent = 'Making the PDF…';
+        let said = 'Downloaded';
+        try { await downloadSidingPdf(name); }
+        catch (error) { console.warn('Spellspeed siding PDF:', error); openSidingExport(name); said = 'Opened to print'; }
+        if (!exporting.isConnected) return;
+        exporting.textContent = said; exporting.disabled = false;
+        setTimeout(() => { if (exporting.isConnected) exporting.textContent = 'Download PDF'; }, 3000);
+      };
+      const actions = element('div', '', 'dblite-siding-actions'); actions.append(add, exporting);
+      add.onclick = () => { const m = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), label: '', note: '', card: null, first: { in: {}, out: {} }, second: { in: {}, out: {} } }; matchups.push(m); order = 'first'; renderEdit(m, true); };
+      const pane = element('div', '', 'dblite-odds-pane');
+      pane.append(hint, matchups.length ? list : element('p', 'No matchup yet.', 'dblite-siding-none'), actions);
+      body.replaceChildren(pane);
+    }
+    // One matchup: its card and name, the cards in and out, and the deck's cards to pick them from.
+    let refresh = () => {};
+    function renderEdit(m, fresh = false) {
+      editing = m; status = ''; setSidingSlowDrag(true);
+      const leave = () => { if (sidingEmpty(m)) matchups.splice(matchups.indexOf(m), 1); save(); renderList(); };
+      const nav = element('div', '', 'dblite-siding-nav'), back = button('‹ Matchups', '', 'Back to the list of matchups'), remove = button('Delete', 'dblite-siding-delete');
+      back.onclick = leave;
+      let armed = 0;
+      remove.onclick = () => {
+        if (!armed) { remove.textContent = 'Delete this matchup?'; remove.classList.add('dblite-siding-armed'); armed = setTimeout(() => { armed = 0; remove.textContent = 'Delete'; remove.classList.remove('dblite-siding-armed'); }, 3000); return; }
+        clearTimeout(armed); matchups.splice(matchups.indexOf(m), 1); save(); renderList();
+      };
+      nav.append(back, remove);
+      // The opposing deck: a card picked from the catalog by name, and a name for it.
+      const head = element('div', '', 'dblite-siding-head'), picture = button('', 'dblite-siding-pick', 'Pick the card that stands for this deck');
+      const fields = element('div', '', 'dblite-siding-fields');
+      const label = element('input'); label.type = 'text'; label.maxLength = 40; label.value = m.label; label.placeholder = 'Deck you face, e.g. Snake-Eye'; label.setAttribute('aria-label', 'Name of the deck you face');
+      const find = element('input'); find.type = 'search'; find.placeholder = m.card ? m.card.name : 'Its card: type a card name'; find.setAttribute('aria-label', 'Card that stands for the deck you face');
+      const found = element('div', '', 'dblite-siding-found'); found.hidden = true; found.setAttribute('role', 'listbox');
+      const note = element('input'); note.type = 'text'; note.maxLength = 160; note.value = m.note; note.placeholder = 'Note, e.g. their key cards, what to play around'; note.setAttribute('aria-label', 'Note for this matchup');
+      const drawPicture = () => { picture.replaceChildren(art(m.card, 'dblite-siding-art dblite-siding-art-big')); if (m.card) preview(picture, m.card); };
+      drawPicture(); picture.onclick = () => find.focus();
+      label.oninput = () => { m.label = label.value.trim().slice(0, 40); save(); };
+      note.oninput = () => { m.note = note.value.trim().slice(0, 160); save(); };
+      const choose = card => { m.card = { id: card.id, name: card.name }; find.value = ''; find.placeholder = card.name; found.hidden = true; drawPicture(); save(); label.focus(); };
+      find.oninput = () => {
+        const q = find.value.trim().toLowerCase(); found.replaceChildren(); found.hidden = q.length < 2; if (found.hidden) return;
+        const cards = Array.isArray(window.Cards) ? window.Cards : [], seen = new Set(), starts = [], has = [];
+        for (const c of cards) { const n = String(c?.name || '').toLowerCase(); if (!n.includes(q) || seen.has(c.name)) continue; seen.add(c.name); (n.startsWith(q) ? starts : has).push(c); if (starts.length >= 8) break; }
+        const hits = [...starts, ...has].slice(0, 8);
+        if (!hits.length) { found.append(element('small', 'No card by that name.')); return; }
+        for (const c of hits) { const item = button('', 'dblite-siding-found-item'); item.setAttribute('role', 'option'); item.append(art(c, 'dblite-siding-art dblite-siding-art-mini'), element('span', c.name)); item.onclick = () => choose(c); preview(item, c); found.append(item); }
+      };
+      find.onkeydown = event => {
+        if (event.key === 'Enter') { const first = found.querySelector('.dblite-siding-found-item'); if (first) { event.preventDefault(); first.click(); } }
+        else if (event.key === 'ArrowDown') { const first = found.querySelector('button'); if (first) { event.preventDefault(); first.focus(); } }
+      };
+      found.onkeydown = event => {
+        const items = [...found.querySelectorAll('button')], i = items.indexOf(document.activeElement);
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); (items[i + (event.key === 'ArrowDown' ? 1 : -1)] || find).focus(); }
+      };
+      fields.append(label, find, found, note);
+      head.append(picture, fields);
+      // Going first or going second: the plan shown below. An empty plan can start as a copy of the other one.
+      const orders = element('div', '', 'dblite-siding-orders'), copy = button('', 'dblite-siding-copy');
+      orders.setAttribute('role', 'tablist'); orders.setAttribute('aria-label', 'Plan for going first or going second');
+      const orderButtons = SIDING_ORDERS.map(([key]) => {
+        const b = button(''); b.setAttribute('role', 'tab'); b.dataset.order = key;
+        b.onclick = () => { if (order === key) return; order = key; status = ''; openTab(); refresh(); };
+        orders.append(b); return [b, key];
+      });
+      copy.onclick = () => { const [, , other] = SIDING_ORDERS.find(([key]) => key === order); m[order] = sidingPlan(m[other]); save(); status = ''; openTab(); refresh(); };
+      orders.append(copy);
+      // What goes in and out, always in view; the lists to pick from below.
+      const summary = element('div', '', 'dblite-siding-summary'), problems = element('div', '', 'dblite-siding-problems'), oddsLine = element('div', '', 'dblite-siding-oddsline');
+      const tabs = element('div', '', 'dblite-odds-tabs'), sidePane = element('div', '', 'dblite-odds-pane dblite-siding-pane-in'), mainPane = element('div', '', 'dblite-odds-pane dblite-siding-pane-out');
+      tabs.setAttribute('role', 'tablist');
+      const tabButtons = [[sidePane, 'Side in'], [mainPane, 'Take out']].map(([pane]) => {
+        const b = button(''); b.setAttribute('role', 'tab'); b.onclick = () => showTab(pane); tabs.append(b); return [b, pane];
+      });
+      const showTab = pane => tabButtons.forEach(([b, p]) => { p.hidden = p !== pane; b.setAttribute('aria-selected', String(p === pane)); });
+      const footer = element('div', '', 'dblite-siding-footer'), sideIn = button('Side in', 'dblite-siding-apply'), sideBack = button('Side back to game 1', 'dblite-siding-apply'), said = element('p', '', 'dblite-odds-note');
+      said.setAttribute('role', 'status');
+      footer.append(sideIn, sideBack, said);
+      // sidedFor: the plan the deck is sided for now (this order's or the other's), which Side back reverses.
+      // sidedOther: another matchup the deck is sided for ({ matchup, order }); Side back reverses that one.
+      let sidedFor = null, sidedOther = null;
+      const apply = reverse => {
+        const key = reverse && sidedFor ? sidedFor : order, title = SIDING_ORDERS.find(([k]) => k === key)[1].toLowerCase();
+        const why = applySiding(reverse && sidedOther ? sidedOther.matchup[sidedOther.order] : m[key], reverse);
+        seen = deckSignature();
+        if (!why) setSidedRecord(name, reverse ? null : { id: m.id, order: key, signature: seen });
+        status = why || (reverse ? `Back to game 1. Not saved: ↶ or Ctrl+Z undoes it.` : `Sided in for ${sidingName(m)}, ${title}. Not saved: ↶ or Ctrl+Z undoes it; Save Deck keeps it.`);
+        refresh();
+      };
+      sideIn.onclick = () => apply(false); sideBack.onclick = () => apply(true);
+      // A row per card of the deck (and per planned card no longer in it): − copies +.
+      let locked = false, rowMarks = sidingOddsMarks(name);
+      const row = (plan, entry, max) => {
+        const n = plan[entry.name] || 0, line = element('div', '', 'dblite-siding-row');
+        line.dataset.on = String(n > 0); if (!max) line.dataset.gone = 'true'; if (locked) line.dataset.locked = 'true';
+        const minus = button('−', '', 'One copy fewer'), plus = button('+', '', 'One copy more'), count = element('output', max ? `${n}/${max}` : `${n}`);
+        minus.disabled = !n || locked; plus.disabled = n >= max || locked;
+        const set = k => {
+          if (k > 0) plan[entry.name] = k; else delete plan[entry.name];
+          const p = editing[order], picks = p.picks?.[plan === p.in ? 'in' : 'out'];
+          if (picks?.[entry.name] && picks[entry.name].length > k) { if (k > 0) picks[entry.name] = picks[entry.name].slice(0, k); else delete picks[entry.name]; }
+          save(); status = ''; refresh();
+        };
+        minus.onclick = event => { event.stopPropagation(); set(n - 1); };
+        plus.onclick = event => { event.stopPropagation(); set(n + 1); };
+        const title = element('span', entry.name); title.title = max ? `${entry.name}: ${max} in this deck. Click to add a copy` : `${entry.name}: no longer in this list of the deck`;
+        line.onclick = () => { if (max && !locked) set(n >= max ? 0 : n + 1); };
+        const roles = element('span', '', 'dblite-siding-roles');
+        if (max && sidingShowOdds()) for (const [key, one, , letter, what] of ODDS_ROLES) {
+          const on = sidingRolesOf(rowMarks, entry.name).includes(key), toggle = button(letter, '', what);
+          toggle.setAttribute('aria-pressed', String(on)); toggle.setAttribute('aria-label', `${one}: ${entry.name}`);
+          toggle.onclick = event => { event.stopPropagation(); setSidingRole(name, entry.name, key, !on); refresh(); };
+          roles.append(toggle);
+        }
+        line.append(art(entry, 'dblite-siding-art dblite-siding-art-mini'), title, roles, element('span', '', 'dblite-siding-step'));
+        line.lastChild.append(minus, count, plus);
+        if (!max) line.lastChild.prepend(element('em', 'not in deck'));
+        preview(line, entry);
+        return line;
+      };
+      const unique = list => { const map = new Map(); for (const c of list) { const e = map.get(c.name); if (e) e.n++; else map.set(c.name, { ...c, n: 1 }); } return [...map.values()]; };
+      const fill = (pane, groups, plan) => {
+        const top = pane.scrollTop; pane.replaceChildren();
+        const listed = new Set(groups.flatMap(([, list]) => list.map(c => c.name)));
+        const gone = Object.keys(plan).filter(cardName => !listed.has(cardName));
+        if (gone.length) { pane.append(element('h3', 'No longer in the deck', 'dblite-odds-heading')); for (const cardName of gone) { const c = catalogCard(null, cardName) || { name: cardName }; pane.append(row(plan, c, 0)); } }
+        for (const [title, list] of groups) {
+          if (!list.length) continue;
+          pane.append(element('h3', title, 'dblite-odds-heading'));
+          for (const c of unique(list)) pane.append(row(plan, c, c.n));
+        }
+        if (!groups.some(([, list]) => list.length)) pane.append(element('p', groups.length === 1 ? 'Your Side Deck is empty: add the cards you side in to it first.' : 'Your deck is empty.', 'dblite-odds-note'));
+        else pane.append(element('p', 'Tip: click a card in the deck to side it in or take it out; click a marked card for one copy fewer.', 'dblite-odds-note'));
+        pane.scrollTop = top;
+      };
+      refresh = () => {
+        if (editing !== m) return;
+        const all = sidingStates(m, sidingDeck(), name, matchups), plan = m[order], state = all.states[order], { check, deck } = state;
+        sidedFor = all.sidedFor; sidedOther = all.other || null; locked = !!sidedFor || !!sidedOther;
+        for (const [b, key] of orderButtons) {
+          const c = all.states[key].check, title = SIDING_ORDERS.find(([k]) => k === key)[1];
+          b.textContent = sidingPlanEmpty(m[key]) ? title : `${title} · +${c.inTotal} −${c.outTotal}`;
+          b.setAttribute('aria-selected', String(key === order)); b.title = `The cards you side when ${title.toLowerCase()}`;
+        }
+        const [, , other] = SIDING_ORDERS.find(([key]) => key === order), otherTitle = SIDING_ORDERS.find(([key]) => key === other)[1];
+        copy.textContent = `Copy from ${otherTitle.toLowerCase()}`; copy.title = `Start this plan as a copy of the plan for ${otherTitle.toLowerCase()}`;
+        copy.hidden = locked || !sidingPlanEmpty(plan) || sidingPlanEmpty(m[other]);
+        tabButtons[0][0].textContent = `Side in (${check.inTotal})`; tabButtons[1][0].textContent = `Take out (${check.outTotal})`;
+        const column = (title, rows, cls, empty) => {
+          const col = element('div', '', 'dblite-siding-col ' + cls), list = element('ul');
+          col.append(element('h3', title, 'dblite-odds-heading'));
+          for (const r of rows) { const item = element('li'); item.append(element('b', String(r.n)), element('span', r.name)); if (r.problem) { item.dataset.problem = r.problem; item.title = r.problem === 'missing' ? 'No longer in the deck' : `Only ${r.have} in the deck`; } list.append(item); }
+          if (!rows.length) list.append(element('li', empty, 'dblite-siding-empty'));
+          col.append(list); return col;
+        };
+        summary.replaceChildren(column(`+ In · ${check.inTotal}`, check.inRows, 'dblite-siding-in', 'Nothing yet'), column(`− Out · ${check.outTotal}`, check.outRows, 'dblite-siding-out', 'Nothing yet'));
+        problems.replaceChildren();
+        if (sidedFor === order) problems.append(element('p', `✓ Sided in now (${check.inTotal} in, ${check.outTotal} out). Side back to change the plan.`, 'dblite-odds-ok'));
+        else if (sidedFor) problems.append(element('p', `The deck is sided for ${otherTitle.toLowerCase()} now: side back to game 1 first.`, 'dblite-odds-miss'));
+        else if (sidedOther) problems.append(element('p', `The deck is sided for ${sidingName(sidedOther.matchup)}, ${SIDING_ORDERS.find(([k]) => k === sidedOther.order)[1].toLowerCase()} now: side back to game 1 first.`, 'dblite-odds-miss'));
+        else if (check.ok) problems.append(element('p', `✓ ${check.inTotal} in, ${check.outTotal} out · after siding: Main ${check.sizes.main}, Extra ${check.sizes.extra}, Side ${check.sizes.side}`, 'dblite-odds-ok'));
+        // One line, so the lists below never move under the pointer; the others in its tooltip.
+        else if (check.inTotal + check.outTotal) { const line = element('p', '⚠ ' + check.problems[0].text + (check.problems.length > 1 ? ` (+${check.problems.length - 1} more)` : ''), 'dblite-odds-miss'); line.title = check.problems.map(p => p.text).join('\n'); problems.append(line); }
+        rowMarks = sidingOddsMarks(name);
+        const change = sidingOddsChange(plan, state, rowMarks), odds = sidingOddsText(change, order);
+        oddsLine.replaceChildren(); oddsLine.hidden = !sidingShowOdds();
+        if (!odds) oddsLine.append(element('p', '🎲 Give cards roles (S, NE, B, NS below, or in Opening odds) to see what siding does to your opening odds.', 'dblite-odds-note'));
+        else {
+          const p = element('p', '🎲 ' + odds.text);
+          if (odds.delta != null) { const b = element('b', ` (${sidingPoints(odds.delta)})`); b.dataset.trend = odds.delta > 0.0005 ? 'up' : odds.delta < -0.0005 ? 'down' : ''; p.append(b); }
+          const { before, after } = change;
+          p.title = `${order === 'first' ? 'Going first: a 5-card hand' : 'Going second: a 6-card hand'}. Game 1: first ${sidingPct(before.score?.first)}, second ${sidingPct(before.score?.second)}` + (after?.score ? `; after siding: first ${sidingPct(after.score.first)}, second ${sidingPct(after.score.second)}` : '');
+          const moved = after ? ODDS_ROLES.filter(([key]) => before.roles[key] !== after.roles[key]).map(([key, , many]) => `${many} ${before.roles[key]} → ${after.roles[key]}`) : [];
+          oddsLine.append(p, element('small', moved.length ? moved.join(' · ') : after ? 'No role changes in the Main Deck.' : 'After siding: once the plan can be sided.'));
+        }
+        fill(sidePane, [['Side Deck', deck.side]], plan.in);
+        fill(mainPane, [['Main Deck', deck.main], ['Extra Deck', deck.extra]], plan.out);
+        // Once sided in, the same plan read backwards puts the deck back.
+        sideIn.hidden = locked; sideIn.disabled = !check.ok; sideIn.title = check.ok ? 'Swap these cards in the deck constructor now (not saved; ↶ undoes it)' : check.problems[0].text;
+        sideBack.hidden = !locked; sideBack.title = 'Put the cards back as in game 1 (not saved; ↶ undoes it)';
+        said.textContent = status; said.hidden = !status;
+        paintMarks(sidedOther ? sidedOther.matchup[sidedOther.order] : sidedFor ? m[sidedFor] : plan, !!(sidedFor || sidedOther));
+      };
+      const view = element('div', '', 'dblite-siding-edit');
+      view.append(nav, head, orders, summary, problems, oddsLine, tabs, sidePane, mainPane, footer);
+      body.replaceChildren(view);
+      // A plan with cards in and none out yet opens on Take out.
+      const openTab = () => showTab(Object.keys(m[order].in).length && !Object.keys(m[order].out).length ? mainPane : sidePane);
+      // A matchup the deck is sided for opens on that plan.
+      order = sidingStates(m, sidingDeck(), name, matchups).sidedFor || order;
+      openTab();
+      refresh();
+      if (fresh) find.focus({ preventScroll: true });
+    }
+    // While a matchup is open, the deck shows which copies go out and which Side Deck cards come in (once sided in:
+    // the last copies of what came in, in the Main or Extra Deck, and of what went out, in the Side Deck).
+    let marked = 0, markScale = '', markSided = false, markPlan = null;
+    function paintMarks(plan = markPlan, sided = markSided) {
+      document.querySelectorAll('.dblite-siding-mark').forEach(n => n.remove()); marked = 0; markSided = sided; markPlan = plan;
+      const m = editing && plan; if (!m || sidingPanel !== panel) return;
+      const lists = [['deck_filled_arr', 'deck_arr'], ['side_filled_arr', 'side_arr'], ['extra_filled_arr', 'extra_arr']];
+      const nameOf = card => card?.data?.('name');
+      const filled = lists.map(([list]) => Array.isArray(window[list]) ? window[list] : []);
+      const chosen = filled.map(() => new Set());
+      const pick = (i, plan, fromEnd) => { const order = filled[i].map((_, k) => k); if (fromEnd) order.reverse(); for (const k of order) { const n = nameOf(filled[i][k]); if (plan[n] > 0) { plan[n]--; chosen[i].add(k); } } };
+      if (sided) { const came = { ...m.in }; pick(0, came, true); pick(2, came, true); pick(1, { ...m.out }, true); }
+      else {
+        chosen[1] = sidingChosen(filled[1], m.in, m.picks?.in, false, nameOf);
+        const kept = sidingChosen([...filled[0], ...filled[2]], m.out, m.picks?.out, true, nameOf);
+        for (const i of kept) (i < filled[0].length ? chosen[0] : chosen[2]).add(i < filled[0].length ? i : i - filled[0].length);
+      }
+      lists.forEach(([, slots], i) => {
+        const fronts = Array.isArray(window[slots]) ? window[slots] : [];
+        for (const k of chosen[i]) {
+          const node = fronts[k]?.[0]; if (!node?.isConnected || nameOf(fronts[k]) !== nameOf(filled[i][k])) continue;
+          const matrix = /matrix\(([^)]+)\)/.exec(getComputedStyle(node).transform)?.[1].split(',').map(Number);
+          const sx = matrix?.[0] > 0 ? matrix[0] : 1, sy = matrix?.[3] > 0 ? matrix[3] : 1; markScale = String(sx);
+          const side = sided ? i !== 1 : i === 1, frame = element('span', '', 'dblite-siding-mark dblite-siding-frame ' + (side ? 'dblite-siding-mark-in' : 'dblite-siding-mark-out'));
+          frame.style.boxShadow = `inset 0 0 0 ${4 / sx}px var(${side ? '--dbt-accent' : '--dbt-you'})`;
+          // A band across the card, readable at a glance: as wide as the card on screen, a little above its middle.
+          const badge = element('span', side ? 'IN' : 'OUT', 'dblite-siding-mark dblite-siding-badge ' + (side ? 'dblite-siding-mark-in' : 'dblite-siding-mark-out'));
+          // The card's own layout size (its screen box also holds DuelingBook's overflowing parts).
+          const w = node.offsetWidth || 0, h = node.offsetHeight || 0;
+          Object.assign(badge.style, { transform: `scale(${1 / sx}, ${1 / sy})`, left: '0px', top: h * .38 + 'px', width: Math.max(24, w * sx) + 'px' });
+          node.append(frame, badge); marked++;
+        }
+      });
+    }
+    // While a matchup is open, a click on a card of the deck plans it (user, 2026-11-10: "just simple click, mark them in
+    // and out"): a Side Deck card comes in, a Main or Extra Deck card goes out, one copy per click; a click on a card
+    // already marked IN or OUT takes one copy off. A press that moved (a card dragged elsewhere) is no click.
+    let pressed = null;
+    sidingPress = event => { pressed = { x: event.clientX, y: event.clientY }; };
+    sidingClick = event => {
+      if (sidingPanel !== panel || !editing || window.currentLabel !== 'deck_constructor' || event.button) return;
+      if (pressed && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > SIDING_CLICK_SLOP) return;
+      const lists = [['deck_arr', 'deck_filled_arr', 'out'], ['side_arr', 'side_filled_arr', 'in'], ['extra_arr', 'extra_filled_arr', 'out']];
+      for (const [slots, list, key] of lists) {
+        const fronts = Array.isArray(window[slots]) ? window[slots] : [], k = fronts.findIndex(f => f?.[0]?.contains?.(event.target));
+        if (k < 0) continue;
+        const cardName = window[list]?.[k]?.data?.('name'); if (!cardName) return;
+        event.preventDefault(); event.stopImmediatePropagation();
+        const now = sidingStates(editing, sidingDeck(), name, matchups); if (now.sidedFor || now.other) { status = 'Side back to game 1 first to change the plan.'; refresh(); return; }
+        const p = editing[order], plan = p[key], nameOf = card => card?.data?.('name');
+        const pool = key === 'in' ? window.side_filled_arr || [] : [...window.deck_filled_arr || [], ...window.extra_filled_arr || []];
+        const at = key === 'in' || list === 'deck_filled_arr' ? k : (window.deck_filled_arr || []).length + k;
+        const copies = pool.map((c, i) => nameOf(c) === cardName ? i : -1).filter(i => i >= 0), occ = copies.indexOf(at);
+        const chosen = sidingChosen(pool, { [cardName]: plan[cardName] || 0 }, p.picks?.[key], key === 'out', nameOf);
+        const marked = copies.map((i, o) => chosen.has(i) ? o : -1).filter(o => o >= 0);
+        const next = marked.includes(occ) ? marked.filter(o => o !== occ) : marked.length < copies.length ? [...marked, occ] : null;
+        if (!next || occ < 0) return;
+        p.picks ||= { in: {}, out: {} }; p.picks[key] ||= {};
+        if (next.length) { plan[cardName] = next.length; p.picks[key][cardName] = next; } else { delete plan[cardName]; delete p.picks[key][cardName]; }
+        save(); status = ''; refresh(); return;
+      }
+    };
+    document.addEventListener('pointerdown', sidingPress, true); document.addEventListener('click', sidingClick, true);
+    renderList();
+    for (const type of ['keydown', 'keyup', 'keypress', 'mousedown', 'click', 'wheel']) panel.addEventListener(type, event => {
+      event.stopPropagation();
+      if (type === 'keydown' && event.key === 'Escape') { event.preventDefault(); closeSiding(); sidingButton?.focus(); }
+    });
+    document.body.append(panel);
+    placeSiding(panel);
+    let resizing = 0; const onResize = () => { clearTimeout(resizing); resizing = setTimeout(() => sidingPanel === panel ? placeSiding(panel) : removeEventListener('resize', onResize), 150); };
+    addEventListener('resize', onResize);
+    // The menu follows the deck as you build it; the opening odds menu takes its place.
+    let seen = deckSignature();
+    sidingWatch = setInterval(() => {
+      if (sidingPanel !== panel) return;
+      if (!panel.isConnected || oddsPanel || window.currentLabel !== 'deck_constructor' || (window.deck?.data || 'This deck') !== name) { closeSiding(); return; }
+      // Opened before the search panel was laid out: it docks once the panel is there.
+      if (!panel.classList.contains('dblite-odds-docked') && !phoneLayout() && oddsDock()) placeSiding(panel);
+      const now = deckSignature();
+      // A change made elsewhere (a card dragged, ↶ Undo) clears the note of the last Side in or Side back.
+      if (now !== seen) { seen = now; status = ''; if (editing) { setSidingSlowDrag(true); refresh(); } else renderList(); return; }
+      const first = document.querySelector('.dblite-siding-badge')?.parentElement, sx = first && /matrix\(([^)]+)\)/.exec(getComputedStyle(first).transform)?.[1].split(',')[0];
+      if (editing && (document.querySelectorAll('.dblite-siding-badge').length !== marked || first && String(Number(sx)) !== markScale)) paintMarks();
+    }, 700);
+  }
+  // A floating menu closes on a click outside it; the docked one stays while you build the deck.
+  // A press on a card of the deck is for the menu (a click plans the card), not a click outside it.
+  document.addEventListener('pointerdown', e => { if (sidingPanel && !sidingPanel.classList.contains('dblite-odds-docked') && !sidingPanel.contains(e.target) && e.target !== sidingButton && !e.target.closest?.('#deck_constructor :is(.deck_cards,.side_cards,.extra_cards)')) closeSiding(); });
   function tick() {
     if (window.DBETTERRebuilding) return;
     navigation();
@@ -4587,7 +6070,7 @@
     // A card's names for a name search, normalized: its own and the names it is always treated as ("Power Patron" for Theorealized Medius).
     names: card => card?.name ? indexedText(card).name : [], textMatch, inRange, matches, effectCategories: card => [...categoriesOf(card)], statMatch, searchWidth: currentWidth,
     searchFor, searchFetchers, catalogCard, archetypesOf, fetches, fetchRank: relatedRank, fetchClauses, fitsPhrase, phraseRequest, materialRecipe,
-    searchSupport, searchNeed, searchLabWay, openingOdds, showOdds, undoDeck,
+    searchSupport, searchNeed, searchLabWay, openingOdds, handChances, oddsClasses, showOdds, undoDeck, sidingCheck, sidingLists, sidingState, sidingPatterns, showSiding, applySiding, sidingStability, sidingOddsMarks, sidingStates, sidingPrintHtml, sidingDeckSnapshot, openSidingExport, sidingPdf, downloadSidingPdf,
     // Describe search: the query read, a card's rank against it, and why a result of the current search matched ([{ label, text }]).
     describeRead: raw => describeRead(String(raw ?? '')), describeRank: (card, raw) => describeRank(card, describeRead(String(raw ?? ''))),
     describeWhy: card => query?.described?.active && card ? environmentCache?.describeWhy?.get(card) || null : null,

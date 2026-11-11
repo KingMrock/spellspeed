@@ -1,5 +1,5 @@
 /* DBETTER, GPL-3.0-only. Replay to video: records a DuelingBook replay while it plays
- * fast-forwarded and downloads a small video file (about 10 MB a minute) when it ends.
+ * fast-forwarded and downloads a video file when it ends (Low / Medium / High: about 6 / 8 / 24 MB a minute).
  * The browser asks which tab to share for each recording; the video never leaves the computer.
  * A finished Solo duel offers its replay for recording. */
 (() => {
@@ -8,8 +8,15 @@
   window.__dbetterRecorder = true;
   const rules = window.DBLiteRules;
   let config = rules.settings(JSON.parse(document.currentScript?.dataset.settings || '{}'));
-  // About 10 MB a minute: 1.2 Mbit/s of video (plus 48 kbit/s of sound when it is included).
-  const VIDEO_BITS = 1200000, AUDIO_BITS = 48000, MAX_WIDTH = 1280, MAX_HEIGHT = 800, FPS = 30, QUIET_MS = 2500;
+  // Quality presets (user, 2026-11-07): video bitrate and largest frame; Medium is the 0.8–0.9 recording
+  // (1.2 Mbit/s, 1280 × 800). Sound adds 48 kbit/s. The browser's encoder treats the bitrate as a target: sizes
+  // per minute are as measured with ffprobe on a 2× replay in Chrome (2026-11-07: 0.81, 1.11, 3.15 Mbit/s).
+  const QUALITIES = {
+    low: { label: 'Low', bits: 600000, width: 960, height: 600, perMinute: '6 MB' },
+    medium: { label: 'Medium', bits: 1200000, width: 1280, height: 800, perMinute: '8 MB' },
+    high: { label: 'High', bits: 4000000, width: 1920, height: 1200, perMinute: '24 MB' },
+  };
+  const AUDIO_BITS = 48000, FPS = 30, QUIET_MS = 2500;
   // The timeline's speeds, with its sounds (user, 2026-10-29: the video played DuelingBook's old way). Without the
   // timeline (Enhancer's controls, or the timeline turned off) these map to DuelingBook's own playback.
   const SPEEDS = [['normal', '1×'], ['ff2', '2×'], ['ff4', '4×']], RATES = { normal: 1, ff2: 2, ff4: 4 };
@@ -19,7 +26,7 @@
   const visible = node => !!node?.isConnected && node.getClientRects().length > 0 && getComputedStyle(node).visibility !== 'hidden';
   const stored = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
   const store = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
-  let panel = null, record = null, speed = null, audio = null, status = null, solo = null, session = null, endedDuel = null, duelOverHook = null;
+  let panel = null, record = null, speed = null, quality = null, audio = null, status = null, solo = null, session = null, endedDuel = null, duelOverHook = null;
   let dock = null, expanded = false, dockAnchor = null;
 
   function mimeType(withAudio) {
@@ -114,13 +121,13 @@
 
   // A fixed-size copy of the capture, a multiple of 16 pixels each way: the encoder never sees the frame size
   // change (a resized window, the crop settling) or an odd size. Null where canvases cannot be captured.
-  async function fixedFrames(stream) {
+  async function fixedFrames(stream, preset = QUALITIES.medium) {
     const [track] = stream.getVideoTracks(), canvas = document.createElement('canvas');
     if (!track || typeof canvas.captureStream !== 'function') return null;
     const video = document.createElement('video'); video.muted = true; video.playsInline = true; video.srcObject = stream;
     try { await video.play(); } catch { return null; }
     if (!video.videoWidth) await new Promise(resolve => { video.addEventListener('loadedmetadata', resolve, { once: true }); setTimeout(resolve, 1500); });
-    const width = video.videoWidth || MAX_WIDTH, height = video.videoHeight || MAX_HEIGHT, ratio = Math.min(1, MAX_WIDTH / width, MAX_HEIGHT / height);
+    const width = video.videoWidth || preset.width, height = video.videoHeight || preset.height, ratio = Math.min(1, preset.width / width, preset.height / height);
     canvas.width = Math.max(16, Math.round(width * ratio / 16) * 16); canvas.height = Math.max(16, Math.round(height * ratio / 16) * 16);
     const context = canvas.getContext('2d', { alpha: false });
     if (!context) return null;
@@ -142,7 +149,7 @@
   }
   async function startRecording() {
     if (session || !supported() || !inReplay()) return;
-    const choice = speed.value, withAudio = audio.checked;
+    const choice = speed.value, withAudio = audio.checked, preset = QUALITIES[quality.value] || QUALITIES.medium;
     let stream;
     try {
       // The current tab, without its audio unless asked: the browser asks the user to confirm.
@@ -150,15 +157,23 @@
         preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude', monitorTypeSurfaces: 'exclude' });
     } catch (error) { setStatus(error?.name === 'NotAllowedError' ? 'Recording cancelled.' : 'This browser cannot record the tab.'); return; }
     const [track] = stream.getVideoTracks();
-    // Only the duel screen (Chrome's Region Capture), scaled down to at most 1280 × 800.
+    // Only the duel screen (Chrome's Region Capture), scaled down to the preset's largest frame. The tab's own size
+    // caps it: High is never sharper than the duel screen is on this monitor.
     try { const duel = document.getElementById('duel'); if (window.CropTarget && track?.cropTo && duel) await track.cropTo(await window.CropTarget.fromElement(duel)); } catch (error) { console.warn('Spellspeed video crop:', error); }
-    try { await track?.applyConstraints({ width: { max: MAX_WIDTH }, height: { max: MAX_HEIGHT }, frameRate: { max: FPS } }); } catch {}
-    const type = mimeType(withAudio && stream.getAudioTracks().length > 0), frames = await fixedFrames(stream).catch(() => null);
-    let recorder;
-    try { recorder = new MediaRecorder(frames?.stream || stream, { ...(type ? { mimeType: type } : {}), videoBitsPerSecond: VIDEO_BITS, ...(withAudio ? { audioBitsPerSecond: AUDIO_BITS } : {}) }); }
-    catch (error) { frames?.stop(); stream.getTracks().forEach(t => t.stop()); setStatus('This browser cannot encode the video.'); return; }
+    try { await track?.applyConstraints({ width: { max: preset.width }, height: { max: preset.height }, frameRate: { max: FPS } }); } catch {}
+    const type = mimeType(withAudio && stream.getAudioTracks().length > 0), frames = await fixedFrames(stream, preset).catch(() => null);
+    // An encoder that refuses the preset's bitrate gets Medium's, then the browser's own choice.
+    let recorder = null, used = preset;
+    for (const bits of [...new Set([preset.bits, QUALITIES.medium.bits, 0])]) {
+      try { recorder = new MediaRecorder(frames?.stream || stream, { ...(type ? { mimeType: type } : {}), ...(bits ? { videoBitsPerSecond: bits } : {}), ...(withAudio ? { audioBitsPerSecond: AUDIO_BITS } : {}) }); }
+      catch (error) { console.warn(`Spellspeed video encoder at ${bits || 'default'} bit/s:`, error); continue; }
+      if (bits !== preset.bits) used = bits === QUALITIES.medium.bits ? QUALITIES.medium : null;
+      break;
+    }
+    if (!recorder) { frames?.stop(); stream.getTracks().forEach(t => t.stop()); setStatus('This browser cannot encode the video.'); return; }
     const chunks = [], started = performance.now();
-    session = { stream, frames, recorder, chunks, bytes: 0, started, quietSince: 0, title: document.title, type: recorder.mimeType || type || 'video/webm' };
+    session = { stream, frames, recorder, chunks, bytes: 0, started, quietSince: 0, title: document.title, type: recorder.mimeType || type || 'video/webm',
+      quality: used ? used.label : 'browser default', fellBack: used !== preset };
     recorder.addEventListener('dataavailable', event => { if (event.data?.size) { chunks.push(event.data); session && (session.bytes += event.data.size); } });
     recorder.addEventListener('start', () => { if (session) session.recordStart = performance.now(); });
     recorder.addEventListener('stop', () => finish(chunks, session?.type || type));
@@ -194,7 +209,8 @@
     const blob = new Blob(chunks, { type }), ms = performance.now() - (current.recordStart || current.started);
     // Named now: the page may move on (another replay) while the file is read.
     const name = fileName(type);
-    if (blob.size) withDuration(blob, ms).then(file => { download(file, name); setStatus(`Saved ${megabytes(file.size)} · ${clock(performance.now() - current.started)}.`); });
+    const note = current.fellBack ? ` (${current.quality}: this browser refused the chosen quality)` : ` (${current.quality})`;
+    if (blob.size) withDuration(blob, ms).then(file => { download(file, name); setStatus(`Saved ${megabytes(file.size)} · ${clock(performance.now() - current.started)}${note}.`); });
     else setStatus('Nothing was recorded.');
     update();
   }
@@ -216,12 +232,21 @@
       placePanel();
     });
     record = document.createElement('button'); record.type = 'button'; record.className = 'dblite-record-start'; record.textContent = '⏺ Record video';
-    record.title = 'Records this replay from here (from the start when it is at the end) at the chosen speed, and downloads a small video file when it ends (about 10 MB a minute). Your browser asks which tab to share. Esc stops early.';
     record.addEventListener('click', startRecording);
     speed = document.createElement('select'); speed.setAttribute('aria-label', 'Video speed');
     for (const [value, label] of SPEEDS) { const option = document.createElement('option'); option.value = value; option.textContent = label; speed.append(option); }
     speed.value = SPEEDS.some(([value]) => value === stored('dbetter-video-speed', 'ff2')) ? stored('dbetter-video-speed', 'ff2') : 'ff2';
     speed.addEventListener('change', () => store('dbetter-video-speed', speed.value));
+    quality = document.createElement('select'); quality.className = 'dblite-record-quality'; quality.setAttribute('aria-label', 'Video quality');
+    for (const [value, preset] of Object.entries(QUALITIES)) { const option = document.createElement('option'); option.value = value; option.textContent = preset.label; option.title = `About ${preset.perMinute} a minute`; quality.append(option); }
+    quality.value = QUALITIES[stored('dbetter-video-quality', 'medium')] ? stored('dbetter-video-quality', 'medium') : 'medium';
+    const describe = () => {
+      const preset = QUALITIES[quality.value];
+      record.title = `Records this replay from here (from the start when it is at the end) at the chosen speed, and downloads a video file when it ends (${preset.label}: about ${preset.perMinute} a minute). Your browser asks which tab to share. Esc stops early.`;
+      quality.title = `${preset.label} quality: about ${preset.perMinute} a minute.`;
+    };
+    quality.addEventListener('change', () => { store('dbetter-video-quality', quality.value); describe(); });
+    describe();
     const sound = document.createElement('label'); sound.className = 'dblite-record-audio'; sound.title = 'Include the game sounds (a slightly larger file).';
     audio = document.createElement('input'); audio.type = 'checkbox'; audio.checked = stored('dbetter-video-audio', '0') === '1';
     audio.addEventListener('change', () => store('dbetter-video-audio', audio.checked ? '1' : '0'));
@@ -230,7 +255,7 @@
     solo.title = 'Opens this duel’s replay in a new tab, where Record video is too. DuelingBook decides when the replay is available.';
     status = document.createElement('span'); status.className = 'dblite-record-status'; status.setAttribute('role', 'status'); status.hidden = true;
     for (const type of ['keydown', 'keyup', 'mousedown', 'click']) panel.addEventListener(type, event => event.stopPropagation());
-    panel.append(dock, record, speed, sound, solo, status); document.body.append(panel);
+    panel.append(dock, record, speed, quality, sound, solo, status); document.body.append(panel);
   }
   // A finished Solo duel: DuelingBook's duelOver marks it.
   function hookDuelOver() {
@@ -258,7 +283,7 @@
     if (!replaying && !soloUrl && !session) { if (panel) panel.hidden = true; return; }
     if (!panel) build();
     panel.hidden = !!session;
-    for (const node of [record, speed, audio.parentElement]) node.hidden = !replaying;
+    for (const node of [record, speed, quality, audio.parentElement]) node.hidden = !replaying;
     solo.hidden = !soloUrl; if (soloUrl) solo.href = soloUrl;
     placePanel();
     // Opened from a finished Solo duel: point at the button (recording itself needs a click).
@@ -292,6 +317,38 @@
     // border-box: the max width includes padding and border, so a panel sized for the gutter fits in it.
     const measure = () => { Object.assign(panel.style, { left: '0px', top: '0px', bottom: 'auto', boxSizing: 'border-box' }); return panel.getBoundingClientRect(); };
     panel.classList.remove('dblite-record-compact'); dock.hidden = true;
+    // Under Find card (user, 2026-11-09): the search below starts at the top and, in replays, put the panel over the top
+    // player's zones (DuelingBook draws them without measurable boxes). It now follows Spellspeed's duel tools (placed by
+    // content.js from the free space), as wide as they are: under them, else above them, else the search below.
+    const tools = document.querySelector('body>.dblite-duel-tools'), toolsBox = tools && visible(tools) ? tools.getBoundingClientRect() : null;
+    if (toolsBox && toolsBox.width >= 96) {
+      // DuelingBook's corner icons and the replay options (Hide Hands, Show Hand, Show Both, like) are added here.
+      const near = [...obstacles, ...[...document.querySelectorAll('#online_btn,#chat_btn,#private_btn,#duel>.radiobutton,#show_lbl,#show1_lbl,#show2_lbl,#duel>.like_btn')].filter(visible).map(n => n.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0)];
+      const clear = (x, y, w, h) => !near.some(r => x < r.right + 4 && x + w > r.left - 4 && y < r.bottom + 4 && y + h > r.top - 4);
+      panel.style.maxWidth = ''; panel.style.width = `${Math.round(toolsBox.width)}px`;
+      const fits = box => [toolsBox.bottom + 4, toolsBox.top - 4 - box.height].find(y => y >= 2 && y + box.height <= height - 2 && clear(toolsBox.left, y, box.width, box.height));
+      const put = y => Object.assign(panel.style, { left: `${Math.round(toolsBox.left)}px`, top: `${Math.round(y)}px`, bottom: 'auto' });
+      let y = fits(measure());
+      if (y !== undefined) {
+        expanded = false; dockAnchor = null; dock.setAttribute('aria-expanded', 'false'); panel.classList.remove('dblite-record-expanded');
+        put(y); return;
+      }
+      // Fullscreen replay at 1920×1080 (ch07 take, 2026-11-09): at Find card's width the panel wraps to 83 px, which fits
+      // neither under Find card (64 px to the screen's edge) nor above it (Watchers). The one-line Record video button does;
+      // a click opens the whole panel where the button is, which may cover the options until it is closed.
+      dock.hidden = false; panel.classList.add('dblite-record-compact'); panel.classList.remove('dblite-record-expanded');
+      y = fits(measure());
+      if (y !== undefined) {
+        if (expanded && dockAnchor) {
+          panel.classList.add('dblite-record-expanded');
+          const open = measure();
+          put(Math.max(gap, Math.min(dockAnchor.top, height - open.height - gap)));
+        } else put(y);
+        return;
+      }
+      panel.classList.remove('dblite-record-compact'); dock.hidden = true;
+    }
+    panel.style.width = '';
     panel.style.maxWidth = `${Math.max(1, Math.min(280, (gutter >= 200 ? gutter : width) - gap * 2))}px`;
     let box = measure(), spot = find(box.width, box.height);
     if (!spot) {
@@ -329,14 +386,16 @@
     if (event.source !== window || event.origin !== location.origin || event.data?.type !== 'DBLITE_SETTINGS') return;
     config = rules.settings(event.data.settings || {}); if (!config.replayVideo) stopRecording(); update();
   });
+  // Small panel (user, 2026-11-09: "very, very big for no reason"): 10 px, two rows at Find card's width. The controls'
+  // font is !important because DuelingBook writes an inline font-size on every select when the window resizes.
   const style = document.createElement('style');
   style.textContent = `
-    #dblite-record{position:fixed;left:12px;bottom:62px;z-index:2147483000;display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:min(560px,calc(100vw - 24px));background:var(--dbt-panel);border:1px solid var(--dbt-line);border-radius:8px;padding:7px 10px;color:var(--dbt-text);font:13px/1.3 system-ui,sans-serif;box-shadow:0 6px 18px #0007}
+    #dblite-record{position:fixed;left:12px;bottom:62px;z-index:2147483000;display:flex;flex-wrap:wrap;gap:2px;align-items:center;max-width:min(560px,calc(100vw - 24px));background:var(--dbt-panel);border:1px solid var(--dbt-line);border-radius:6px;padding:3px 4px;color:var(--dbt-text);font:10px/1.25 system-ui,sans-serif;box-shadow:0 6px 18px #0007}
     #dblite-record[hidden],#dblite-record [hidden]{display:none!important}
     #dblite-record.dblite-record-compact:not(.dblite-record-expanded)>:not(.dblite-record-dock){display:none!important}
-    #dblite-record button,#dblite-record select,#dblite-record a{background:var(--dbt-input);color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:5px;padding:4px 9px;font:inherit;text-decoration:none;cursor:pointer}
+    #dblite-record button,#dblite-record select,#dblite-record a{background:var(--dbt-input);color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:4px;padding:1px 2px;font:inherit!important;text-decoration:none;cursor:pointer}
     #dblite-record .dblite-record-start{background:var(--dbt-panel);border-color:var(--dbt-line);font-weight:600}#dblite-record .dblite-record-start:hover{background:var(--dbt-panel-2)}
-    #dblite-record label{display:flex;align-items:center;gap:4px;cursor:pointer}
+    #dblite-record label{display:flex;align-items:center;gap:2px;cursor:pointer}#dblite-record input[type=checkbox]{margin:0;width:11px;height:11px}
     #dblite-record.dblite-record-invite{outline:3px solid var(--dbt-accent);outline-offset:2px}
     .dblite-record-status{opacity:.85}
     #duel .dblite-solo-session .dblite-solo-replay{display:block;width:98px;height:22px;box-sizing:border-box;line-height:20px;text-align:center;border:1px solid var(--dbt-line);border-radius:4px;background:var(--dbt-panel);color:var(--dbt-text);font:11px system-ui;text-decoration:none;cursor:pointer}
@@ -345,5 +404,5 @@
   `;
   document.head.append(style);
   setInterval(update, 1000); update();
-  window.DBETTERRecorder = Object.freeze({ start: startRecording, stop: stopRecording, recording: () => !!session, mimeType, fileName, update, webmDuration });
+  window.DBETTERRecorder = Object.freeze({ start: startRecording, stop: stopRecording, recording: () => !!session, mimeType, fileName, update, webmDuration, qualities: QUALITIES });
 })();

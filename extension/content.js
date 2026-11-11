@@ -460,7 +460,8 @@
     if (!window.replay || !duel || !visible(duel)) { if (button) button.hidden = true; return; }
     if (!button) {
       button = document.createElement('button'); button.id = 'dblite-next-game'; button.type = 'button'; button.textContent = 'Next game →';
-      button.addEventListener('click', e => { e.preventDefault(); e.stopImmediatePropagation(); if (!button.disabled) window.nextGameE?.(); replayNextGame(); });
+      // With Spellspeed's replay timeline on, the timeline moves there (rewind-ui.js, nextGame).
+      button.addEventListener('click', e => { e.preventDefault(); e.stopImmediatePropagation(); if (!button.disabled && !window.DBETTERRewind?.nextGame?.()) window.nextGameE?.(); replayNextGame(); });
     }
     const parent = document.getElementById('avatar1')?.parentElement || document.getElementById('content') || duel;
     if (button.parentElement !== parent) parent.append(button);
@@ -3015,6 +3016,15 @@
     }
     return '';
   }
+  // The footer keeps the colour it got when it was made: after switching the look (Night to Classic), or when it was made
+  // during the box's background transition, it stayed a grey bar on the white Classic box (user, 2026-11-07). Each tick
+  // puts the box's current colour back (written only on change).
+  function footerColours() {
+    for (const more of document.querySelectorAll('#preview_txt .dblite-preview-more')) {
+      const colour = boxColour(more.parentElement, more.closest('#preview_txt'));
+      if (more.style.backgroundColor !== colour) more.style.backgroundColor = colour;
+    }
+  }
   // Under the card text: the card's archetype(s), and in the deck constructor a reverse search
   // for the cards that add or Summon it. DuelingBook replaces the text with each preview.
   function previewFooter(text) {
@@ -3117,8 +3127,12 @@
   // has no picture of a whole card). Touch has no hover; a tap opens the card in the overview.
   let cardPeek = null;
   const hideCardPeek = () => cardPeek?.remove();
+  // The same panel for a card name quoted in the card text (user, 2026-11-06), in duels, Solo and the deck constructor:
+  // only a name that is exactly one card's ("Toon World", not the archetype "Toon"). The click is unchanged.
+  const peekCard = ref => ref.dataset.card ? window.DBETTERConstructor?.catalogCard?.(ref.dataset.card)
+    : config.namePeek && !ref.dataset.stats && !ref.dataset.archetype && previewCatalog().names.get(previewNameKey(ref.textContent)) || null;
   function showCardPeek(ref) {
-    const card = window.DBETTERConstructor?.catalogCard?.(ref.dataset.card);
+    const card = peekCard(ref);
     if (!card) return;
     cardPeek ||= Object.assign(document.createElement('div'), { className: 'dblite-card-peek' });
     const art = Object.assign(document.createElement('img'), { alt: '', src: (window.CARD_IMAGES_START || 'https://images.duelingbook.com/low-res/') + encodeURIComponent(card.id) + '.jpg' });
@@ -3136,10 +3150,10 @@
     cardPeek.style.top = Math.max(8, Math.min(box.top - height / 2, innerHeight - height - 8)) + 'px';
   }
   document.addEventListener('pointerover', event => {
-    const ref = event.pointerType === 'mouse' && event.target.closest?.('#preview_txt .dblite-step-ref');
+    const ref = event.pointerType === 'mouse' && event.target.closest?.('#preview_txt .dblite-step-ref, #preview_txt .dblite-card-ref');
     if (ref) showCardPeek(ref);
   }, true);
-  document.addEventListener('pointerout', event => { if (event.target.closest?.('.dblite-step-ref')) hideCardPeek(); }, true);
+  document.addEventListener('pointerout', event => { if (event.target.closest?.('.dblite-step-ref, #preview_txt .dblite-card-ref')) hideCardPeek(); }, true);
   // Summon Lab breakdown (user, 2026-10-30): each chosen card and the part of the recipe it fills, then for
   // each Any slot the ways real cards fill it, with up to 3 of them, a search for all, and what remains.
   const labExpanded = new Set();
@@ -3628,6 +3642,46 @@
       if (data?.play === 'Typing') typists.set(p, { seen: false, duel: window.duelId });
       else if (data?.play === 'Duel message') typists.delete(p);
     }
+    // Find card and the position wheel switch (2026-11-07): left 12, bottom 72 was laid out on a 2560×1440 screen; at 1920×1080
+    // full screen DuelingBook's stage leaves a 96 px margin and the row covered its friends icon and chat bubbles. The spot now
+    // comes from the free space: that row while it clears DuelingBook's corner controls, else a column left of them (under the
+    // Watchers box), else that column with icons only, else a row under the stage. Touch screens keep their layout (touch.js).
+    // Replays add Hide Hands / Show Hand / Show Both and the like button under Watchers (user, 2026-11-09: at 1920×1080
+    // full screen the 0.9.1 spot covered them, and the Record video panel, which follows Find card, went to the top right).
+    const REPLAY_CONTROLS = '#duel>.radiobutton,#show_lbl,#show1_lbl,#show2_lbl,#duel>.like_btn';
+    const TOOL_OBSTACLES = '#online_btn,#chat_btn,#private_btn,#watchers,#watch_chat,' + REPLAY_CONTROLS;
+    let toolsAt = '';
+    function toolsSpot() {
+      const pad = 6, gap = 5, h = 32, n = wheelButton.hidden ? 1 : 2;
+      const boxes = [...document.querySelectorAll(TOOL_OBSTACLES)].filter(visible).map(node => node.getBoundingClientRect()).filter(r => r.width && r.height);
+      if (!boxes.length) return null;
+      const free = (left, top, width, height) => left >= 0 && top >= 0 && left + width <= innerWidth && top + height <= innerHeight &&
+        !boxes.some(r => left < r.right + pad && left + width > r.left - pad && top < r.bottom + pad && top + height > r.top - pad);
+      if (free(12, innerHeight - 72 - h, n > 1 ? 132 + gap + 72 : 132, h)) return null;
+      // The column stays left of DuelingBook's corner icons and of the replay controls.
+      const icons = [...document.querySelectorAll('#online_btn,#chat_btn,#private_btn,' + REPLAY_CONTROLS)].filter(visible).map(node => node.getBoundingClientRect().left).filter(x => x > 0);
+      const room = Math.floor((icons.length ? Math.min(...icons) : innerWidth) - pad - 4), height = n * h + (n - 1) * gap;
+      const width = room >= 96 ? Math.min(132, room) : room >= h ? h : 0;
+      if (width) {
+        // The 0.9.1 bottom line first, then just under each obstacle, lowest first.
+        const tops = [innerHeight - 72 - height, ...boxes.map(r => Math.ceil(r.bottom + pad)).sort((a, b) => b - a)];
+        const top = tops.find(y => free(4, y, width, height));
+        if (top !== undefined) return { mode: width === h ? 'icons' : 'column', left: 4, top, width };
+      }
+      const stage = document.getElementById('content')?.getBoundingClientRect();
+      if (stage && free(12, Math.ceil(stage.bottom + 2), n > 1 ? 132 + gap + 72 : 132, h)) return { mode: 'row', left: 12, top: Math.ceil(stage.bottom + 2) };
+      return null;
+    }
+    function placeTools() {
+      if (!controls?.isConnected) return;
+      const spot = document.documentElement.classList.contains('dbetter-touch') ? null : toolsSpot();
+      const key = spot ? `${spot.mode}|${spot.left}|${spot.top}|${spot.width || ''}` : '';
+      if (key === toolsAt) return; // Written only on change.
+      toolsAt = key;
+      controls.classList.toggle('dblite-tools-column', !!spot && spot.mode !== 'row');
+      controls.classList.toggle('dblite-tools-icons', spot?.mode === 'icons');
+      Object.assign(controls.style, spot ? { left: `${spot.left}px`, top: `${spot.top}px`, bottom: 'auto', width: spot.width ? `${spot.width}px` : '' } : { left: '', top: '', bottom: '', width: '' });
+    }
     function update() {
       if (!window.jQuery) return;
       hookHand();
@@ -3648,9 +3702,9 @@
         });
         sortButton.title = 'Sort by card type, then Level/Rank/Link rating, then name (local only)'; sortButton.className = 'dblite-sort-hand';
         sortButton.innerHTML = '<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="3" width="18" height="25" rx="2" fill="var(--dbt-panel)" stroke="var(--dbt-line)"/><rect x="6" y="5" width="18" height="25" rx="2" fill="var(--dbt-panel-2)" stroke="var(--dbt-text)"/><path d="M9 13h8m-8 5h6m-6 5h4M27 7v18m-3-3 3 3 3-3" fill="none" stroke="var(--dbt-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-        searchButton = makeButton('⌕ Find card', openSearch); searchButton.className = 'dblite-find-card';
+        searchButton = makeButton('⌕ Find card', openSearch); searchButton.className = 'dblite-find-card'; searchButton.dataset.icon = '⌕';
         wheelButton = makeButton('', toggleWheel); wheelButton.className = 'dblite-position-wheel-toggle';
-        chatButton = makeButton('💬', openChatWheel); chatButton.className = 'dblite-chat-wheel-button';
+        chatButton =makeButton('💬', openChatWheel); chatButton.className = 'dblite-chat-wheel-button';
         chatButton.title = 'Quick chat: gg, glhf and your deck\'s own messages'; chatButton.setAttribute('aria-label', 'Quick chat');
         searchButton.setAttribute('aria-expanded', 'false'); searchButton.setAttribute('aria-controls', 'dblite-card-search');
         const parent = document.getElementById('avatar1')?.parentElement || document.getElementById('duel_content')?.parentElement || duel;
@@ -3665,13 +3719,14 @@
       if (searchButton.getAttribute('aria-label') !== 'Find a card') searchButton.setAttribute('aria-label', 'Find a card');
       const wheelOn = !!config.dropWheel, wheelText = wheelOn ? '◎ Wheel' : '⌨ Direct';
       if (wheelButton.textContent !== wheelText) {
-        wheelButton.textContent = wheelText; wheelButton.setAttribute('aria-pressed', String(wheelOn));
+        wheelButton.textContent = wheelText; wheelButton.dataset.icon = wheelText[0]; wheelButton.setAttribute('aria-pressed', String(wheelOn));
         wheelButton.setAttribute('aria-label', `Position wheel ${wheelOn ? 'on' : 'off'}`);
         wheelButton.title = `${wheelOn ? 'Position wheel on: a drop on an empty zone asks how to play the card.' : 'Position wheel off: a drop plays at once; Shift, Ctrl and Alt choose.'} Click or press ${rules.keyLabel(config.keys.wheel)} to switch.`;
       }
       // Only in your own games (Solo or a duel you play); not while watching or in a replay (user, 2026-10-29).
       const noWheel = !config.drag || !window.duelist || !!window.replay;
       if (wheelButton.hidden !== noWheel) wheelButton.hidden = noWheel;
+      placeTools();
       const names = [];
       for (const [p, state] of typists) {
         if (state.duel !== window.duelId || ![window.player1, window.player2].includes(p) || !window.duel_active) { typists.delete(p); continue; }
@@ -3689,7 +3744,7 @@
         positionSearch();
       }
     }
-    window.addEventListener('resize', positionSearch);
+    window.addEventListener('resize', positionSearch); window.addEventListener('resize', () => placeTools());
     // Opens Find a card on a name search, e.g. from a quoted name in the card preview.
     // Stats are compared as numbers; '?' only matches '?' (stored as -1 or '?').
     function statsMatch(card, stats) {
@@ -3829,7 +3884,7 @@
     const safety = Date.now() - presentationSafety >= 5000 || !presentationSafety;
     if (safety) presentationSafety = Date.now();
     adaptiveLayout();
-    fieldLayers(); replaySpeed();
+    fieldLayers(); replaySpeed(); footerColours();
     scoutSpacing();
     skipSiteIntro(); hookLoginError(); watchLoginRetry(); watchDeadEnd(); hookRestack();
     sounds?.update();
@@ -3910,6 +3965,8 @@
     .dblite-duel-tools button[hidden],.dblite-chat-typing[hidden]{display:none!important}
     .dblite-duel-tools .dblite-position-wheel-toggle{flex:0 0 auto}.dblite-duel-tools .dblite-position-wheel-toggle[aria-pressed="true"]{border-color:var(--dbt-accent)}
     html.dbetter-touch .dblite-duel-tools .dblite-position-wheel-toggle{display:none}
+    body>.dblite-duel-tools.dblite-tools-column{flex-direction:column;height:auto}.dblite-duel-tools.dblite-tools-column button{flex:0 0 32px;width:auto;height:32px;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis}
+    .dblite-duel-tools.dblite-tools-icons button{padding:0;font-size:0}.dblite-duel-tools.dblite-tools-icons button::before{content:attr(data-icon);font-size:16px;line-height:30px}
     .dblite-quick-note{position:fixed;left:12px;bottom:110px;z-index:2147483000;max-width:min(420px,calc(100vw - 24px));padding:7px 11px;border:1px solid var(--dbt-line);border-radius:8px;background:var(--dbt-panel);color:var(--dbt-text);font:600 12px/1.35 'Segoe UI',sans-serif;box-shadow:0 8px 22px rgba(0,0,0,.4);pointer-events:none}
     replay-scout{translate:0 calc(-1px * var(--dblite-scout-lift,0))}
     #duel .dblite-chat-typing{position:absolute;left:845px;top:394px;width:calc(var(--dblite-history-width,181px) - 4px);height:11px;font:600 8.5px/11px 'Segoe UI',sans-serif;color:var(--dbt-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}

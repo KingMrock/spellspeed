@@ -2,7 +2,7 @@
 <!-- DBETTER for Android, GPL-3.0-only. Marked as a game (appCategory, isGame) so game modes such as
      Xiaomi Game Turbo list it; landscape, full screen, screen kept on. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.dbetter.app">
+    package="com.spellspeed.app">
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="Spellspeed"

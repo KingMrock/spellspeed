@@ -1,5 +1,5 @@
 /* DBETTER for Android, GPL-3.0-only. DuelingBook in a full-screen game window with DBETTER built in. */
-package com.dbetter.app;
+package com.spellspeed.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;

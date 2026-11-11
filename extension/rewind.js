@@ -9,12 +9,15 @@
   const TRACKED = ["ABOUT_ZERO","AVATAR_START","Activate","Admanager","Attack","BLAH","BLINK","Banish","CARDS_START","CARD_IMAGES_START","CARD_START","CARD_TOKENS_START","CHROME","CONTENTSCALE","CUSTOM_PICS_START","CoinFlip","CoinStart","Continuous","CounterSound","Decided","Declare","DiceSound","DrawSound","EDGE","FIREFOX","FP1","FP2","FP3","FP4","FP5","FP6","FP7","FP8","FaceDown","Flip","IE","IMAGES_START","IMGBB_KEY","IMGUR_ID","LifePoints","LifePointsEnd","MAC","Move","NormalSummon","OPERA","Ok","PC","PERSPECTIVE","PROFILE_PIC_START","PartnerFound","Pinching","Placement1","Placement2","Placement3","Placement4","Reveal","SAFARI","SKILL_BACKS_START","SLEEVE_START","SOUND_START","Scope","ShowingMes4","ShowingPoints","Shred","ShuffleHand","ShuffleSound","SnapShot","SpecialSummon","SpeedDuelBanlist","Swap","Switch","TOKEN_START","TOR","TOUCHEND","TURNSTILE_KEY","Target","Timers","TurnChime","UPDATED_URL_START","URL_START","VERSION","Zoom","action_list","actionsQueue","active","active_player","active_scrollpane","adjudicator","adjustTimer","admin","admin_status","alignLeft","alignRight","all_cards_arr","all_status_arr","allowToBottom","always_show_nsfw","audio_arr","automatic","automaticTourney","awaiting_admin","awaiting_cards","awaiting_defeat","awaiting_start_turn","awaiting_token","banlists","banner_ad","blocked_arr","blue_stream","bottomChoice","bottomChoices","bp_btn","bubbles1","bubbles2","bubbles3","bubbles4","canAddMoreCards","cancel_callback","cardsInExtra","cardsInMain","cardsInSide","cards_created","cards_fingerprint","changing_components","combo_callback","conceal","contentScale","controlDown","controlFocus","countdownTimer","counter_btn","counters","currentLabel","currentPhase","data_arr","db_id","deckCardX","deckCardY","deckData","deck_arr","deck_filled_arr","dim","dimTimer","dislike","dp_btn","dragXOffset","dragYOffset","duelActions","duelChatTimer","duelChatTyping","duelDate","duelFocus","duelFormat","duelHash","duelId","duel_active","duel_links","duel_log","duel_log_vsp","duel_logs","duel_vsp","duelist","easeSeconds","easeSeconds2","easeSeconds3","easeSeconds4","easeSeconds5","easeSecondsBanish","ep_btn","extra_arr","extra_filled_arr","fancy_scrollbars","fast_forwarding","field_spell_counter","first","first_player","flat","gameLossSound","gameWinSound","game_number","games","gotoSeconds","handDestination","html","image_url","images","input_callback","isScrolling","item_arr","jello","key","lastAction","lastDuelId","left_link_counter","life_amount","life_bar","lifepointMax","linkLeft","linkLeftX","linkLeftxEnd","linkLeftxStart","linkRight","linkRightX","linkRightxEnd","linkRightxStart","linkY","links","loadkey","logTurnCount","logging","login_box","m1_btn","m1_counter","m2_btn","m2_counter","m3_counter","m4_counter","m5_counter","mainHeight","mainWidth","marginLeft","marginTop","master","match","match_number","match_type","menu","menu_card","menu_reason","mes1","mes2","mes3","mes4","mobile","moderator","mouseMoveTimer","mouseX","mouseXScaled","mouseY","mouseYScaled","msg_callback","no_callback","notification_tweening","opp_field_spell_counter","opp_m1_counter","opp_m2_counter","opp_m3_counter","opp_m4_counter","opp_m5_counter","opp_pendulum_left_counter","opp_pendulum_right_counter","opp_s1_counter","opp_s2_counter","opp_s3_counter","opp_s4_counter","opp_s5_counter","opp_skill_card_counter","paper1","paper2","password","paused","pausedBy","pendulum_left_counter","pendulum_right_counter","pickedRPS","player1","player2","player3","player4","players","preload_arr","prevFocus","prev_frames","prev_life","preview","previewTimer","preview_txt","preview_vsp","previous_plays","random_arr","rated","ready","recycled_cardfronts_arr","recycled_cards_arr","red_stream","regular","remember_me","remote","remove_menu_reason","replay","replay_arr","replay_loaded","resetting","resizeETimer","resume_play","right_link_counter","rock1","rock2","rpsTimer","rpsWinner","rush","s1_counter","s2_counter","s3_counter","s4_counter","s5_counter","scissors1","scissors2","screenshotStyle","search_arr","searching","second","seconds","seen_deck","seen_extra","selectedToken","shiftDown","shine","showMes","show_cards","shuffle_field_cards","sideHeight","sideWidth","side_arr","side_filled_arr","skill_card_counter","skinny_ad","skipping","solo","sp_btn","spark","speed","standings","startingHandSize","statuses_data","stopQueue","stopped","streaming","summoning_card","summoning_play","swfHeight","swfWidth","switched","tag_duel","taking_screenshot","testing1","testing2","topChoice","topChoices","tourneys_data","turnCount","turn_player","turnstileID","unknown_extra_total","unknown_main_total","unknown_totals","update_statuses","usecardimages","used_allotted_rematch","userId","username","version","viewing","viewing_card","viewing_card_with_materials","watch_chat","watch_chat_limit","watch_chat_vsp","watchers_data","watchers_vsp","yes_callback","zooming"];
   // Replay data and logs: compared as lists, never walked into (their entries are the replay's own records).
   const OPAQUE = new Set(['previous_plays', 'replay_arr', 'duel_logs']);
+  const SWEEP_EVERY = 64;
+  // Elements given jQuery data during the current recording (transaction), and jQuery's own functions while wrapped.
+  const dataSet = new Set(); let jqData = null, jqCss = null;
   let source = null, busy = false, last = null, session = null;
   // The virtual clock replaces performance.now; timings use the real one.
   const realNow = Performance.prototype.now.bind(performance);
 
   // ---- engine transaction pieces (as in the rebuild core) -------------------------------------------------
-  function deferredUI() {
+  function deferredUI(quiet=false) {
     const update=global.updateDuelLog, text=global.setText, cardText=global.setCardText, expand=global.expandAvatar;
     const saveScroll=global.saveDuelVSP, restoreScroll=global.restoreDuelVSP;
     let scrolled=false, dirty=false;
@@ -32,10 +35,17 @@
     };
     // Texts are applied at every recorded boundary, so each play's entry holds its own text changes. The duel
     // log is derived from duel_logs and kept out of the tape: it is rendered once, when the transaction ends.
+    // A text in a hidden part of the board (an inline display: none on it or up the tree) has no
+    // size, so DuelingBook's fitting ends after its first writes: setText sets white-space and scaleX(1), setCardText
+    // the 29 px font and its line height. Those writes are made here directly: the fitting's first size read forced a
+    // layout of the page each time, and a third to half of the calls are hidden (Chrome, 2026-11-09: 63 of 174 card
+    // texts, 293 of 482 names; this test agreed with the browser's own visibility on all 656). Not the hidden attribute:
+    // a stylesheet may show such an element (Codex review).
+    const hidden=n=>{ for(let e=n;e&&e!==document.body;e=e.parentElement) if(e.style.display==='none') return true; return false; };
     const flush=()=>{
-      for(const [node,arg] of texts) if(node.isConnected)text(arg);
+      for(const [node,arg] of texts) if(node.isConnected) { if(hidden(node)) { node.style.whiteSpace='nowrap'; node.style.transform='scaleX(1)'; } else text(arg); }
       texts.clear();
-      for(const node of cardTexts) if(node.isConnected)cardText(node);
+      for(const node of cardTexts) if(node.isConnected) { if(hidden(node)) { node.style.fontSize='29px'; node.style.lineHeight='1'; } else cardText(node); }
       cardTexts.clear();
     };
     return {flush, restore() {
@@ -43,6 +53,8 @@
       if(typeof expand==='function') global.expandAvatar=expand;
       global.saveDuelVSP=saveScroll;global.restoreDuelVSP=restoreScroll;
       flush();
+      // A preload ends where it began (preload): the log on the page is still the viewed position's.
+      if(quiet) return;
       if(dirty) renderLog();
       else if(scrolled) { global.duel_vsp=1e9; restoreScroll(); }
     }};
@@ -70,6 +82,32 @@
     };
     memo.dbetterMemo=true;
     global.cardsToLinks=memo;
+  }
+  // The log is rendered when a move lands, and DuelingBook formats each line through cardsToLinks (memoized above): a
+  // jump to the end of a preloaded replay paid 400 ms the first time, for its 740 lines (Chrome, 2026-11-09). A preload
+  // collects the lines it records, the way updateDuelLog reads them (a duel line's public_log, or its private_log).
+  // While recording ahead, only the lines are collected (cheap); warm() formats them afterwards, when the preload has
+  // nothing left to record: 0.35 s less loading for 740 lines (Chrome, 2026-11-09).
+  function collectLines(s) {
+    const logs=global.duel_logs;
+    if(!Array.isArray(logs)) return;
+    // By the line itself, not its index: the list can shrink and grow again between two collections (Codex review).
+    s.collected??=new WeakSet(); s.lines??=[];
+    // Only the new end when the list just grew; all of it (the set skips known lines) when it was replaced or shortened.
+    const from=s.logList===logs&&logs.length>=s.logLength&&logs[s.logLength-1]===s.logLast?s.logLength:0;
+    s.logList=logs; s.logLength=logs.length; s.logLast=logs[logs.length-1];
+    for(let i=from;i<logs.length;i++) { const line=logs[i]; if(!line||typeof line!=='object'||s.collected.has(line)) continue;
+      s.collected.add(line);
+      if(line.type==='duel') for(const text of [line.public_log,line.private_log]) if(typeof text==='string') s.lines.push(text);
+    }
+  }
+  // Formats collected lines for budget milliseconds; the number left.
+  function warm(budget=20) {
+    const s=session, links=global.cardsToLinks;
+    if(!s?.lines?.length||typeof links!=='function'||!links.dbetterMemo) return 0;
+    const deadline=realNow()+budget;
+    while(s.lines.length&&realNow()<deadline) { const text=s.lines.shift(); try { links(text); } catch {} }
+    return s.lines.length;
   }
   // After tape steps, once per frame: the board must not wait for the log.
   let logFrame=0;
@@ -168,6 +206,15 @@
     global.timer.stop();
     // loadReplayComplete is a loader, not an exit routine. Clean the old duel first.
     if(global.player1?.all_cards_arr) { global.exitRPS(); global.exitTP(); global.exitDueling(); global.exitSiding(); }
+    // exitDueling puts every card in recycled_cards_arr and the loader takes them back. A card front creates some of its
+    // parts the first time it needs them (the Pendulum frame image) and keeps them in a private variable; a tape move back
+    // past that play takes the part off the page, but the variable still holds it. A recycled card handed such a card
+    // again would look for a part that is not there: DuelingBook threw at an opening draw (resizePendulumPic, replay
+    // 86437802, Chrome, 2026-11-09). The loader creates new cards instead, as on a fresh page.
+    for(const name of ['recycled_cards_arr','recycled_cardfronts_arr']) {
+      const pool=global[name];
+      if(Array.isArray(pool)) watchers.forget(pool.splice(0).map(c=>c?.[0]||c));
+    }
     global.TweenMax.killAll();
     global.actionsQueue=[]; global.stopQueue=false; global.previous_plays=[];
     global.duel_logs=[]; global.GAMESTATES=[];
@@ -232,6 +279,10 @@
         adoptCards();
       },
       adoptCards,
+      // Cards DuelingBook will not use again (reset): their entries go, with what is inside them.
+      forget(elements) {
+        for(const el of elements) if(el?.nodeType===1) { entries.delete(el); for(const inner of el.getElementsByTagName('*')) entries.delete(inner); }
+      },
       // A virtual task ended: deliver what it changed (callbacks can change watched elements again).
       flush() { for(let i=0;i<10;i++) { const r=observer.takeRecords(); if(!r.length) return; deliver(r); } },
       // A tape move restores the callbacks' effects with everything else.
@@ -262,13 +313,22 @@
     const expando=global.jQuery.expando, PRIV=expando+'1', USER=expando+'2';
     const SVGAnimC=global.SVGAnim, Animation=global.com?.greensock?.core?.Animation;
     const plain=new Set([Object.prototype, Array.prototype, null, global.jQuery.fn]);
-    const shadow=new Map();            // object -> {keys, vals} or array copy (arrays)
+    // Every tracked object with its last state ({keys, vals}, or a copy for arrays), in two arrays walked by index, and a
+    // Map from object to index for lookups: walking the Map itself cost 40% more (Chrome, 2026-11-09: 1.39 against 0.86 ms
+    // for 4,800 objects, on every play).
+    const shadow=new Map(), objs=[], snaps=[];
+    const keep=(o,snap)=>{ shadow.set(o,objs.length); objs.push(o); snaps.push(snap); };
     const globals=new Map();           // name -> value
     const opaque=new Set();            // arrays compared as lists only
     const names=TRACKED.filter(n=>n in global);
     const skipValue=v=>(SVGAnimC&&v instanceof SVGAnimC)||(Animation&&v instanceof Animation);
+    // The replay's own play records (and what they hold) are data, as their lists are (OPAQUE): DuelingBook's lastAction
+    // points at each in turn, which used to bring every played record into the walk for good (about half the tracked
+    // objects of a 2,000-play replay, compared on every play).
+    const records=new WeakSet();
+    const readRecords=()=>{ for(const n of OPAQUE) if(n!=='duel_logs') for(const p of global[n]||[]) if(p&&typeof p==='object') records.add(p); };
     function walkable(v) {
-      if(v===null||typeof v!=='object'||skipValue(v)) return false;
+      if(v===null||typeof v!=='object'||skipValue(v)||records.has(v)) return false;
       if(v instanceof Node) return v.nodeType===1;
       return plain.has(Object.getPrototypeOf(v));
     }
@@ -285,7 +345,7 @@
         const o=stack.pop();
         if(shadow.has(o)) continue;
         const snap=record(o);
-        shadow.set(o,snap);
+        keep(o,snap);
         if(opaque.has(o)) continue;
         const vals=Array.isArray(snap)?snap:snap.vals;
         if(o instanceof Element) {
@@ -302,9 +362,28 @@
     function sweepElements(root) {
       // Duel elements DuelingBook gave data or transforms to without our roots reaching them (zones, counters…).
       const duel=document.getElementById('duel')||root;
-      for(const el of duel.getElementsByTagName('*')) if(!shadow.has(el)&&(el[USER]!==undefined||el._gsTransform!==undefined)) discover(el);
+      // The property checks first: most elements have neither, and a Map lookup each was half the sweep's cost (6,000
+      // elements on every play of a long replay: 1.15 ms a play before, 0.5 after; Chrome, 2026-11-09).
+      const all=duel.getElementsByTagName('*');
+      for(let i=0,n=all.length;i<n;i++) { const el=all[i]; if((el[USER]!==undefined||el._gsTransform!==undefined)&&!shadow.has(el)) discover(el); }
+    }
+    // During recording, only the elements the play's page changes touched (their targets, added subtrees, changed
+    // attributes, labels): DuelingBook gives an element data or a GSAP transform as it adds, moves or styles it. Over all
+    // plays of two replays (742 and 1,985 entries, Chrome, 2026-11-09) the full sweep found nothing this missed; it still
+    // runs every SWEEP_EVERY plays. A full sweep walks every element of the duel (6,000 or more): 0.5-1.3 ms a play.
+    let sweeps=0;
+    function sweepTouched(dom) {
+      for(const el of dataSet) if(el?.nodeType===1&&(el[USER]!==undefined||el._gsTransform!==undefined)&&!shadow.has(el)&&document.getElementById('duel')?.contains(el)) discover(el);
+      dataSet.clear();
+      const duel=document.getElementById('duel'); if(!duel) return;
+      const check=el=>{ if(el&&el.nodeType===1&&(el[USER]!==undefined||el._gsTransform!==undefined)&&!shadow.has(el)&&duel.contains(el)) discover(el); };
+      const subtree=n=>{ if(n.nodeType!==1) return; check(n); const all=n.getElementsByTagName('*'); for(let i=0;i<all.length;i++) check(all[i]); };
+      for(const r of dom.tree) { check(r.t); for(const n of r.add) subtree(n); }
+      for(const a of dom.attrs) check(a[0]);
+      for(const l of dom.labels) check(l[0]);
     }
     function start(root) {
+      readRecords();
       for(const n of names) {
         const v=global[n]; globals.set(n,v);
         if(OPAQUE.has(n)&&Array.isArray(v)) opaque.add(v);
@@ -314,7 +393,7 @@
       sweepElements(root);
     }
     // Changes since the last call, as undo/redo records; the shadow moves to the current state.
-    function diff(root) {
+    function diff(root, dom) {
       const changes=[];
       for(const n of names) {
         const v=global[n], old=globals.get(n);
@@ -324,7 +403,8 @@
         if(OPAQUE.has(n)&&Array.isArray(v)) opaque.add(v);
         if(walkable(v)&&!shadow.has(v)) discover(v);
       }
-      for(const [o,snap] of shadow) {
+      for(let index=0;index<objs.length;index++) {
+        const o=objs[index], snap=snaps[index];
         if(Array.isArray(snap)) {
           const n=o.length;
           let same=n===snap.length;
@@ -332,7 +412,7 @@
           if(same) continue;
           const now=o.slice();
           changes.push(listChange(o,snap,now));
-          shadow.set(o,now);
+          snaps[index]=now;
           if(!opaque.has(o)) for(const x of now) if(walkable(x)&&!shadow.has(x)) discover(x);
           continue;
         }
@@ -350,9 +430,10 @@
         }
         for(const [k,v] of prev) props.push([k,true,v,false,undefined]);
         changes.push({o,props,keysBefore:snap.keys,keysAfter:now.keys});
-        shadow.set(o,now);
+        snaps[index]=now;
       }
-      if(root) sweepElements(root);
+      if(root&&dom&&++sweeps%SWEEP_EVERY) sweepTouched(dom);
+      else if(root) sweepElements(root);
       return changes;
     }
     // Lists DuelingBook trims from the front and appends to are stored as that, not as copies.
@@ -424,6 +505,11 @@
         if(el.parentElement.id==='field_stats'||/^ci[dbegh]\d_txt$/.test(el.id)) labels.set(el,el.innerHTML);
     };
     const inLabel=n=>{ for(;n;n=n.parentNode) if(labels.has(n)) return true; return false; };
+    // Spellspeed's own interface: an id or every class starting with dblite- / dbetter-. DuelingBook's elements that
+    // Spellspeed only adds a class to keep their own class or id, so they stay on the tape.
+    const own=/^(dblite|dbetter)-/;
+    const ownElement=n=>n?.nodeType===1&&(own.test(n.id)||(!n.id&&n.classList.length>0&&[...n.classList].every(c=>own.test(c))));
+    const inOwn=n=>{ for(;n&&n!==root;n=n.parentNode) if(ownElement(n)) return true; return false; };
     return {
       watch(el) { if(watched.has(el)) return; watched.add(el); if(active) observer.observe(el,options); },
       start() { observer.observe(root,options); for(const el of watched) observer.observe(el,options); readLabels(); active=true; },
@@ -434,9 +520,23 @@
         // whatever was last shown (its card front caches inner elements in private variables the tape can't see).
         // In duels and replays the preview is #duel > .preview with #preview_txt beside it, not #preview: DBETTER's
         // card-text links rewrite that text outside plays (user report, 2026-10-28: a re-record at every move).
-        const skip=[...document.querySelectorAll('#duel_log,#preview,#duel>.preview,#preview_txt')];
+        // By id, and among #duel's own children: a selector list with '#duel>.preview' made the browser walk the whole
+        // page on every play (Chrome, 2026-11-09: 280 of the take's 378 ms over 742 plays).
+        const duel=document.getElementById('duel');
+        const skip=['duel_log','preview','preview_txt'].map(id=>document.getElementById(id)).filter(Boolean);
+        if(duel) for(const child of duel.children) if(child.classList.contains('preview')) skip.push(child);
+        // Whether a target is left out, once per target: a play's records mostly share a few targets.
+        const out=new Map(), left=t=>{ let v=out.get(t); if(v===undefined) out.set(t,v=skip.some(x=>x.contains(t))||inOwn(t)); return v; };
         for(const r of observer.takeRecords()) {
-          if(skip.some(x=>x.contains(r.target))) continue;
+          if(left(r.target)) continue;
+          if(r.type==='childList') {
+            // Spellspeed's own elements added or removed inside DuelingBook's (the action histories, a new game's
+            // panels) are not undone either: going back once put earlier panels next to the current ones.
+            const add=[...r.addedNodes].filter(n=>!ownElement(n)), rem=[...r.removedNodes].filter(n=>!ownElement(n));
+            if(!add.length&&!rem.length) continue;
+            if(!inLabel(r.target)) tree.push({t:r.target,add,rem,prev:r.previousSibling,next:r.nextSibling});
+            continue;
+          }
           if(r.type==='attributes') {
             let m=attrs.get(r.target); if(!m) attrs.set(r.target,m=new Map());
             const key=(r.attributeNamespace||'')+'|'+r.attributeName;
@@ -483,21 +583,59 @@
       for(const [el,,cur] of e.labels) el.innerHTML=cur;
     }
   }
-  // Several plays at once (jumps, scrubbing): structure changes run in order, but each attribute, text and
-  // property is written once, with the value it has at the destination. Entries are in application order.
-  function applyMerged(entries, backwards) {
-    const anchor=r=>r.next&&r.next.parentNode===r.t?r.next:(r.prev&&r.prev.parentNode===r.t?r.prev.nextSibling:null);
-    const attrs=new Map(), texts=new Map(), labels=new Map(), globals=new Map(), props=new Map(), orders=new Map();
+  // Several plays' structure changes, applied as their net effect: the removals and insertions run in order, with
+  // applyDOM's anchors and checks, on child lists in memory, and the page is then written once, only where a node ends
+  // in another parent or another order. Long jumps were mostly DOM work, and most of it cancelled out: over 390 plays
+  // of a long replay (Chrome, 2026-11-09) cards moved several times and nodes were added and removed again, 6,900 node
+  // operations (55 ms) for about 1,550 net ones.
+  function applyTree(entries, backwards) {
+    const lists=new Map(), at=new Map();       // parent -> its children; node -> its parent there (null: detached)
+    const open=p=>{
+      let list=lists.get(p); if(list) return list;
+      lists.set(p,list=[]);
+      for(let n=p.firstChild;n;n=n.nextSibling) if(!at.has(n)) { at.set(n,p); list.push(n); }
+      return list;
+    };
+    const parentOf=n=>{ if(!at.has(n)) { if(n.parentNode) open(n.parentNode); if(!at.has(n)) at.set(n,null); } return at.get(n); };
+    const take=n=>{ const p=parentOf(n); if(p) { const list=lists.get(p); list.splice(list.indexOf(n),1); at.set(n,null); } };
+    const put=(p,n,ref)=>{
+      // As insertBefore: a node inserted before itself goes before its next sibling.
+      if(ref===n) { const own=lists.get(p); ref=own[own.indexOf(n)+1]||null; }
+      take(n); const list=open(p), i=ref?list.indexOf(ref):-1;
+      if(i<0) list.push(n); else list.splice(i,0,n);
+      at.set(n,p);
+    };
+    const anchor=r=>{
+      if(r.next&&parentOf(r.next)===r.t) return r.next;
+      if(r.prev&&parentOf(r.prev)===r.t) { const list=lists.get(r.t); return list[list.indexOf(r.prev)+1]||null; }
+      return null;
+    };
+    const remove=(r,n)=>{ const p=parentOf(n); if(p===r.t) take(n); else fail({node:describe(n),from:describe(r.t),now:describe(p)}); };
     for(const e of entries) {
       const tree=e.dom.tree;
       if(backwards) for(let i=tree.length-1;i>=0;i--) {
         const r=tree[i];
-        for(const n of r.add) detach(r,n);
-        const ref=anchor(r); for(const n of r.rem) r.t.insertBefore(n,ref);
+        for(const n of r.add) remove(r,n);
+        const ref=anchor(r); for(const n of r.rem) put(r.t,n,ref);
       } else for(const r of tree) {
-        for(const n of r.rem) detach(r,n);
-        const ref=anchor(r); for(const n of r.add) r.t.insertBefore(n,ref);
+        for(const n of r.rem) remove(r,n);
+        const ref=anchor(r); for(const n of r.add) put(r.t,n,ref);
       }
+    }
+    // Every node that ends elsewhere (or nowhere) leaves first: what stays is part of the final tree, so no insertion can
+    // put a node inside its own descendant (a parent moved under its former child).
+    for(const [n,p] of at) if(n.parentNode&&n.parentNode!==p) n.parentNode.removeChild(n);
+    for(const [p,list] of lists) {
+      let ref=null;
+      for(let i=list.length-1;i>=0;i--) { const n=list[i]; if(n.parentNode!==p||n.nextSibling!==ref) p.insertBefore(n,ref); ref=n; }
+    }
+  }
+  // Several plays at once (jumps, scrubbing): structure changes as their net effect (applyTree), and each attribute,
+  // text and property is written once, with the value it has at the destination. Entries are in application order.
+  function applyMerged(entries, backwards) {
+    const attrs=new Map(), texts=new Map(), labels=new Map(), globals=new Map(), props=new Map(), orders=new Map();
+    applyTree(entries, backwards);
+    for(const e of entries) {
       for(const [node,ns,name,old,cur] of e.dom.attrs) { let m=attrs.get(node); if(!m) attrs.set(node,m=new Map()); m.set((ns||'')+'|'+name,[ns,name,backwards?old:cur]); }
       for(const [node,old,cur] of e.dom.texts) texts.set(node,backwards?old:cur);
       for(const [el,old,cur] of e.dom.labels) labels.set(el,backwards?old:cur);
@@ -526,21 +664,54 @@
   // ---- sessions: one recorded tape per load of the replay --------------------------------------------------
   // DBETTER listens to these: 'rebuild' is a fresh load of the duel, 'record' continues from the furthest
   // recorded play. Moves along the tape run no DuelingBook code and send 'dbetter-tape' instead.
-  function transaction(mode, fn) {
+  // quiet: a preload chunk, which announces itself once around its tape moves (preload).
+  function transaction(mode, fn, quiet=false) {
     if(busy) throw Error('Rewind already running');
     busy=true; global.DBETTERRebuilding=true;
     const log=console.log, sound=global.playSound, save=global.saveGamestate, rotationY=global.getRotationY;
     let clock, ui;
     try {
-      global.dispatchEvent(new CustomEvent('dbetter-rebuild-begin',{detail:{mode}}));
+      if(!quiet) global.dispatchEvent(new CustomEvent('dbetter-rebuild-begin',{detail:{mode}}));
       console.log=()=>{}; global.playSound=(...args)=>sounds.play(args);
       // endAction still calls the unfinished native snapshot builder. The tape has no use for it.
       global.saveGamestate=()=>{};
       watchers.install(); watchers.adoptCards(); memoizeLinks();
+      // Elements given jQuery data while recording, for the per-play sweep (sweepTouched): DuelingBook can set data on an
+      // element without changing the page (Codex review, 2026-11-09).
+      const jq=global.jQuery;
+      if(jq?.fn?.data&&!jqData) {
+        // Each wrapper keeps its own originals and only passes through once the recording is over: a hook installed on
+        // top meanwhile keeps calling it (Codex review, 2026-11-10: it read the cleared jqData and threw).
+        const fn=jq.fn.data, data=jq.data, state={live:true};
+        jqData={fn,data,state};
+        jq.fn.data=jqData.wrapFn=function(key){ if(state.live&&(arguments.length>1||(key&&typeof key==='object'))) for(let i=0;i<this.length;i++) dataSet.add(this[i]); return fn.apply(this,arguments); };
+        jq.data=jqData.wrapData=function(elem,key){ if(state.live&&(arguments.length>2||(key&&typeof key==='object'))) dataSet.add(elem); return data.apply(this,arguments); };
+      }
       // DuelingBook reads a card's Y rotation back from computed style (getRotationY: 90·(1 − m33)), which makes
       // the browser recalculate styles across the page: about half of each play's cost on the live page. GSAP's
       // cache of the transform it wrote gives the same value, at the 6 significant digits computed style reports
       // (and 0 where that shows 0). Elements outside the page, which report no transform, still go to DuelingBook.
+      // jQuery's show() asks the browser for an element's display whenever its inline display is empty, to override a
+      // stylesheet that hides it; after any page change that forces a style recalculation. DuelingBook shows the ATK/DEF
+      // labels of every zone twice a play this way: 40% of its time in a recording (Chrome, 2026-11-09: 1.67 of 4.1 s for
+      // 742 plays). The answer only depends on the rules that apply to the element, so during a recording it is kept per
+      // element, with what those rules can depend on below; a change to any of it asks again. Recording
+      // the whole replay: 4.9 → 3.45 s, cards, labels, life points and phase the same at every play compared.
+      if(typeof global.jQuery?.css==='function'&&!jqCss) {
+        const css=global.jQuery.css, known=new WeakMap();
+        const state={live:true};
+        jqCss={css,state,wrap:function(elem,name,extra){
+          if(!state.live||name!=='display'||extra||!elem?.style||elem.style.display!==''||!elem.isConnected) return css.apply(this,arguments);
+          // The element's style attribute and hidden flag, every ancestor's classes, and the stylesheets' count: a rule
+          // that depends on any of them is asked again (Codex review, 2026-11-09).
+          let key=(elem.getAttribute('style')??'')+'|'+elem.hidden+'|'+document.styleSheets.length;
+          for(let e=elem;e&&e!==document.body;e=e.parentElement) key+='|'+(e.getAttribute('class')??'');
+          const seen=known.get(elem);
+          if(seen&&seen.key===key) return seen.value;
+          const value=css.apply(this,arguments); known.set(elem,{key,value}); return value;
+        }};
+        global.jQuery.css=jqCss.wrap;
+      }
       if(typeof rotationY==='function') global.getRotationY=el=>{
         const t=el?._gsTransform;
         if(!t||!el.isConnected) return rotationY(el);
@@ -549,15 +720,19 @@
       };
       // The page stays visible: DuelingBook reads computed styles while it plays (getRotationY decides which face
       // of a card shows, name labels are measured to fit), and a hidden page reports no transforms or sizes.
-      ui=deferredUI(); clock=virtualClock();
+      ui=deferredUI(quiet); clock=virtualClock();
       return fn(clock, ui);
     } finally {
       try { try { global.pauseE(); } finally {
         try { ui?.restore(); } finally { clock?.restore(); }
       } }
       finally { console.log=log; global.playSound=sound; global.saveGamestate=save; if(typeof rotationY==='function') global.getRotationY=rotationY;
+        // Put back only what is still ours: a hook someone else installed meanwhile stays.
+        // Off in any case (a hook installed meanwhile may keep calling the wrapper), and removed when it is still ours.
+        if(jqCss) { jqCss.state.live=false; if(global.jQuery.css===jqCss.wrap) global.jQuery.css=jqCss.css; jqCss=null; }
+        if(jqData) { jqData.state.live=false; const jq=global.jQuery; if(jq.fn.data===jqData.wrapFn) jq.fn.data=jqData.fn; if(jq.data===jqData.wrapData) jq.data=jqData.data; jqData=null; }
         try { restoreViewer(); }
-        finally { busy=false; global.DBETTERRebuilding=false; global.dispatchEvent(new CustomEvent('dbetter-rebuild-end',{detail:{mode}})); } }
+        finally { busy=false; global.DBETTERRebuilding=false; if(!quiet) global.dispatchEvent(new CustomEvent('dbetter-rebuild-end',{detail:{mode}})); } }
     }
   }
   // One play forward; false at the end of the replay. DuelingBook drops some entries without playing them, so
@@ -575,17 +750,21 @@
     return true;
   }
   const profile={engine:0,dom:0,js:0,plays:0,applyDom:0,applyJs:0,applied:0,broken:0};
-  function record(s, target, clock, ui) {
+  // deadline (real time): a preload chunk stops there, after at least one play; also when stop() says so (input waiting).
+  function record(s, target, clock, ui, deadline=Infinity, stop=null, collect=false) {
     s.js.diff(); s.dom.start();                          // absorb changes made outside recording
+    const first=global.previous_plays.length;
     try {
       while(global.previous_plays.length<target) {
+        if(global.previous_plays.length>first&&(realNow()>=deadline||stop?.())) break;
         sounds.begin(clock);
         const t0=realNow(); if(!playOne(clock, ui)) { s.ended=true; break; }
         const t1=realNow(); const dom=s.dom.take();
-        const t2=realNow(); const js=s.js.diff(s.root);
+        const t2=realNow(); const js=s.js.diff(s.root,dom);
         const t3=realNow();
         profile.engine+=t1-t0; profile.dom+=t2-t1; profile.js+=t3-t2; profile.plays++;
         s.tape.push({dom,js,sounds:sounds.end()});
+        if(collect) collectLines(s);
       }
     } finally { s.dom.stop(); sounds.end(); }
     s.cursor=global.previous_plays.length; s.list=global.previous_plays;
@@ -605,7 +784,8 @@
   }
   function consistent(s) { return s&&!stale&&global.previous_plays===s.list&&global.previous_plays.length===s.cursor&&!busy; }
   // False when the page or a list had changed outside the tape; the caller then records the duel again.
-  function applyTo(s, target) {
+  // quiet: part of a preload chunk, which leaves the log and DBETTER's interface as they were.
+  function applyTo(s, target, quiet=false) {
     const from=s.cursor;
     global.DBETTERRebuilding=true; broken=false;
     try {
@@ -614,11 +794,11 @@
       if(entries.length===1) { applyDOM(entries[0].dom,back); applyJS(entries[0].js,back); }
       else if(entries.length) applyMerged(entries,back);
       watchers.discard();
-      if(entries.length) renderLogSoon();
+      if(entries.length&&!quiet) renderLogSoon();
       profile.applyDom+=realNow()-a; profile.applied+=entries.length; s.cursor=target;
       if(broken) profile.broken++;
       return !broken;
-    } finally { s.list=global.previous_plays; global.DBETTERRebuilding=false; if(from!==s.cursor) global.dispatchEvent(new CustomEvent('dbetter-tape',{detail:{from,to:s.cursor}})); }
+    } finally { s.list=global.previous_plays; global.DBETTERRebuilding=false; if(from!==s.cursor&&!quiet) global.dispatchEvent(new CustomEvent('dbetter-tape',{detail:{from,to:s.cursor}})); }
   }
   // A pile viewer the user opened holds the pile's cards in its own container, where a move would not find them
   // (replays never open one). A move sets it aside: DuelingBook puts the cards back as it closes, and afterwards
@@ -667,6 +847,57 @@
       return {...last};
     } finally { restoreViewer(); }
   }
+  // ---- preloading: recording ahead while the viewer stays where they are ----------------------------------------
+  // The engine only continues from the furthest recorded play, so one chunk, in one task (nothing paints in between),
+  // takes the tape forward to that play, records plays until budget milliseconds have passed or stop() is true (at least
+  // one, never past until), and takes the tape back to the viewed position. Silent: no sounds, no log render, no 'dbetter-tape'; one
+  // 'record' begin/end pair marked preload, the end sent once the page is back, so DBETTER's interface (its action
+  // histories keep their entries on a 'record') refreshes at the viewed position. Moving there and back costs about
+  // 0.2 ms per play between the two positions (Chrome, 2026-11-09: 75-87 ms for 390 plays; recording about 10 ms a
+  // play): moveMs reports it, so callers can size the next budget. Null when there is nothing to do or the tape can't
+  // be used as it is (a move, the hand setting or DuelingBook's own playback changed the page; an open pile viewer).
+  // A move that finds the page changed records the duel again up to the viewed position, as seek does.
+  let lastPreload=null;
+  // What DuelingBook calls to show a card in its preview while it plays (Chrome, 2026-11-09).
+  const PREVIEWS=['previewCard','previewFront','showPreview'];
+  function preload(options={}) {
+    const s=session, budget=Math.max(1,Number(options.budget)||40), until=Number.isSafeInteger(options.until)?options.until:Infinity;
+    const stop=typeof options.stop==='function'?options.stop:null;
+    if(source===null||!consistent(s)||s.ended||s.preloadFailed||global.viewing) return null;
+    const view=s.cursor, end=s.base+s.tape.length;
+    if(end>=until) return null;
+    const start=realNow();
+    let ok=true, failed=null, plays=0, moveMs=0, t=start;
+    global.DBETTERRebuilding=true;
+    try {
+      global.dispatchEvent(new CustomEvent('dbetter-rebuild-begin',{detail:{mode:'record',preload:true}}));
+      try {
+        if(view!==end) ok=applyTo(s,end,true);
+        moveMs+=realNow()-t;
+        // The card preview is left out of the tape and keeps what it shows: plays ahead must not show their cards there.
+        if(ok) {
+          const previews=PREVIEWS.map(n=>global[n]);
+          for(const n of PREVIEWS) if(typeof global[n]==='function') global[n]=()=>{};
+          try { transaction('record',(clock,ui)=>{ const from=s.cursor; record(s,until,clock,ui,realNow()+budget,stop,true); plays=s.cursor-from; },true); }
+          finally { PREVIEWS.forEach((n,i)=>{ if(typeof previews[i]==='function') global[n]=previews[i]; }); }
+        }
+      } catch(error) { failed=error; }
+      t=realNow();
+      if(ok&&!failed&&s.cursor!==view) ok=applyTo(s,view,true);
+      moveMs+=realNow()-t;
+    } finally {
+      global.DBETTERRebuilding=false;
+      global.dispatchEvent(new CustomEvent('dbetter-rebuild-end',{detail:{mode:'record',preload:true}}));
+    }
+    if(!ok||failed) newSession(view);
+    // An engine error while recording ahead would come back at the same play on every chunk, each time after recording
+    // the duel again up to the viewed position: the preload stops for this tape (a move there still records it and says
+    // why). Seen with a replay whose duel, recorded again in the same page, fails at a later game's opening draw (2026-11-09).
+    if(failed) { session.preloadFailed=String(failed?.message||failed).slice(0,200); throw failed; }
+    global.pauseE?.();
+    lastPreload={plays,ms:realNow()-start,moveMs,recorded:session.base+session.tape.length,ended:!!session.ended,rebuilt:!ok};
+    return {...lastPreload};
+  }
   function invisible(play) {
     return (global.FAST_PLAYS||[]).concat(global.PLAYS_TO_SPEED_UP_WHEN_REWINDING||[]).includes(play) || play?.startsWith('View');
   }
@@ -692,13 +923,13 @@
   function status() {
     return {captured:source!==null,busy,position:global.previous_plays?.length||0,remaining:global.replay_arr?.length||0,label:global.currentLabel,
       queue:global.actionsQueue?.length,stopQueue:global.stopQueue,ready:global.ready,last,
-      tape:session?{base:session.base,recorded:session.base+session.tape.length,ended:!!session.ended,cursor:session.cursor,consistent:consistent(session),objects:session.js.size()}:null,profile:{...profile},lastBroken,watchers:watchers.status()};
+      tape:session?{base:session.base,recorded:session.base+session.tape.length,ended:!!session.ended,cursor:session.cursor,consistent:consistent(session),objects:session.js.size(),preloadFailed:session.preloadFailed||null,unformatted:session.lines?.length||0}:null,profile:{...profile},preload:lastPreload,lastBroken,watchers:watchers.status()};
   }
   global.DBRewind=Object.freeze({capture(str) {
     const data=JSON.parse(str);
     if(typeof str!=='string'||!data.player1||!data.player2||!Array.isArray(data.plays)||!data.plays.length) throw TypeError('Expected replay JSON with players and plays');
     source=str; session=null; memoizeLinks(); return {bytes:str.length};
-  },seek,stepBack,seekTurnStart,status,
+  },seek,preload,warm,stepBack,seekTurnStart,status,
   history() { return session?{played:session.played||[],ahead:session.ended?[]:(session.ahead||[]),ended:!!session.ended}:null; },
   // The recorded sounds of the play that ends at this position: [{at: ms from the play's start, args}], or [].
   effects(position) { const entry=session?.tape[position-session.base-1]; return {sounds:entry?.sounds||[]}; }});

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Spellspeed for DuelingBook",
   "short_name": "Spellspeed",
-  "version": "0.9.1",
-  "version_name": "0.9.1-beta",
+  "version": "0.9.2",
+  "version_name": "0.9.2-beta",
   "description": "Faster, cleaner DuelingBook: drag-and-drop plays, card fans, shortcut keys, replay rewind, themes and a smarter deck builder.",
   "permissions": [
     "storage"

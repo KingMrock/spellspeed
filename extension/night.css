@@ -780,6 +780,12 @@ html.dbetter-night :is(#online_users, #watchers) .chat_top_bg {
   border-bottom:1px solid var(--dbt-native-71998b);
 }
 html.dbetter-night :is(#online_users, #watchers) :is(.total_txt, .title_txt, .watchers_txt) { color:var(--dbt-native-c3d7cf) !important; }
+/* Duel Log (user, 2026-11-07): its panel stayed DuelingBook's white under the dark log, so the filter labels (Chat,
+   Duel, Game, Private Info, Usernames), white text, could not be seen. */
+html.dbetter-night #duel_log .chat_background { background-color:var(--dbt-native-242c2e) !important; background-image:none !important; }
+/* Counters on cards (user, 2026-11-07): the count inherited the duel's white text and sat white on the white counter
+   chip, readable only over the hover glow. Every look. */
+#duel .counter .total_txt { color:#111 !important; }
 html.dbetter-night :is(#online_users, #watchers) .cell {
   background-color:var(--dbt-native-293436) !important;
   background-image:none !important;
@@ -1252,19 +1258,170 @@ html.dbetter-touch #deck_constructor .dblite-builder-search .dblite-lab-actions 
 #deck_constructor .dblite-builder-search .dblite-lab-slot-missing input[type="search"]{border-color:var(--dbt-you)!important;box-shadow:0 0 0 1px var(--dbt-you)}
 #deck_constructor .dblite-builder-search .dblite-lab-actions button{width:auto;padding:0 6px}
 #deck_constructor .dblite-builder-search .dblite-lab-find{background:var(--dbt-panel)!important;color:var(--dbt-text)!important;border-color:var(--dbt-line)!important;font-weight:600}
-/* Opening odds panel (dark, like the Solo and quick chat panels). */
-.dblite-odds{width:320px!important;max-height:min(560px,calc(100vh - 16px));display:flex;flex-direction:column}
+/* Opening odds panel (dark, like the Solo and quick chat panels): stability score, conditions, cards, deck size, tournament, sample hand. */
+html .dblite-solo-settings.dblite-odds{width:460px;max-width:calc(100vw - 16px);height:min(640px,calc(100vh - 16px));max-height:calc(100vh - 16px);display:flex;flex-direction:column;overflow:hidden;padding:12px}
+/* Docked in place of the search panel while open: the deck stays in view, with each card's roles on it. */
+html .dblite-solo-settings.dblite-odds.dblite-odds-docked{max-width:none;max-height:none;border-radius:6px;box-shadow:0 0 0 1px var(--dbt-line)}
+.dblite-odds-tabs{display:flex;gap:4px;border-bottom:1px solid var(--dbt-line);margin:2px 0 6px}
+.dblite-odds .dblite-odds-tabs button{flex:1;height:26px;border-radius:4px 4px 0 0;opacity:.7}
+.dblite-odds .dblite-odds-tabs button[aria-selected="true"]{opacity:1;font-weight:700;box-shadow:inset 0 -2px 0 var(--dbt-accent)}
+.dblite-odds-pane{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;padding-right:4px}
+.dblite-odds-pane[hidden]{display:none}
+/* Numbers being worked out after a click: dimmed until they are current. */
+.dblite-odds.dblite-odds-busy .dblite-odds-score strong,.dblite-odds.dblite-odds-table-busy :is(.dblite-odds-summary,.dblite-odds-plays) td:nth-child(n+3),.dblite-odds-row[data-stale] small{opacity:.4;transition:opacity .1s}
+.deck_cards .dblite-odds-badge{position:absolute;left:2px;top:2px;transform-origin:0 0;z-index:3;padding:0 3px;border-radius:3px;background:var(--dbt-accent);color:var(--dbt-on-accent);font:700 10px/14px system-ui;letter-spacing:.5px;pointer-events:none;box-shadow:0 1px 3px #0009}
+.dblite-odds-builder{margin:6px 0}.dblite-odds-builder summary{cursor:pointer;font-size:12px;color:var(--dbt-muted)}
+.dblite-odds-builder[open] summary{margin-bottom:4px}
+.dblite-odds-needs{grid-column:6/-1;font-size:11px;font-style:normal;color:var(--dbt-muted);margin:-2px 0 2px}
+.dblite-odds-picker{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:3px;padding:5px;margin:2px 0 4px;border:1px solid var(--dbt-line);border-radius:4px}
+.dblite-odds-picker small{flex-basis:100%;text-align:left;font-size:11px;color:var(--dbt-muted)}
+.dblite-odds .dblite-odds-row .dblite-odds-picker button{height:auto;padding:2px 6px;font-size:11px;font-weight:400;opacity:.75}
+.dblite-odds .dblite-odds-row .dblite-odds-picker button[aria-pressed="true"]{opacity:1}
+.dblite-odds .dblite-odds-row .dblite-odds-picker .dblite-odds-group{font-weight:700}
+.dblite-odds .dblite-odds-row .dblite-odds-pair{font-size:10px;filter:grayscale(1)}.dblite-odds .dblite-odds-row .dblite-odds-pair[aria-pressed="true"]{filter:none}
+.dblite-odds :is(.dblite-odds-picker,.dblite-odds-needs)[hidden]{display:none}
+
+.dblite-odds header{margin-bottom:8px}
+.dblite-odds p{margin:4px 0;font-size:12px}
+.dblite-odds-heading{margin:12px 0 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--dbt-muted)}
+.dblite-odds-score{display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:baseline;gap:2px 10px;margin-bottom:4px}
+.dblite-odds-score strong{font-size:26px;line-height:1}
+.dblite-odds-dots{color:var(--dbt-accent);letter-spacing:1px}
+.dblite-odds-score small{grid-column:1/-1;font-size:11px;color:var(--dbt-muted)}
 .dblite-odds table{width:100%;border-collapse:collapse;margin:4px 0 6px;font-size:12px}
 .dblite-odds th,.dblite-odds td{padding:3px 4px;text-align:right;border-bottom:1px solid #ffffff1c}
-.dblite-odds th:first-child,.dblite-odds td:first-child{text-align:left}
+.dblite-odds :is(th,td):first-child{width:22px;padding:0;text-align:center}
+.dblite-odds :is(th,td):nth-child(2){text-align:left}
 .dblite-odds th{font-weight:600;font-size:11px;opacity:.85}
-.dblite-odds-tools{display:flex;gap:6px;margin-bottom:6px}.dblite-odds-tools button{flex:1}
-.dblite-odds-list{overflow:auto;min-height:60px;scrollbar-width:thin;display:flex;flex-direction:column;gap:2px}
-.dblite-odds-row{display:grid;grid-template-columns:24px 24px minmax(0,1fr);gap:4px;align-items:center;font-size:12px}
+.dblite-odds .dblite-odds-star,.dblite-odds .dblite-odds-remove{width:20px;height:20px;padding:0;border:0;background:none;color:var(--dbt-accent);font-size:14px;line-height:1}
+.dblite-odds .dblite-odds-remove{color:inherit;opacity:.6;font-size:13px}
+.dblite-odds .dblite-odds-note{font-size:11px;color:var(--dbt-muted)}
+.dblite-odds-part{margin-bottom:4px;display:grid;grid-template-columns:90px 52px minmax(0,1fr);gap:4px}
+.dblite-odds :is(select,input[type=number]){width:auto;height:24px;padding:0 4px;background:var(--dbt-input);color:inherit;border:1px solid var(--dbt-line);border-radius:4px;font:12px system-ui}
+html.dbetter-night .dblite-odds select{background:var(--dbt-input)!important;color:inherit!important;border-color:var(--dbt-line)!important}
+.dblite-odds-tools{display:flex;gap:6px;margin-bottom:6px}.dblite-odds-tools button{flex:1;min-height:24px}
+.dblite-odds-list{display:flex;flex-direction:column;gap:2px}
+.dblite-odds-row{display:grid;grid-template-columns:repeat(5,22px) minmax(0,1fr) 48px 48px;gap:3px;align-items:center;font-size:12px}
+.dblite-odds-row-head{font-size:10px;font-weight:700;color:var(--dbt-muted);text-align:center}
+.dblite-odds-row-head span:nth-child(6){text-align:left}
+.dblite-odds-row-head span:nth-child(n+7){text-align:right}
 .dblite-odds-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}
-.dblite-odds-row button{height:20px;padding:0;font-size:11px;font-weight:700;opacity:.55}
+.dblite-odds-row small{text-align:right;font-variant-numeric:tabular-nums;color:var(--dbt-muted)}
+.dblite-odds-row small[data-trend=up]{color:var(--dbt-accent)}
+.dblite-odds-row small[data-trend=down]{color:var(--dbt-you)}
+.dblite-odds-row button{height:20px;padding:0;font-size:10px;letter-spacing:-.3px;font-weight:700;opacity:.55}
 .dblite-odds-row button[aria-pressed="true"]{opacity:1;background:var(--dbt-panel-2)!important;border-color:var(--dbt-line)!important;color:var(--dbt-text)!important}
-.dblite-odds-row button:nth-child(2)[aria-pressed="true"]{background:var(--dbt-panel-2)!important;border-color:var(--dbt-line)!important}
+.dblite-odds-size{font-size:12px}.dblite-odds-size small{font-size:11px;color:var(--dbt-muted)}
+.dblite-odds-sample ul{margin:4px 0 0;padding-left:18px;font-size:12px}
+.dblite-odds-sample li b{font-size:10px;margin-left:4px;color:var(--dbt-muted)}
+.dblite-odds .dblite-odds-ok{color:var(--dbt-accent)}.dblite-odds .dblite-odds-miss{color:var(--dbt-you)}
+/* Siding patterns (constructor.js): the opening odds menu's look, docked in the same place. Matchups as tiles; one
+   matchup: its card and name, what goes in and out (always in view), then the Side Deck or the deck to pick from. */
+.dblite-siding-body{flex:1;min-height:0;display:flex;flex-direction:column}
+.dblite-siding-edit{flex:1;min-height:0;display:flex;flex-direction:column}
+.dblite-siding-list{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.dblite-odds .dblite-siding-tile{display:grid;grid-template-columns:40px minmax(0,1fr);gap:10px;align-items:center;width:100%;padding:6px 8px 6px 6px;text-align:left;border-radius:6px;background:var(--dbt-panel-2);font:inherit;color:inherit}
+.dblite-odds .dblite-siding-tile:is(:hover,:focus-visible){border-color:var(--dbt-accent);outline:none}
+.dblite-siding-art{display:flex;align-items:center;justify-content:center;width:40px;aspect-ratio:59/86;border-radius:3px;overflow:hidden;background:var(--dbt-input);color:var(--dbt-muted);font-size:15px;flex:none}
+.dblite-siding-art img{width:100%;height:100%;object-fit:cover;display:block}
+.dblite-siding-art.dblite-siding-art-big{width:64px;font-size:22px}
+.dblite-siding-art.dblite-siding-art-mini{width:20px;font-size:10px;border-radius:2px}
+.dblite-siding-tile-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dblite-siding-tile-top{display:flex;align-items:baseline;gap:8px;min-width:0}
+.dblite-siding-tile-top strong{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.dblite-siding-tile-top b{font-size:12px;font-variant-numeric:tabular-nums}
+.dblite-siding-tile-top em{margin-left:auto;font-style:normal;font-size:11px;white-space:nowrap}
+.dblite-siding .dblite-siding-plus{color:var(--dbt-accent)}.dblite-siding .dblite-siding-minus{color:var(--dbt-you)}
+.dblite-siding-tile-order{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:12px;margin-top:2px}
+.dblite-siding-tile-order .dblite-siding-tile-when{flex:none;width:84px;font-weight:600;color:var(--dbt-muted)}
+.dblite-siding-tile-order em{font-style:normal;font-size:11px;white-space:nowrap}
+.dblite-siding-tile-order .dblite-siding-tile-odds{margin-left:auto;flex:none}
+.dblite-siding-tile .dblite-siding-tile-cards{padding-left:90px}
+.dblite-siding-tile small{font-size:11px;color:var(--dbt-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dblite-siding-tile .dblite-siding-tile-note{font-style:italic}
+.dblite-siding-actions{display:flex;gap:6px}
+.dblite-odds .dblite-siding-new{flex:1;min-height:28px;font-weight:600}
+.dblite-odds .dblite-siding-export{flex:none;min-height:28px;padding:0 12px}
+.dblite-odds .dblite-siding-export:disabled{opacity:.45;cursor:default}
+.dblite-odds .dblite-siding-new:disabled{opacity:.45;cursor:default}
+.dblite-odds p.dblite-siding-none{margin:10px 0;opacity:.75}
+.dblite-siding-nav{display:flex;justify-content:space-between;gap:6px;margin-bottom:8px}
+.dblite-odds .dblite-siding-nav button{min-height:24px;padding:0 10px}
+.dblite-odds .dblite-siding-nav .dblite-siding-armed{background:var(--dbt-you);color:var(--dbt-panel);border-color:var(--dbt-you)}
+.dblite-siding-head{display:grid;grid-template-columns:64px minmax(0,1fr);gap:10px;margin-bottom:8px}
+.dblite-odds .dblite-siding-pick{padding:0;border:0;background:none;align-self:start;border-radius:3px}
+.dblite-odds .dblite-siding-pick:focus-visible{outline:2px solid var(--dbt-accent)}
+.dblite-siding-fields{display:flex;flex-direction:column;gap:4px;min-width:0}
+.dblite-siding :is(input[type=text],input[type=search]){width:100%;height:26px;padding:0 6px;background:var(--dbt-input);color:inherit;border:1px solid var(--dbt-line);border-radius:4px;font:12px system-ui;outline:none}
+.dblite-siding :is(input[type=text],input[type=search]):focus{border-color:var(--dbt-accent)}
+html.dbetter-night .dblite-siding input{background:var(--dbt-input)!important;color:inherit!important;border-color:var(--dbt-line)!important}
+html.dbetter-night .dblite-siding input:focus{border-color:var(--dbt-accent)!important}
+.dblite-siding input::placeholder{color:var(--dbt-muted);opacity:.8}
+.dblite-siding-found{display:flex;flex-direction:column;max-height:186px;overflow:auto;border:1px solid var(--dbt-line);border-radius:4px;background:var(--dbt-input);scrollbar-width:thin}
+.dblite-siding-found[hidden]{display:none}
+.dblite-odds .dblite-siding-found-item{display:flex;align-items:center;gap:6px;min-height:30px;padding:2px 6px;border:0;border-radius:0;background:none;text-align:left;font:12px system-ui;color:inherit}
+.dblite-odds .dblite-siding-found-item:is(:hover,:focus-visible){background:var(--dbt-panel-2);outline:none}
+.dblite-siding-found small{padding:6px;font-size:11px}
+.dblite-siding-orders{display:flex;gap:4px;margin:0 0 6px;flex:none}
+.dblite-odds .dblite-siding-orders button{flex:1;min-width:0;height:26px;padding:0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.dblite-odds .dblite-siding-orders button[aria-selected=true]{background:var(--dbt-accent);color:var(--dbt-on-accent);border-color:var(--dbt-accent);font-weight:700}
+.dblite-odds .dblite-siding-orders .dblite-siding-copy{flex:none;opacity:.85}
+.dblite-siding-orders [hidden]{display:none}
+.dblite-siding-summary{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;height:112px;flex:none;padding:6px 8px 8px;border:1px solid var(--dbt-line);border-radius:6px;background:var(--dbt-panel-2)}
+.dblite-siding-summary .dblite-odds-heading{margin:2px 0 3px}
+.dblite-siding .dblite-siding-in .dblite-odds-heading{color:var(--dbt-accent)}.dblite-siding .dblite-siding-out .dblite-odds-heading{color:var(--dbt-you)}
+.dblite-siding-col{display:flex;flex-direction:column;min-height:0}
+.dblite-siding-summary ul{flex:1;min-height:0;margin:0;padding:0;list-style:none;font-size:12px;overflow:auto;scrollbar-width:thin}
+.dblite-siding-summary li{display:flex;gap:6px;min-width:0;line-height:1.4}
+.dblite-siding-summary li b{min-width:10px;text-align:right;font-variant-numeric:tabular-nums}
+.dblite-siding-summary li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dblite-siding .dblite-siding-summary li[data-problem]{color:var(--dbt-you)}
+.dblite-siding-summary li[data-problem] span::after{content:' ⚠'}
+.dblite-siding-summary .dblite-siding-empty{opacity:.6}
+.dblite-siding-problems{height:22px;flex:none}
+.dblite-siding-problems p{margin:5px 0 0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dblite-siding-oddsline{height:34px;flex:none;font-size:12px}
+.dblite-siding-oddsline[hidden]{display:none}
+.dblite-siding-header-tools{display:flex;align-items:center;gap:6px}
+.dblite-odds .dblite-siding-odds-toggle{height:24px;padding:0 6px;font-size:13px;opacity:.5;filter:grayscale(1)}
+.dblite-odds .dblite-siding-odds-toggle[aria-pressed=true]{opacity:1;filter:none;border-color:var(--dbt-accent)}
+.dblite-siding-oddsline p{margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dblite-siding-oddsline small{display:block;font-size:11px;color:var(--dbt-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dblite-siding :is(.dblite-siding-oddsline b,.dblite-siding-tile-odds)[data-trend=up]{color:var(--dbt-accent)}
+.dblite-siding :is(.dblite-siding-oddsline b,.dblite-siding-tile-odds)[data-trend=down]{color:var(--dbt-you)}
+.dblite-siding-roles{display:flex;gap:2px}
+.dblite-odds .dblite-siding-roles button{width:22px;height:20px;padding:0;font:700 9px/1 system-ui;letter-spacing:-.2px;opacity:.5}
+.dblite-odds .dblite-siding-roles button[aria-pressed=true]{opacity:1;background:var(--dbt-accent);color:var(--dbt-on-accent);border-color:var(--dbt-accent)}
+html[data-dbetter-theme] .dblite-odds .dblite-siding-roles button:not([aria-pressed=true]){opacity:1;color:var(--dbt-muted)}
+.dblite-siding-edit .dblite-odds-tabs{margin-top:4px}
+.dblite-siding-row{display:grid;grid-template-columns:20px minmax(0,1fr) auto auto;gap:6px;align-items:center;min-height:30px;padding:1px 4px 1px 3px;border-left:3px solid transparent;border-radius:4px;cursor:pointer;font-size:12px}
+.dblite-siding-row:hover{background:var(--dbt-panel-2)}
+.dblite-siding-row>span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dblite-siding-row[data-on=true]{background:var(--dbt-panel-2);font-weight:600}
+.dblite-siding-pane-in .dblite-siding-row[data-on=true]{border-left-color:var(--dbt-accent)}
+.dblite-siding-pane-out .dblite-siding-row[data-on=true]{border-left-color:var(--dbt-you)}
+.dblite-siding-row[data-gone]>span:nth-child(2){opacity:.7;text-decoration:line-through}
+.dblite-siding-row[data-locked]{cursor:default}
+.dblite-siding-step{display:flex;align-items:center;gap:3px}
+.dblite-siding-step em{margin-right:4px;font-size:10px;font-style:normal;font-weight:400;color:var(--dbt-you)}
+.dblite-odds .dblite-siding-step button{width:22px;height:22px;padding:0;font:700 13px/1 system-ui}
+.dblite-odds .dblite-siding-step button:disabled{opacity:.3;cursor:default}
+.dblite-siding-step output{min-width:30px;text-align:center;font-variant-numeric:tabular-nums;font-size:12px}
+.dblite-siding-footer{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;padding-top:8px;border-top:1px solid var(--dbt-line)}
+.dblite-odds .dblite-siding-apply{flex:1;min-height:28px;font-weight:600}
+.dblite-odds .dblite-siding-apply:not(:disabled){background:var(--dbt-accent);color:var(--dbt-on-accent);border-color:var(--dbt-accent)}
+.dblite-odds .dblite-siding-apply:disabled{opacity:.45;cursor:not-allowed}
+.dblite-siding :is(.dblite-siding-footer,.dblite-siding-problems) [hidden]{display:none}
+.dblite-siding-footer p{flex-basis:100%;margin:0}
+/* On the deck while a matchup is open: the Side Deck cards that come in, the copies that go out. DuelingBook draws
+   deck cards large and scales them down: the badge undoes that scale (constructor.js), like the odds badges. */
+.dblite-siding-frame{position:absolute!important;inset:0;z-index:3;pointer-events:none}
+.dblite-siding-frame.dblite-siding-mark-in{background:color-mix(in srgb,var(--dbt-accent) 22%,transparent)}
+/* Cards going out fade to grey, so the deck reads at a glance (user, 2026-11-10: "I have to focus to see them"). */
+.dblite-siding-frame.dblite-siding-mark-out{background:#00000059;backdrop-filter:grayscale(.9) brightness(.75);-webkit-backdrop-filter:grayscale(.9) brightness(.75)}
+.dblite-siding-badge{position:absolute!important;transform-origin:0 0;z-index:4;box-sizing:border-box;padding:0;text-align:center;font:800 11px/17px system-ui;letter-spacing:1px;pointer-events:none;box-shadow:0 2px 6px #000a;text-shadow:0 1px 1px #0006}
+.dblite-siding-badge.dblite-siding-mark-in{background:var(--dbt-accent);color:var(--dbt-on-accent)}
+.dblite-siding-badge.dblite-siding-mark-out{background:var(--dbt-you);color:#fff}
 
 html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]),
 html:is([data-dbetter-theme="abyss"],[data-dbetter-theme="ember"]) body {background-color:var(--dbt-ground)}
