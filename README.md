@@ -8,7 +8,7 @@ Website: [spellspeed.com](https://spellspeed.com) · X and Instagram: [@spellspe
 Contact: contact@spellspeed.com
 
 ## What's here
-- `extension/`: the browser extension (Chrome, Edge, Brave, Opera, Firefox), version 0.9.2 (the Chrome Web Store and Firefox Add-ons build).
+- `extension/`: the browser extension (Chrome, Edge, Brave, Opera, Firefox), version 0.9.3 (the Chrome Web Store and Firefox Add-ons build).
   Its `README.md` lists the features.
 - `android/`: the Android app, a WebView that carries the extension's files.
 - `scripts/`: the build scripts for the store zips and the APK.

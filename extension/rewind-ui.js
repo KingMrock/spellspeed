@@ -11,7 +11,11 @@
   // timeline (user, 2026-10-29: the video played DuelingBook's old way, not at the timeline's speed).
   let recordingHere = false;
   const recording = () => !recordingHere && (document.documentElement.classList.contains('dblite-recording') || !!window.DBETTERRecorder?.recording());
-  const enhancer = () => !!window.DBXPreviousState || !!document.querySelector('#prev_btn,#previous_btn,#dbx-prev-btn,#dbx-previous-state') ||
+  // DBuddy (another extension) has its own replay tools, off by default: a Prev button and a timeline. When its user
+  // switched them on, they own the replay and Spellspeed's bar steps aside with a note (user, 2026-11-11). DBuddy says
+  // so in a window message (rules.dbuddy().replayTools) and its Prev button exists only while they are on.
+  const dbuddyReplay = () => !!rules.dbuddy?.().replayTools || !!document.getElementById('dbte-prev-btn');
+  const enhancer = () => dbuddyReplay() || !!window.DBXPreviousState || !!document.querySelector('#prev_btn,#previous_btn,#dbx-prev-btn,#dbx-previous-state') ||
     [...document.querySelectorAll('#duel button,#duel input[type="button"],#duel input[type="submit"]')].some(n => /^(?:Prev|Previous)(?: Play| State)?$/i.test(n.value || n.textContent.trim()));
   // Replays of Solo duels too (user, 2026-10-28): DuelingBook flags them solo; a live Solo duel is never a replay.
   const enabled = () => config.replay && config.replayRewind && captured && window.replay && !enhancer() && !!window.player1?.all_cards_arr;
@@ -182,7 +186,7 @@
     // A coalesced move (key repeat, clicks): the last two visible plays only.
     for (const pos of plays.slice(-2)) {
       const play = m.all[pos - 1], name = play?.play;
-      const side = play?.username === window.player1?.username ? 'var(--dbt-you,#c8424a)' : 'var(--dbt-opponent,#3c9bb5)';
+      const side = play?.username === window.player1?.username ? 'var(--ssp-you,#c8424a)' : 'var(--ssp-opponent,#3c9bb5)';
       // Every sound of the play: they make a replay easier to follow. One that would come after the next move (which
       // cancels what has not started) is brought forward to just before it. Scanning runs no cues.
       const sounds = core.effects?.(pos)?.sounds || [];
@@ -544,7 +548,27 @@
   function markNativeButtons() {
     for (const id of ['play_btn', 'pause_replay_btn', 'next_btn', 'fast_btn']) window.jQuery?.('#' + id).data('proxy')?.[0]?.classList.add('dblite-native-replay-btn');
   }
+  // The note shown while DBuddy's replay tools have the replay: once per page, from when the duel is on screen, until
+  // closed or for 20 s.
+  let dbuddyNoteState = 'unseen';
+  function dbuddyNote(show) {
+    let note = document.getElementById('dblite-dbuddy-replay-note');
+    if (!show || dbuddyNoteState === 'closed' || recording()) { if (note) note.hidden = true; return; }
+    if (!note) {
+      note = element('div', 'dblite-dbuddy-note'); note.id = 'dblite-dbuddy-replay-note'; note.setAttribute('role', 'status');
+      const close = element('button', 'dblite-dbuddy-note-close', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close');
+      close.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); dbuddyNoteState = 'closed'; note.hidden = true; });
+      // User, 2026-11-12: only one of the two can control a replay; Spellspeed's is the recommended one.
+      note.append(element('span', '', 'DBuddy’s replay tools are on, so Spellspeed’s replay bar is off on this replay: only one can control a replay. ' +
+        'We recommend Spellspeed’s: turn off Replay tools in DBuddy (Duel › Duel tools).'), close);
+      for (const type of ['mousedown', 'click', 'dblclick', 'contextmenu', 'keydown']) note.addEventListener(type, event => event.stopPropagation());
+      document.body.append(note);
+    }
+    note.hidden = false;
+    if (dbuddyNoteState === 'unseen') { dbuddyNoteState = 'shown'; setTimeout(() => { dbuddyNoteState = 'closed'; note.hidden = true; }, 20000); }
+  }
   function render() {
+    dbuddyNote(config.replay && config.replayRewind && captured && !!window.player1?.all_cards_arr?.length && dbuddyReplay());
     const on = enabled() && !recording();
     document.documentElement.classList.toggle('dblite-timeline-on', on);
     if (!on) { if (ui.root) ui.root.hidden = true; if (playing || scan) { playing = false; scan = 0; clearTimeout(playTimer); } return; }
@@ -573,7 +597,8 @@
   // user mapped to DBETTER shortcuts keep their shortcut; Space is DBETTER's peek key only while a card viewer is open.
   document.addEventListener('keydown', event => {
     const target = event.target, key = event.key.toLowerCase();
-    if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey || !enabled() || recording() ||
+    // rules.skipInput: keys typed in DBuddy's panel (a shadow root, whose fields the target check below cannot see).
+    if (rules.skipInput(event) || event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey || !enabled() || recording() ||
         target.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],.chat,#chats,#watch_chat') ||
         document.activeElement?.matches('input,textarea,select,[contenteditable="true"]')) return;
     const actions = { arrowleft: () => event.shiftKey ? jumpTurn(-1) : step(-1), arrowright: () => event.shiftKey ? jumpTurn(1) : step(1), k: togglePlay, ' ': togglePlay, j: () => toggleScan(-1), l: () => toggleScan(1) };
@@ -585,7 +610,7 @@
   }, true);
   // A focused button would also take the Space that played or paused, on its keyup.
   let spacePlayed = false;
-  document.addEventListener('keyup', event => { if (event.key === ' ' && spacePlayed) { spacePlayed = false; event.preventDefault(); event.stopImmediatePropagation(); } }, true);
+  document.addEventListener('keyup', event => { if (rules.skipInput(event)) return; if (event.key === ' ' && spacePlayed) { spacePlayed = false; event.preventDefault(); event.stopImmediatePropagation(); } }, true);
   // A new hand setting (Hide Hands, Show Hand, Show Both) makes the tape stale: the duel is recorded again at the
   // current position right away, so the next move stays quick.
   // Only the viewer's changes: DuelingBook sets the hand setting itself while it loads the duel again.
@@ -599,9 +624,15 @@
   style.textContent = `
     html.dblite-timeline-on :is(#play_btn,#pause_replay_btn,#next_btn,#fast_btn,.dblite-native-replay-btn,#dblite-replay-rate){display:none!important}
     html.dblite-recording #dblite-timeline{visibility:hidden!important}
+    #dblite-dbuddy-replay-note{position:fixed;left:50%;top:58px;transform:translateX(-50%);z-index:2147481000;box-sizing:border-box;display:flex;align-items:flex-start;gap:8px;
+      max-width:min(460px,calc(100vw - 28px));padding:8px 8px 8px 12px;border-radius:10px;background:var(--ssp-panel,#242c2e);border:1px solid var(--ssp-line,#3a4548);
+      color:var(--ssp-text,#e6eeea);font:12px/1.4 system-ui,'Segoe UI',sans-serif;box-shadow:0 10px 28px rgba(0,0,0,.45)}
+    #dblite-dbuddy-replay-note[hidden]{display:none}
+    #dblite-dbuddy-replay-note .dblite-dbuddy-note-close{flex:none;width:22px;height:22px;padding:0;border-radius:6px;border:1px solid var(--ssp-line,#3a4548);
+      background:var(--ssp-panel-2,#2b3234);color:var(--ssp-text,#e6eeea);font:600 14px/1 system-ui,sans-serif;cursor:pointer}
     #dblite-timeline{position:fixed;left:14px;bottom:10px;z-index:2147482000;box-sizing:border-box;display:flex;align-items:center;gap:12px;height:42px;padding:0 12px;
-      border-radius:12px;background:color-mix(in srgb,var(--dbt-panel,#242c2e) 92%,transparent);border:1px solid var(--dbt-line,#3a4548);
-      box-shadow:0 10px 28px rgba(0,0,0,.45);backdrop-filter:blur(6px);color:var(--dbt-text,#e6eeea);font:12px/1.3 system-ui,'Segoe UI',sans-serif;
+      border-radius:12px;background:color-mix(in srgb,var(--ssp-panel,#242c2e) 92%,transparent);border:1px solid var(--ssp-line,#3a4548);
+      box-shadow:0 10px 28px rgba(0,0,0,.45);backdrop-filter:blur(6px);color:var(--ssp-text,#e6eeea);font:12px/1.3 system-ui,'Segoe UI',sans-serif;
       transition:background-color .2s,border-color .2s,box-shadow .2s;user-select:none}
     #dblite-timeline[hidden]{display:none}
     #dblite-timeline>*{transition:opacity .2s}
@@ -609,7 +640,7 @@
     #dblite-timeline.dblite-tl-idle>:not(.dblite-tl-mini){opacity:0;visibility:hidden}
     #dblite-timeline:not(.dblite-tl-idle)>.dblite-tl-mini{opacity:0;pointer-events:none}
     #dblite-timeline.dblite-tl-busy{cursor:progress}
-    #dblite-timeline .dblite-tl-mini{position:absolute;left:4px;right:4px;bottom:-6px;height:4px;border-radius:2px;background:color-mix(in srgb,var(--dbt-panel-2,#2b3234) 80%,transparent)}
+    #dblite-timeline .dblite-tl-mini{position:absolute;left:4px;right:4px;bottom:-6px;height:4px;border-radius:2px;background:color-mix(in srgb,var(--ssp-panel-2,#2b3234) 80%,transparent)}
     html.dbetter-touch #dblite-timeline.dblite-tl-idle>.dblite-tl-mini{pointer-events:auto}
     html.dbetter-touch #dblite-timeline{height:38px;padding:0 6px;gap:6px;touch-action:manipulation}
     html.dbetter-touch #dblite-timeline .dblite-tl-controls{gap:3px}
@@ -632,37 +663,37 @@
     html.dbetter-touch #dblite-timeline .dblite-tl-tip{bottom:42px}
     html.dbetter-touch #dblite-timeline .dblite-tl-mini{bottom:2px;left:50px}
     html.dbetter-touch #dblite-timeline .dblite-tl-mini::before{content:'';position:absolute;left:0;right:0;top:-16px;bottom:-6px}
-    #dblite-timeline .dblite-tl-mini-fill{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--dbt-accent,#3c9bb5)}
+    #dblite-timeline .dblite-tl-mini-fill{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--ssp-accent,#3c9bb5)}
     #dblite-timeline .dblite-tl-controls{position:relative;display:flex;gap:4px;flex:none}
     #dblite-timeline .dblite-tl-info{position:relative;display:flex;align-items:baseline;gap:10px;flex:0 1 330px;min-width:0}
     #dblite-timeline .dblite-tl-track{position:relative;flex:1 1 auto;min-width:200px;height:30px;cursor:pointer;touch-action:none;outline:none}
-    .dblite-tl-track:focus-visible .dblite-tl-thumb{box-shadow:0 0 0 3px var(--dbt-text,#e6eeea)}
+    .dblite-tl-track:focus-visible .dblite-tl-thumb{box-shadow:0 0 0 3px var(--ssp-text,#e6eeea)}
     .dblite-tl-rail,.dblite-tl-fill,.dblite-tl-loaded{position:absolute;left:0;top:17px;height:4px;border-radius:2px}
-    .dblite-tl-loaded{background:color-mix(in srgb,var(--dbt-accent,#3c9bb5) 30%,transparent);transition:width .25s}
-    .dblite-tl-rail{right:0;background:var(--dbt-panel-2,#2b3234);box-shadow:inset 0 0 0 1px var(--dbt-line,#3a4548)}
-    .dblite-tl-fill{background:var(--dbt-accent,#3c9bb5)}
+    .dblite-tl-loaded{background:color-mix(in srgb,var(--ssp-accent,#3c9bb5) 30%,transparent);transition:width .25s}
+    .dblite-tl-rail{right:0;background:var(--ssp-panel-2,#2b3234);box-shadow:inset 0 0 0 1px var(--ssp-line,#3a4548)}
+    .dblite-tl-fill{background:var(--ssp-accent,#3c9bb5)}
     .dblite-tl-marks{position:absolute;inset:0;pointer-events:none}
-    .dblite-tl-tick{position:absolute;top:13px;width:2px;height:12px;margin-left:-1px;border-radius:1px;background:var(--dbt-you,#c8424a)}
-    .dblite-tl-tick.dblite-tl-top{background:var(--dbt-opponent,#3c9bb5)}
-    .dblite-tl-tick span{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);font-size:10px;line-height:1;color:var(--dbt-muted,#a3b2b8)}
-    .dblite-tl-game{position:absolute;top:3px;width:2px;height:26px;margin-left:-1px;background:var(--dbt-text,#e6eeea)}
-    .dblite-tl-game span{position:absolute;top:0;left:5px;font:700 10px/1 system-ui;color:var(--dbt-text,#e6eeea)}
-    .dblite-tl-thumb{position:absolute;top:12px;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:var(--dbt-accent,#3c9bb5);
-      border:2px solid var(--dbt-panel,#242c2e);box-sizing:border-box;pointer-events:none;transition:left .12s}
+    .dblite-tl-tick{position:absolute;top:13px;width:2px;height:12px;margin-left:-1px;border-radius:1px;background:var(--ssp-you,#c8424a)}
+    .dblite-tl-tick.dblite-tl-top{background:var(--ssp-opponent,#3c9bb5)}
+    .dblite-tl-tick span{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);font-size:10px;line-height:1;color:var(--ssp-muted,#a3b2b8)}
+    .dblite-tl-game{position:absolute;top:3px;width:2px;height:26px;margin-left:-1px;background:var(--ssp-text,#e6eeea)}
+    .dblite-tl-game span{position:absolute;top:0;left:5px;font:700 10px/1 system-ui;color:var(--ssp-text,#e6eeea)}
+    .dblite-tl-thumb{position:absolute;top:12px;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:var(--ssp-accent,#3c9bb5);
+      border:2px solid var(--ssp-panel,#242c2e);box-sizing:border-box;pointer-events:none;transition:left .12s}
     .dblite-tl-dragging .dblite-tl-thumb{transition:none}
-    .dblite-tl-preview{background:var(--dbt-text,#e6eeea);opacity:.55;transition:none}
+    .dblite-tl-preview{background:var(--ssp-text,#e6eeea);opacity:.55;transition:none}
     .dblite-tl-tip{position:absolute;bottom:34px;transform:translateX(-50%);white-space:nowrap;padding:4px 8px;border-radius:6px;pointer-events:none;
-      background:var(--dbt-panel-2,#2b3234);border:1px solid var(--dbt-line,#3a4548);color:var(--dbt-text,#e6eeea);box-shadow:0 4px 12px rgba(0,0,0,.35)}
-    .dblite-tl-controls button{min-width:32px;height:28px;padding:0 7px;border-radius:7px;border:1px solid var(--dbt-line,#3a4548);background:var(--dbt-panel-2,#2b3234);
-      color:var(--dbt-text,#e6eeea);font:600 13px/1 system-ui,sans-serif;cursor:pointer}
-    .dblite-tl-controls button:hover:not(:disabled),.dblite-tl-controls button[aria-pressed="true"]{border-color:var(--dbt-accent,#3c9bb5)}
-    .dblite-tl-controls button[aria-pressed="true"]:not(.dblite-tl-play){color:var(--dbt-on-accent,#071512);background:var(--dbt-accent,#3c9bb5)}
-    .dblite-tl-controls button:focus-visible{outline:2px solid var(--dbt-accent,#3c9bb5);outline-offset:2px}
+      background:var(--ssp-panel-2,#2b3234);border:1px solid var(--ssp-line,#3a4548);color:var(--ssp-text,#e6eeea);box-shadow:0 4px 12px rgba(0,0,0,.35)}
+    .dblite-tl-controls button{min-width:32px;height:28px;padding:0 7px;border-radius:7px;border:1px solid var(--ssp-line,#3a4548);background:var(--ssp-panel-2,#2b3234);
+      color:var(--ssp-text,#e6eeea);font:600 13px/1 system-ui,sans-serif;cursor:pointer}
+    .dblite-tl-controls button:hover:not(:disabled),.dblite-tl-controls button[aria-pressed="true"]{border-color:var(--ssp-accent,#3c9bb5)}
+    .dblite-tl-controls button[aria-pressed="true"]:not(.dblite-tl-play){color:var(--ssp-on-accent,#071512);background:var(--ssp-accent,#3c9bb5)}
+    .dblite-tl-controls button:focus-visible{outline:2px solid var(--ssp-accent,#3c9bb5);outline-offset:2px}
     .dblite-tl-controls button:disabled{opacity:.45;cursor:default}
-    .dblite-tl-controls .dblite-tl-play{min-width:38px;background:var(--dbt-accent,#3c9bb5);border-color:var(--dbt-accent,#3c9bb5);color:var(--dbt-on-accent,#071315)}
+    .dblite-tl-controls .dblite-tl-play{min-width:38px;background:var(--ssp-accent,#3c9bb5);border-color:var(--ssp-accent,#3c9bb5);color:var(--ssp-on-accent,#071315)}
     .dblite-tl-controls .dblite-tl-speed{min-width:38px;font-variant-numeric:tabular-nums}
     .dblite-tl-label{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-    .dblite-tl-count{margin-left:auto;flex:none;color:var(--dbt-muted,#a3b2b8);font-variant-numeric:tabular-nums}
+    .dblite-tl-count{margin-left:auto;flex:none;color:var(--ssp-muted,#a3b2b8);font-variant-numeric:tabular-nums}
   `;
   (document.head || document.documentElement).append(style);
   // Activation sparks are SVG movies on their own timer: none should stay on the board after a jump.
@@ -685,6 +716,7 @@
     }
     if (!dragging && !scheduled) render();
   }, 250);
+  rules.onDbuddy?.(() => render());
   preloadTick();
   render();
 })();

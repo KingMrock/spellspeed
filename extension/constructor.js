@@ -159,10 +159,18 @@
   const wordy = /[\p{L}\p{N}]/u;
   // These English archetypes also occur inside a word (Epurrely, Daigusto, Saqlifice).
   // Other words still need a boundary: "Rose" must not include "Primrose".
-  const EMBEDDED_ARCHETYPES = new Set(['roid', 'lswarm', 'tellarknight', 'purrely', 'rokket', 'qli', 'gusto', 'invoked', 'mathmech', 'lightsworn', 'number c', 'magnet warrior', 'noble knight', 'noble arms', 'ritual beast', 'ritual beast tamer']);
+  // The second line (user, 2026-11-11, after "Mementotlan" cards were not "Memento" monsters): archetypes whose members
+  // carry the name inside a longer word (YGOPRODeck's archetype tags over catalog 787), kept only where every catalog name
+  // containing the word is a member; "cyber" (Cyberse), "rose" (Primrose), "synchro", "fusion", "xyz", "heart", "scrap",
+  // "hole", "saber", "phantasm", "pendulum" (Pendulumgraph) and "goblin" catch other names and stay out.
+  const EMBEDDED_ARCHETYPES = new Set(['roid', 'lswarm', 'tellarknight', 'purrely', 'rokket', 'qli', 'gusto', 'invoked', 'mathmech', 'lightsworn', 'number c', 'magnet warrior', 'noble knight', 'noble arms', 'ritual beast', 'ritual beast tamer',
+    'memento', 'watt', 'bujin', 'super quant', 'borrel', 'aroma', 'gagaga', 'code talker', 'geargia', 'x-saber', 'solfachord', 'shaddoll', 'metalfoes', 'predap', 'psy-frame', 'kuriboh', 'gishki', 'orcust', 'magical musket', 'laval',
+    'destruction sword', 'dogmatika', 'thunder dragon', 'despia', 'ashtra', 'vendread', 'kozmo', 'zenet', 'plunder patroll', 'diabell', 'vaalmonica', 'junk', 'dododo', 'ojama', 'yummy', 'evil eye', 'yosenju', 'sangen', 'synchron',
+    'photon', 'magistus', 'metaphys', 'tenyi', 'duston', 'tistina', 'djinn', 'cyberdark', 'dominus', 'kashtira', 'madolche', 'zefra', 'nemeses', 'zubaba']);
   // "hero" is in "elemental hero neos" and "gem-" in "gem-knight pearl", but "rose" is not in "primrose". A plural
   // counts: "sacred beast" is in "calamity of the sacred beasts - hamon", "hero" in "heroes".
   function namePart(name, part) {
+    if (EMBEDDED_ARCHETYPES.has(part)) return name.includes(part);
     for (let i = name.indexOf(part); i >= 0; i = name.indexOf(part, i + 1)) {
       let end = i + part.length;
       if (wordy.test(part.at(-1))) {
@@ -555,7 +563,9 @@
         if (treated) previous.text += ` ${body}`;
         const effect = treated ? previous : bullet && header ? { condition: `${header.condition} ${condition}`, text: `${header.text} ${body}`, own: body, pendulum: isPendulum }
           : continued ? { condition: previous.condition, text: `${previous.text} ${body}`, pendulum: isPendulum } : { condition, text: body, pendulum: isPendulum };
-        if (!bullet && !continued) header = /\b(?:of )?(?:these|the following) effects?\b|\bgains? this effect\b/i.test(body) ? effect : null;
+        // "You can remove 3 Spell Counters from this card; apply 1 of these effects. You can only use this effect of ... once
+        // per turn. ●Add 1 Spell ..." (Thelematech Clatis): the once-per-turn note between them keeps the header.
+        if (!bullet && !continued && !(header && /^You can only (?:use|activate)\b/i.test(body))) header = /\b(?:of )?(?:these|the following) effects?\b|\bgains? this effect\b/i.test(body) ? effect : null;
         previous = effect;
         for (const clause of line.split(/[;:●]+|,\s*(?:and\s+)?(?:if you do|then)\b|\bthen\b|,\s*but\b|,\s*also\b|,\s*(?:and\s+)?(?=(?:(?:you|your opponent) can )?(?:add|Special Summon|Set|send|banish)\b)|,\s*(?=(?:you|your opponent|neither player) (?:can only|cannot|can't)\b)|\s+or,\s+(?=if\b)/i).map(s => s.trim()).filter(Boolean)) {
           clauses.push(clause); effects.push(effect);
@@ -564,6 +574,57 @@
     }
     return entry.clauses = { names, clauses, effects };
   }
+  // An effect's own Synchro, Xyz or Link Summon (user, 2026-11-11): "Xyz Summon 1 Xyz Monster using monsters you control"
+  // (Wonder Xyz, I:P Masquerena, Urgent Tuning) only changes when the game's own Summon happens, so it is no Access to
+  // the monster. It counts only when the effect brings the materials ("Target 2 "Heraldic Beast" monsters in your GY;
+  // Special Summon both those targets, then ... Xyz Summon 1 Xyz Monster using those 2 monsters only": Advanced Heraldry
+  // Art) and they can make it (procedureFits: the Rank is a Level they have, the Level a sum of theirs). A Fusion Summon
+  // needs its card, so it stays Access. { brought, material: the materials' phrase, own: this card's Level when it is
+  // one of them, count: how many materials }.
+  const PROCEDURE_KINDS = ['synchro', 'xyz', 'link'];
+  const BROUGHT_MATERIALS = /\busing (?:only )?(?:both )?(?:those|these|all the Summoned) (?:\d+ )?(?:monsters|targets)\b|\busing (?:only )?(?:that monster|the Summoned monster|that target|the targeted monster) and this card\b|\busing only this card(?: you control)? and (?:that|the (?:targeted|Summoned)) (?:monster|target)\b/i;
+  // "... Special Summon them, but negate their effects. Immediately after this effect resolves, Xyz Summon ..." (Gazer
+  // Shark): the sentence before brings the materials.
+  function procedureOf(card, effect, names, previous) {
+    const text = /^Immediately after this (?:effect|card) resolves\b/i.test(effect.text) && previous ? `${previous.text}. ${effect.text}` : effect.text, at = text.search(/\b(?:Synchro|Xyz|Link) Summon(?! Monster)/i), using = at < 0 ? null : text.slice(at).match(BROUGHT_MATERIALS);
+    if (!using) return { brought: false };
+    const own = /\bthis card\b/i.test(using[0]) && card.card_type === 'Monster' ? Number(card.level) : null;
+    // The monsters the effect Summons first, from the GY, hand, Deck or banishment, not from the field.
+    const before = text.slice(0, at), sources = [...before.matchAll(/\b(?:target|Special Summon)\s+((?:up to\s+)?(?:\d+(?: or more)?|a|an|one|two|three|any number of)\s+[^;]+?)\s+(?:in|from)\s+(?:your|either player's|either|the)\s+(?:hand, Deck,? (?:and\/or|or) GY|hand or GY|GY or banishment|hand or Deck|Deck or GY|hand|Deck|GY|Graveyard|banishment|Pendulum Zones?)\b/gi)];
+    const source = sources.at(-1), material = source && !/\byou control\b/i.test(source[1]) ? fetchPhrase(source[1].replace(/\bthat (?:are|is) [^,;]*$/i, ''), names, '', true) : null;
+    if (!material && own === null) return { brought: false };
+    const number = source?.[1].match(/^(?:up to\s+)?(\d+)/), count = (number ? Number(number[1]) : /any number of|or more/i.test(source?.[1] || '') ? 5 : 1) + (own !== null ? 1 : 0);
+    return { brought: true, material, own, count };
+  }
+  function procedureFits(target, phrase) {
+    const p = phrase.procedure;
+    if (!p) return true;
+    if (!p.brought) return false;
+    const cards = Array.isArray(window.Cards) ? window.Cards : [];
+    if (p.levelsOf !== cards) {
+      p.levelsOf = cards; p.levels = new Set();
+      if (p.material) for (const card of cards) if (card.name && !card.rush && card.card_type === 'Monster' && !extraDeckMonster(card) && Number(card.level) > 0 && fetchRank(card, p.material, true) < Infinity) p.levels.add(Number(card.level));
+    }
+    const value = Number(target.level), levels = [...p.levels], others = p.count - (p.own !== null ? 1 : 0);
+    if (phrase.summon === 'xyz') return p.own !== null ? value === p.own && (!others || !p.material || p.levels.has(p.own)) : p.levels.has(value);
+    if (phrase.summon === 'link') return value <= p.count && (p.own !== null || levels.length > 0);
+    // Synchro: the Levels add up, this card's with 1 or 2 of theirs, or 2 or 3 of theirs.
+    let sums = new Set(p.own !== null ? [p.own] : [0]);
+    for (let n = 0; n < Math.min(Math.max(others, 1), 3); n++) { const next = new Set(sums); for (const sum of sums) for (const level of levels) next.add(sum + level); sums = next; }
+    return sums.has(value) && (p.own !== null || levels.length > 0);
+  }
+  // A kind-only fetch that needs 2 or more counters on the card ("You can remove 3 Spell Counters from this card; ... Add 1
+  // Spell": Thelematech Clatis, whose counters come from the opponent's activations; "send this card with 6 or more Spell
+  // Counters to the GY": Mythical Bestiamorph) is too situational to count as a way to the card (user, 2026-11-11). One
+  // by name or archetype stays (an archetype's own counter engine), as does Endymion's one Spell Counter.
+  function gatingCounters(effect) {
+    const text = `${effect.condition} ${effect.text}`, match = text.match(/\bremove (\d+) [\w-]+ Counters? from this card\b|\bthis card with (\d+)(?: or more)? (?:[\w-]+ )?Counters?\b/i);
+    const count = match ? Number(match[1] || match[2]) : 0;
+    return count >= 2 ? count : 0;
+  }
+  const counterGated = (target, phrase) => phrase.counters >= 2 && fetchRank(target, phrase) >= 3;
+  // What Access, Starters and Ideas take of a phrase beyond its Summoning rules.
+  const accessUsable = (target, phrase) => procedureFits(target, phrase) && !counterGated(target, phrase);
   function fetchClauses(card) {
     const { names, clauses, effects } = cardClauses(card), phrases = [];
     clauses.forEach((clause, i) => {
@@ -576,6 +637,11 @@
       const own = i > 0 && effects[i - 1] === effects[i] && !effects[i].condition.includes(clauses[i - 1].trim()) && clauses[i - 1].match(effects[i].text.includes(`or, ${clauses[i - 1].trim()}`) ? /^\s*if\b([^;:]*)$/i : /\bor,?\s+if\b([^;:]*)$/i);
       for (const phrase of phrases.slice(start)) if (own) phrase.when = own[1].trim();
       for (const phrase of phrases.slice(start)) Object.assign(phrase, { effect: effects[i], dependent });
+      for (const phrase of phrases.slice(start)) {
+        if (phrase.action === 'summon' && PROCEDURE_KINDS.includes(phrase.summon)) phrase.procedure = procedureOf(card, effects[i], names, effects.slice(0, i).reverse().find(effect => effect !== effects[i]));
+        const counters = gatingCounters(effects[i]);
+        if (counters) phrase.counters = counters;
+      }
       // "When a card or effect is activated that includes any of these effects ... ●Add a card from the Deck to the hand"
       // (Ash Blossom & Joyous Spring): what it negates, not what it does.
       if (/\bincludes any of these effects\b/i.test(effects[i].text)) for (let at = phrases.length - 1; at >= start; at--) if (phrases[at].any) phrases.splice(at, 1);
@@ -593,7 +659,9 @@
       }
       // The first verb that is an action, not a noun ("this card's Xyz Summon", "the Link Summon of").
       let verb = null;
-      for (const match of clause.matchAll(fetchVerbs)) if (!/(?:'s|\b(?:a|an|the|its|their|for|of))\s+$/i.test(clause.slice(0, match.index))) { verb = match; break; }
+      // Also in a list ("used as material for a Fusion, Synchro, or Link Summon": Capshell) or after "that" ("used as
+      // material for that Link Summon": Stack Reviver); before, those were read as Link and Synchro Summons by the card.
+      for (const match of clause.matchAll(fetchVerbs)) if (!/(?:'s|\b(?:a|an|the|its|their|for|of|that|this|each))\s+(?:(?:Fusion|Synchro|Xyz|Link|Ritual|Pendulum),?\s+(?:(?:or|and)\s+)?)*$/i.test(clause.slice(0, match.index))) { verb = match; break; }
       if (!verb) return;
       // A trigger condition is not an effect: "If your opponent Special Summons a monster ...", "If you Link
       // Summon ...". "When this card is Normal Summoned, add 1 ..." keeps its effect after the comma.
@@ -823,7 +891,7 @@
     const synergy = mode === 'synergy', extra = extraDeckMonster(target);
     actions ||= accessActions[extra ? 'extra' : 'main'];
     const phrases = (indexedText(card).fetch ||= fetchClauses(card)).filter(phrase => synergy || actions.has(phrase.action) && (extra ? phrase.fromExtra : phrase.fromMain));
-    let rank = Math.min(Infinity, ...phrases.filter(phrase => summonAllowed(target, phrase, card, mode)).map(phrase => actionRank(fetchRank(target, phrase, synergy), phrase)));
+    let rank = Math.min(Infinity, ...phrases.filter(phrase => summonAllowed(target, phrase, card, mode) && (synergy || accessUsable(target, phrase))).map(phrase => actionRank(fetchRank(target, phrase, synergy), phrase)));
     if (synergy && rank > 0 && card.name !== target.name)
       rank = Math.min(rank, referenceRank(card, target), ...(indexedText(target).fetch ||= fetchClauses(target)).filter(phrase => summonAllowed(card, phrase, target, mode)).map(phrase => actionRank(fetchRank(card, phrase, true), phrase)));
     return rank;
@@ -860,14 +928,23 @@
     { key: 'mill', label: 'Mills', words: ['mill', 'dump', 'foolish'], verb: 'send', from: 'deck' },
     { key: 'send', label: 'Sends to the GY', words: ['send', 'send to gy', 'send to graveyard'], verb: 'send' },
     { key: 'banish', label: 'Banishes', words: ['banish', 'remove', 'exile'], verb: 'banish' },
-    { key: 'destroy', label: 'Destroys', words: ['destroy', 'pop', 'destruction', 'removal'], verb: 'destroy' },
+    { key: 'destroy', label: 'Destroys', words: ['destroy', 'pop', 'destruction'], verb: 'destroy' },
+    // Tributing (user, 2026-11-11): the opponent's monsters (Kaiju, Lava Golem) or your own as a cost; whose it is decides.
+    { key: 'tribute', label: 'Tributes', words: ['tribute', 'tributing', 'sacrifice', 'sac', 'tribute off'], verb: 'tribute' },
+    // Removal and board wipes (players' words): any way off the opponent's field (destroy, banish, bounce, spin, send, Tribute);
+    // a board wipe takes all cards of a kind, from either field unless the query says whose.
+    { key: 'removal', label: 'Removes the opponent’s cards', words: ['removal', 'remover', 'board removal', 'field removal'], verbs: ['destroy', 'banish', 'return', 'send', 'tribute'], owner: 'opponent', field: true },
+    { key: 'wipe', label: 'Clears the field', words: ['board wipe', 'boardwipe', 'board wiper', 'field wipe', 'wipe', 'nuke', 'board nuke', 'mass removal', 'sweeper', 'board clear', 'clear the board', 'clear the field', 'field clear'], verbs: ['destroy', 'banish', 'return', 'send'], all: true, field: true, owner: 'opponent' },
     { key: 'omni', label: 'Negates any card or effect', words: ['omni negate', 'omninegate', 'omni negation', 'omni', 'omni negater'], verb: 'negate', any: true, intransitive: true },
     { key: 'negate', label: 'Negates', words: ['negate', 'negation', 'negater', 'negator'], verb: 'negate' },
     { key: 'bounce', label: 'Returns to the hand', words: ['bounce', 'return to hand'], verb: 'return', to: 'hand' },
+    // "return" on its own (user, 2026-11-12: "return cards on the whole field to hand"): where to is said later ("to hand", "to the deck").
+    { key: 'return', label: 'Returns', words: ['return', 'send back', 'put back'], verb: 'return' },
     { key: 'spin', label: 'Shuffles into the Deck', words: ['spin', 'shuffle', 'return to deck', 'shuffle into deck'], verb: 'return', to: 'deck' },
-    { key: 'discard', label: 'Discards', words: ['discard', 'hand destruction'], verb: 'discard' },
+    { key: 'handrip', label: 'Discards the opponent’s hand', words: ['hand rip', 'handrip', 'hand destruction', 'hand disruption'], verb: 'discard', owner: 'opponent' },
+    { key: 'discard', label: 'Discards', words: ['discard'], verb: 'discard' },
     { key: 'control', label: 'Takes control', words: ['steal', 'take control', 'control change', 'change control', 'gain control'], verb: 'control' },
-    { key: 'draw', label: 'Draws', words: ['draw', 'draw power'], verb: 'draw', intransitive: true },
+    { key: 'draw', label: 'Draws', words: ['draw', 'draw power'], verb: 'draw', intransitive: true, owner: 'own' },
     { key: 'handtrap', label: 'Hand trap', words: ['hand trap', 'handtrap'], category: 'handtrap', mark: /\b(?:discard|reveal|banish|send) this card\b|\bspecial summon this card \(?from your hand|\bactivate this card from your hand/, intransitive: true },
     { key: 'floodgate', label: 'Floodgate', words: ['floodgate', 'lock', 'stun'], category: 'floodgate', mark: /\bcannot\b|\bcan't\b|\bcan only\b|\bmust (?:first )?set\b|\bneither player can\b|\bnegat|\bbanished instead\b/, intransitive: true },
     { key: 'burn', label: 'Burn', words: ['burn', 'burn damage', 'inflict damage', 'effect damage'], category: 'burn', mark: /\binflicts?\b|\b(?:takes|loses) \d+/, intransitive: true },
@@ -875,11 +952,12 @@
     { key: 'token', label: 'Makes Tokens', words: ['token', 'token maker'], category: 'token', mark: /\btokens?\b/, intransitive: true },
     { key: 'equip', label: 'Equips', words: ['equip', 'equips'], category: 'equip', mark: /\bequip/, intransitive: true },
     { key: 'quick', label: 'Quick Effect', words: ['quick effect', 'quick'], test: /\bquick effect\b/, intransitive: true },
-    { key: 'protect', label: 'Protection', words: ['protection', 'protect', 'indestructible', 'unaffected', 'untargetable', 'cannot be destroyed', 'cannot be targeted', 'immune'], test: /\bcannot be (?:destroyed|targeted)\b|\bunaffected by\b|\bcannot target (?:this card|it)\b/, intransitive: true },
-    { key: 'extender', label: 'Special Summons itself', words: ['extender', 'summons itself', 'self summon', 'special summons itself', 'summon itself'], test: /\bspecial summon this card\b(?:[^.;:]*?\bfrom (?:your |the )?hand\b| \(from your hand\))|\bspecial summon this card\b[^.;:]*?\bin (?:your )?hand\b/, intransitive: true },
+    { key: 'protect', label: 'Protection', words: ['protection', 'protect', 'indestructible', 'unaffected', 'untargetable', 'cannot be destroyed', 'cannot be targeted', 'immune', "can't be destroyed", 'cant be destroyed', "can't be targeted", 'cant be targeted', 'not targetable'], test: /\bcannot be (?:destroyed|targeted)\b|\bunaffected by\b|\bcannot target (?:this card|it)\b/, intransitive: true },
+    { key: 'extender', label: 'Special Summons itself', words: ['extender', 'summons itself', 'self summon', 'special summons itself', 'summon itself', 'special summon itself', 'special summon itself from hand', 'special summons itself from hand', 'summons itself from hand'], test: /\bspecial summon this card\b(?:[^.;:]*?\bfrom (?:your |the )?hand\b| \(from your hand\))|\bspecial summon this card\b[^.;:]*?\bin (?:your )?hand\b/, intransitive: true },
     { key: 'selfrevive', label: 'Revives itself', words: ['revives itself', 'self revive', 'self revival', 'revive itself', 'comes back', 'recursive'], test: /\bspecial summon this card\b[^.;:]*?\bfrom (?:your |the )?(?:hand or )?gy\b|\bthis card is in (?:your |the )?gy\b[^.]*?\bspecial summon this card\b/, intransitive: true },
     { key: 'piercing', label: 'Piercing damage', words: ['piercing', 'pierce', 'piercing damage'], test: /\bpiercing (?:battle )?damage\b/, intransitive: true },
     { key: 'direct', label: 'Attacks directly', words: ['direct attack', 'attack directly', 'direct attacker', 'attacks directly'], test: /\bcan attack (?:your opponent )?directly\b/, intransitive: true },
+    { key: 'multiattack', label: 'Attacks more than once', words: ['attack twice', 'attacks twice', 'second attack', 'double attack', 'extra attack', 'extra attacks', 'multiple attacks', 'attack multiple times', 'multi attack', 'multiattack', 'attack all', 'attacks all', 'attack all monsters', 'attack three times', 'attack 3 times'], test: /\b(?:can|to) attack (?:twice|three times|up to (?:2|3|two|three) times|all monsters your opponent controls)\b|\bmake (?:a second|a third|up to (?:2|3|two|three)) attacks?\b|\bcan make (?:2|3|two|three) attacks\b/, intransitive: true },
   ];
   // Ongoing locks, not protection or a response window (Anti-Spell Fragrance, Skill Drain).
   function describeFloodgate(text) {
@@ -891,15 +969,43 @@
   }
   // Where this action's object comes from; top-of-Deck wording belongs only to Describe (Card Trooper).
   const DESCRIBE_SOURCES = {
-    deck: text => mainDeckSource.test(text) || /\bin (?:your|the|their) (?:main )?deck\b|\bfrom (?:the )?top of (?:your|the|their|your opponent's) deck\b/i.test(text),
+    deck: text => mainDeckSource.test(text) || /\bin (?:your|the|their) (?:main )?deck\b|\bfrom (?:the )?top of (?:your|the|their|your opponent's) deck\b|\b(?:top|bottom)\s+(?:\w+\s+)?cards?\s+of\s+your opponent's\s+deck\b/i.test(text),
     extra: text => extraDeckSource.test(text),
     gy: text => /\b(?:from|in) (?:your |the |their |either player's |either |your opponent's |its owner's )?(?:(?:hand|deck|field|banishment|main deck)\s*,?\s*(?:or |and |and\/or )?)*(?:gy|graveyard)s?\b/i.test(text),
-    hand: text => /\bfrom (?:your |the |their |either player's |your opponent's )?(?:(?:deck|gy|graveyard|field)\s*,?\s*(?:or |and |and\/or )?)*hand\b|\bin (?:your|their|the|your opponent's) hand\b/i.test(text),
+    hand: text => /\bfrom (?:your |the |their |either player's |your opponent's )?(?:(?:deck|gy|graveyard|field)\s*,?\s*(?:or |and |and\/or )?)*hand\b|\bin (?:your|their|the|your opponent's|the opponent's) hand\b/i.test(text),
     banished: text => /\bbanished\b|\bbanishment\b/i.test(text),
     field: text => /\bon (?:the|your|their) field\b|\byou control\b|\byour opponent controls\b|\bface-up\b|\bset (?:spell|trap|card)|\b(?:spell [&/] trap|monster|pendulum) zone/i.test(text),
   };
   const DESCRIBE_SOURCE_LABELS = { deck: 'from the Deck', extra: 'from the Extra Deck', gy: 'from the GY', hand: 'from the hand', banished: 'banished', field: 'on the field' };
-  const DESCRIBE_VERBS = /\b(special summon|ritual summon|fusion summon|synchro summon|xyz summon|link summon|send|banish|destroy|negate|return|shuffle|place|discard|take control|gain control|switch(?:es)? control|draw|add|set)(?:s|es)?\b/gi;
+  // "Tribute" but not "Tribute Summon"; the -ing forms only after "by" (a procedure or cost: "by Tributing 1 monster they control").
+  const DESCRIBE_VERBS = /\b(special summon|ritual summon|fusion summon|synchro summon|xyz summon|link summon|send|banish|destroy|negate|return|shuffle|place|discard|take control|gain control|switch(?:es)? control|draw|add|set|tribute(?!\s+summon)|tributing|banishing|sending|discarding|returning|shuffling)(?:s|es)?\b/gi;
+  const DESCRIBE_ING = { tributing: 'tribute', banishing: 'banish', sending: 'send', discarding: 'discard', returning: 'return', shuffling: 'shuffle' };
+  // Whose card an action acts on: 'own', 'opponent' or 'either' (both fields, either GY, "1 monster" with no side), from its object
+  // and who does it ("your opponent discards", "make your opponent Tribute"). Tributes and adds are yours unless said; control is theirs.
+  function describeOwner(verb, object, before, clause) {
+    const text = ` ${object} `.replace(/\b(?:to|into|on (?:the )?(?:top|bottom) of)\s+(?:the |its |their |your )?(?:owners?'?s?'? )?(?:hand|main deck|extra deck|deck|gy|graveyard|field|side of the field)s?\b[^]*$/i, ' ')
+      .replace(/\b(?:even though )?you do not control (?:it|them)\b/gi, ' ')
+      // A time is not a side: "during your opponent's next End Phase", "until the end of your opponent's turn".
+      .replace(/\b(?:during|until|at the (?:start|end) of)\s+(?:the |your |your opponent's |each |either player's )?(?:next )?(?:turn|end phase|standby phase|main phase|battle phase|draw phase|damage step)\b/gi, ' ')
+      .replace(/\byour opponent's (?:next )?(?:turn|end phase|standby phase|main phase|battle phase)\b/gi, ' ');
+    if (verb === 'control') return 'opponent';
+    // Who draws: you, unless the opponent or each player does ("Your opponent draws 2 cards").
+    if (verb === 'draw') { const who = before.match(/\b(your opponent|they|he\/she|the turn player|each player|both players)\s+(?:can |may |must |each |then |also )*$/i)?.[1]?.toLowerCase(); return !who ? 'own' : /each|both|turn/.test(who) ? 'either' : 'opponent'; }
+    const opponent = /\byour opponent(?:'s|s'| (?:currently )?controls?)\b|\bopponent's\b|\bthey (?:currently )?control\b|\b(?:in|from|on) their (?:hand|field|gy|graveyard|deck|side|extra deck)\b|\btheir (?:field|side|gy|graveyard|hand|main deck|deck)\b/i.test(text);
+    const own = /\byou (?:currently )?control\b|\byour (?!opponent)(?:\w+ )?(?:field|side|hand|gy|graveyards?|deck|extra deck|main deck|pendulum zones?|monster zones?|spell & trap zones?|spell\/trap zones?)\b|\b(?:from|in) your (?!opponent)|^\s*(?:this card|itself)\b|\byour banished\b|\byour (?!opponent)(?:[\w-]+ )?(?:monsters?|cards?|spells?|traps?)\b/i.test(text);
+    const either = /\bon the field\b|\beither (?:player'?s? )?(?:gy|graveyard|field|side|hand)\b|\beither gys?\b|\bboth (?:players|fields|gys)\b|\beach player\b|\bin (?:a|the) (?:gy|graveyard)\b/i.test(text);
+    const subject = before.match(/\b(your opponent|they|each player|both players|neither player)\s+(?:must |can |may |then |also |each )*$/i)?.[1]?.toLowerCase();
+    if (subject && !own && !opponent) return /each|both/.test(subject) ? 'either' : 'opponent';
+    if (verb === 'discard' && (/\b(?:from|in) (?:your opponent's|their) hand\b/i.test(object) || /\b(?:your opponent's|their) hand\b/i.test(before))) return 'opponent';
+    // Said whose it is, it is theirs or yours ("all cards your opponent controls on the field"); else either side.
+    if (opponent && own) return 'either';
+    if (opponent) return 'opponent';
+    if (own) return 'own';
+    if (either) return 'either';
+    return ['tribute', 'add', 'summon', 'set', 'discard'].includes(verb) ? 'own' : 'either';
+  }
+  // Who activates what a reaction negates: "When your opponent activates …" or anyone ("When a card or effect is activated").
+  const describeEventOwner = event => /\b(?:your opponent|opponent's|they)\b/i.test(event || '') ? 'opponent' : /\byou activate\b/i.test(event || '') ? 'own' : 'either';
   // Keep known objects; an unresolved "it" or an unknown qualified object is not "any card".
   function describeObject(text, names) {
     const excluded = [];
@@ -909,7 +1015,7 @@
     if (except) text = text.slice(0, except.index);
     const phrase = fetchPhrase(resolveMentions(text), names, '', true);
     if (phrase) { if (except) phrase.except = fetchPhrase(except[1], names, '', true); for (const ref of phrase.refs) { if (ref.index != null && new RegExp('\"?' + ref.index + '?\"\\s+Pendulum', 'i').test(text)) ref.frames = ['Pendulum']; } phrase.excluded = [...(phrase.excluded || []), ...excluded]; return phrase; }
-    if (/^\s*(?:(?:target|choose|select|up to|all|other|face-up|face-down|the|a|an|one|two|three|\d+)\s+)*(?:cards?|monsters?|spell\/traps?|spells?|traps?)\b/i.test(text) && !/\b(?:with|whose|that|same|different|following|listed|mentioned)\b/i.test(text))
+    if (/^\s*(?:(?:target|choose|select|up to|all|other|face-up|face-down|set|the|a|an|one|two|three|\d+)\s+)*(?:cards?|monsters?|spell\/traps?|spells?|traps?)\b/i.test(text) && !/\b(?:with|whose|that|same|different|following|listed|mentioned)\b/i.test(text))
       return { refs: [], kinds: /\bmonsters?\b/i.test(text) ? ['Monster'] : /\bspell\/trap\b/i.test(text) ? ['Spell', 'Trap'] : /\bspells?\b/i.test(text) ? ['Spell'] : /\btraps?\b/i.test(text) ? ['Trap'] : null, frames: [], properties: [], tuner: false, abilities: [], attributes: [], types: [], stats: {}, not: [], excluded };
     return null;
   }
@@ -921,26 +1027,36 @@
       const matches = [...clause.matchAll(DESCRIBE_VERBS)], effect = effects[i];
       const previous = i > 0 && effects[i - 1] === effect ? clauses[i - 1] : '';
       for (let j = 0; j < matches.length; j++) {
-        const match = matches[j], before = clause.slice(0, match.index), word = match[1].toLowerCase();
+        const match = matches[j], before = clause.slice(0, match.index), ing = DESCRIBE_ING[match[1].toLowerCase()], word = ing || match[1].toLowerCase();
         const verb = /control/.test(word) ? 'control' : /summon/.test(word) ? 'summon' : /^(?:shuffle|place)$/.test(word) ? 'return' : word;
-        if (/\b(?:if|when|while|whenever|each time|unless|after|once|before)\b[^,;:]*$/i.test(before) || /\b(?:cannot|can't|can only|do not|does not|neither player can|would)\s+(?:\w+\s+)?$/i.test(before) || /(?:'s|\b(?:a|an|the|its|their|for|of|be|is|are|was|were|by))\s+$/i.test(before) || /\b(?:effect that|effects that)\s*$/i.test(before)) continue;
-        let tail = clause.slice(match.index + match[0].length, matches[j + 1]?.index).replace(/,?\s+(?:by (?:banishing|sending|tributing|shuffling|detaching|returning|using|revealing|placing|destroying)|using|as (?:fusion |synchro |xyz |link )?materials?)\b[^]*$/i, '').replace(/,?\s+(?:and |or )?(?:if|when|while|unless)\b[^]*$/i, '').replace(/,?\s*\b(?:and|or|also|to)\s*$/i, '').replace(/\b(?:the same|a (?:higher|lower|different))\s+(?:original\s+)?(?:level|rank|type|attribute|name|atk|def)s?\s+(?:as|than)\b[^]*$/i, '');
+        // "by Tributing 1 monster they control", "by banishing 1 LIGHT and 1 DARK monster from your GY": a procedure or cost.
+        const byWay = /\bby\s+$/i.test(before);
+        if (ing && !byWay) continue;
+        if (/\b(?:if|when|while|whenever|each time|unless|after|once|before)\b[^,;:]*$/i.test(before) || /\b(?:cannot|can't|can only|do not|does not|neither player can|would)\s+(?:\w+\s+)?$/i.test(before) || !ing && /(?:'s|\b(?:a|an|the|its|their|for|of|be|is|are|was|were|by))\s+$/i.test(before) || /\b(?:effect that|effects that)\s*$/i.test(before)) continue;
+        let tail = clause.slice(match.index + match[0].length, matches[j + 1]?.index).replace(/,?\s+(?:by (?:banishing|sending|tributing|shuffling|detaching|returning|using|revealing|placing|destroying)|using|as (?:fusion |synchro |xyz |link )?materials?)\b[^]*$/i, '').replace(/\s+to (?:target|select|choose)\b[^]*$/i, '').replace(/,?\s+(?:and |or )?(?:if|when|while|unless)\b[^]*$/i, '').replace(/,?\s*\b(?:and|or|also|to)\s*$/i, '').replace(/\b(?:the same|a (?:higher|lower|different))\s+(?:original\s+)?(?:level|rank|type|attribute|name|atk|def)s?\s+(?:as|than)\b[^]*$/i, '');
         if (verb === 'add' && /^\s*to your hand\s*$/i.test(tail) && /^set$/i.test(matches[j + 1]?.[1] || '')) tail = clause.slice(matches[j + 1].index + matches[j + 1][0].length) + ' to your hand';
         if (verb === 'control') tail = tail.replace(/^\s*of\s+/i, ' ').replace(/\s+with each other\s*$/i, '');
-        const self = /^\s*(?:this card|itself)\b/i.test(tail), pronoun = /^\s*(?:it|them|that (?:target|card|monster)s?|those (?:targets|cards|monsters))\b/i.test(tail);
+        const self = /^\s*(?:this card|itself|this (?:face-up |face-down )?(?:card|monster))\b/i.test(tail), pronoun = /^\s*(?:it|them|that (?:opponent's )?(?:target|card|monster)s?|those (?:targets|cards|monsters))\b/i.test(tail);
         let antecedent = '';
         if (pronoun || verb === 'negate' || verb === 'control') {
           const heads = [before, previous];
-          antecedent = heads.map(head => head.match(/\b(?:target(?:ing)?|chooses?|select|reveal|destroy|banish|send|shuffle|return)\s+(.+)/i)?.[1] || '').find(Boolean) || '';
+          // "that monster" is never the card itself: a cost on this card ("banish this card from your GY; destroy that monster
+          // you control", Achichi @Ignister) is not what it refers to (coordinator, 2026-11-12).
+          // Past it, the next verb may name it ("banish this card … to target 1 Set card your opponent controls", Laval Lakeside Lady).
+          const named = head => { for (let text = head, k = 0; k < 4; k++) { const found = text.match(/\b(?:target(?:ing)?|chooses?|select|reveal|destroy|banish|send|shuffle|return)\s+(.+)/i)?.[1]; if (!found) return ''; if (!/^\s*(?:this card|itself)\b/i.test(found)) return found; text = found; } return ''; };
+          antecedent = heads.map(named).find(Boolean) || '';
         }
         if (verb === 'control') { tail = tail.replace(/^\s*of\s+/i, ' '); antecedent ||= previous.match(/\btarget\s+(.+)/i)?.[1] || ''; }
-        let object = (pronoun || verb === 'control' && /^\s*(?:that|those)/i.test(tail)) ? antecedent ? `${antecedent} ${tail.replace(/^\s*(?:it|them|that (?:target|card|monster)s?|those (?:targets|cards|monsters))\b/i, '')}` : '' : tail;
+        let object = (pronoun || verb === 'control' && /^\s*(?:that|those)/i.test(tail)) ? antecedent ? `${antecedent} ${tail.replace(/^\s*(?:it|them|that (?:opponent's )?(?:target|card|monster)s?|those (?:targets|cards|monsters))\b/i, '').replace(/\s+(?:and|but|then)\b[^]*$/i, '')}` : '' : tail;
         if (verb === 'send' && !/\bto (?:the |their |its owner's |your )?(?:gy|graveyard)\b/i.test(tail)) continue;
-        if (verb === 'draw' && (!/^\s*(?:up to )?(?:\d+|a card|one|two|three|four|five|six|cards?\b|that many|the same number|a number)/i.test(tail) || /\b(?:your opponent|they|he\/she|the turn player)\s+(?:can |may |must |each )?$/i.test(before))) continue;
+        // A drawback on what the effect brought out ("destroy it during the End Phase", "banish it when it leaves the field").
+        if (/\bwhen it leaves the field\b/i.test(tail) || /^\s*(?:it|them|that monster|those monsters)\s+(?:during|at the end of)\b[^,;]*\bend phase\b/i.test(tail) || verb === 'discard' && /\byour opponent (?:can|may)\s+$/i.test(before)) continue;
+        // An opponent's draw is kept with its owner: "draw" asks for yours (the concept's owner), "opponent draw" for theirs.
+        if (verb === 'draw' && !/^\s*(?:up to )?(?:\d+|a card|one|two|three|four|five|six|cards?\b|that many|the same number|a number)/i.test(tail)) continue;
         // Santa Claws' "Summoned this way" draw belongs to the opponent who received it.
         if (verb === 'draw' && /\bif summoned this way\b/i.test(effect.condition) && /special summon this card[^.]*to your opponent's field/i.test(card.effect)) continue;
         const to = verb === 'return' ? /\bto (?:the |its |their |your )?(?:owner's |owners' )?hands?\b/i.test(tail) ? 'hand' : /\b(?:into|to|on) (?:the |its |their |your )?(?:(?:top|bottom) of (?:the |your |their )?)?(?:owner's |owners' )?(?:main |extra )?deck\b/i.test(tail) ? 'deck' : '' : '';
-        let phrase = null, any = false;
+        let phrase = null, any = false, owner = '';
         if (verb === 'negate') {
           if (/^\s*(?:(?:the|that|an?|this|its)\s+)?attacks?\b/i.test(tail)) continue;
           // The activation event precedes costs; Spell Card or effect stays typed (Herald of Green Light).
@@ -958,25 +1074,41 @@
           any = reactive && (kinds.length === 3 || !kinds.length && /\bcards?\s*,?\s*(?:or|\/)\s*(?:the )?effects?\b/i.test(what));
           if (!kinds.length && !any && !/\b(?:(?:all|each|every|(?:up to )?\d+) (?:face-up )?|face-up )cards?\b/i.test(what)) continue;
           phrase = { refs: [], kinds: any || !kinds.length ? null : kinds, frames: [], properties: [], tuner: false, abilities: [], attributes: [], types: [], stats: {}, not: [] };
+          // A reaction negates what the activating player plays; else whose card the negated effects are on.
+          owner = reactive ? describeEventOwner(event) : describeOwner('negate', `${tail} ${antecedent}`, before, clause);
         } else if (verb !== 'draw') phrase = self ? { ...describeObject('monster', names), refs: [{ mode: 'exact', name: normalize(card.name), label: card.name }] } : describeObject(object, names);
-        const returnSource = object.replace(/\b(?:equal to|up to|so the number|for each)\b[^]*$/i, '');
-        if (verb === 'return' && (!to || self || !object || /\b(?:fusion materials?|excavat|remaining|rest of|end phase|end of (?:this|the) turn)\b/i.test(object + ' ' + effect.condition) || !((DESCRIBE_SOURCES.field(returnSource) || !/\b(?:gy|graveyard|banish\w*|hand|deck)\b/i.test(returnSource) && /\b(?:monsters?|cards?|spells?|traps?|targets?)\b/i.test(returnSource)) && (!DESCRIBE_SOURCES.gy(returnSource) || /controls (?:and|or)[^]*\b(?:in|from) (?:their|your|the) (?:gy|graveyard)/i.test(returnSource)) && !DESCRIBE_SOURCES.banished(returnSource) && (!DESCRIBE_SOURCES.extra(returnSource) || /pendulum zone|you control|your field/i.test(returnSource)) || to === 'deck' && /\b(?:your opponent's|their) hand\b/i.test(object)))) continue;
+        // A destination stays in (an unresolved "the cards to the Deck" is not a card on the field); "that opponent's card" is one.
+        const returnSource = object.replace(/^\s*up to\s+/i, '').replace(/\b(?:equal to|up to|so the number|for each)\b[^]*$/i, '');
+        if (verb === 'return' && (!to || self || !object || /\b(?:fusion materials?|the above cards|excavat|remaining|rest of|end phase|end of (?:this|the) turn)\b/i.test(object + ' ' + effect.condition) || !((DESCRIBE_SOURCES.field(returnSource) || /^\s*that opponent's (?:card|monster)\b/i.test(returnSource) || !/\b(?:gy|graveyard|banish\w*|hand|deck)\b/i.test(returnSource) && /\b(?:monsters?|cards?|spells?|traps?|targets?)\b/i.test(returnSource)) && (!DESCRIBE_SOURCES.gy(returnSource) || /controls (?:and|or)[^]*\b(?:in|from) (?:their|your|the) (?:gy|graveyard)/i.test(returnSource)) && !DESCRIBE_SOURCES.banished(returnSource) && (!DESCRIBE_SOURCES.extra(returnSource) || /pendulum zone|you control|your field/i.test(returnSource)) || to === 'deck' && /\b(?:your opponent's|their) hand\b/i.test(object)))) continue;
         if (verb === 'summon' && !/^special|^ritual/.test(word)) continue;
         // A self-revival takes its source from its own condition (Zephyros), not a later material cost.
         const sourceObject = object.replace(/\bwith (?:a different|the same) name\b[^]*$/i, '');
         // A source of its own wins: Deep-Eyes White Dragon's "Special Summon this card from your hand" after a GY trigger.
         const where = self && verb === 'summon' && !/\b(?:from|in) (?:your|the|their) (?:hand|gy|graveyard|deck|banish)/i.test(sourceObject) ? `${sourceObject} ${effect.condition}` : sourceObject;
         if (phrase) Object.assign(phrase, { fromMain: DESCRIBE_SOURCES.deck(where), fromExtra: DESCRIBE_SOURCES.extra(where), deck: DESCRIBE_SOURCES.deck(where) ? 'main' : undefined });
-        list.push({ verb, self, phrase, any, to, where, clause, index: i, effect, object });
+        // Targets: the object says so ("destroy that target") or refers back to what this effect targeted ("Target 1 card; destroy it").
+        // Cost: before the effect's semicolon, or a "by Tributing …" procedure. All: the whole kind ("Destroy all monsters …").
+        const body = effect.own?.includes(clause) ? effect.own : effect.text, at = body.indexOf(clause), lead = at < 0 ? before : body.slice(body.lastIndexOf(':', at) + 1, at) + before;
+        const refers = pronoun || /^\s*(?:it|them|that|those|both|each of them|the targeted|its|their)\b/i.test(tail) || /\b(?:that|those|the targeted) (?:face-up |face-down )?(?:targets?|cards?|monsters?)\b|\b(?:it|them)\b/i.test(tail);
+        // Not targeting immunity ("1 monster that cannot be targeted by card effects").
+        const untargetable = /\b(?:cannot|can't|could not) be targeted\b|\b(?:cannot|can't) target\b|\bunaffected by\b[^,;]*/gi;
+        const targets = /\btarget/i.test(tail.replace(untargetable, ' ')) || refers && /\btarget/i.test(lead.replace(untargetable, ' '));
+        const cost = byWay || at >= 0 && !lead.includes(';') && body.indexOf(';', at) > -1;
+        const all = /^\s*(?:all|every|each)\b|\bas many\b[^;]*\bas possible\b/i.test(object);
+        // Unknown: "it" with nothing before to say what it is, or "banish it instead" (a card replacing its own removal).
+        const unknown = pronoun && !antecedent || /^\s*it instead\b/i.test(tail);
+        // An unknown "it" still has the side its own words say ("destroy that monster you control").
+        if (!owner && (!unknown || /\b(?:you|they|your opponent) (?:currently )?controls?\b|\bopponent's\b/i.test(tail))) owner = describeOwner(verb, self ? 'this card' : object || tail, before, clause);
+        list.push({ verb, self, phrase, any, to, where, clause, index: i, effect, object, owner, targets, cost, all, unknown });
       }
       // Passive activation negation (Light and Darkness Dragon) reads the same event as the active wording.
       if (/\b(?:activation|effects?) (?:is|are) negated\b/i.test(clause)) {
         const passive = clause.match(/\b(?:that|the|its) activation is negated\b/i);
         const event = effect.text.match(/\bwhen ([^:;]*?activat[^:;]*)/i)?.[1];
         const kinds = event && ['Spell', 'Trap', 'Monster'].filter(kind => new RegExp('\\b' + kind + 's?\\b', 'i').test(event));
-        if (passive && kinds?.length) list.push({ verb: 'negate', phrase: { ...describeObject('monster', names), kinds }, any: kinds.length === 3, where: '', clause, effect, index: i });
+        if (passive && kinds?.length) list.push({ verb: 'negate', phrase: { ...describeObject('monster', names), kinds }, any: kinds.length === 3, where: '', clause, effect, index: i, owner: describeEventOwner(event), targets: false });
         else if (/\b(?:effects of|trap cards?[^.]*effects|effects of[^.]*trap cards?)\b/i.test(clause) && !/\bsummon/i.test(clause)) {
-          const phrase = describeObject(clause, names); if (phrase) list.push({ verb: 'negate', phrase, any: false, where: clause, clause, effect, index: i });
+          const phrase = describeObject(clause, names); if (phrase) list.push({ verb: 'negate', phrase, any: false, where: clause, clause, effect, index: i, owner: describeOwner('negate', clause, '', clause), targets: /\btarget/i.test(effect.text) });
         }
       }
     });
@@ -1018,15 +1150,46 @@
     const source = (place, words) => add(words, { kind: 'source', value: place, label: DESCRIBE_SOURCE_LABELS[place] });
     source('deck', ['from deck', 'from main deck', 'from the deck', 'from your deck', 'in deck']);
     source('extra', ['from extra deck', 'from extra', 'from the extra deck', 'from ed']);
-    source('gy', ['from gy', 'from graveyard', 'from grave', 'from the gy', 'from your gy', 'in gy', 'in graveyard', 'in the gy', 'from the graveyard']);
+    source('gy', ['gy', 'graveyard', 'grave', 'gys', 'from gy', 'from graveyard', 'from grave', 'from the gy', 'from your gy', 'in gy', 'in graveyard', 'in the gy', 'from the graveyard']);
     source('hand', ['from hand', 'from the hand', 'from your hand', 'in hand']);
     source('banished', ['from banished', 'from banishment', 'banished', 'from the banishment']);
-    source('field', ['from field', 'on field', 'on the field', 'from the field', 'opponent s', "opponent's", 'opponents']);
-    add(['not', 'non', 'no', 'without', 'except', 'but not'], { kind: 'not' });
+    // "the field" is where; "field" alone stays the Field Spell ("search field").
+    // Phrases like "on the field" become §field§ first (describeLocations), which keeps "the field spell" the Field Spell.
+    source('field', ['from field', 'on field', 'from the field', '§field§']);
+    // The placeholders of describeLocations.
+    add('§both§', { kind: 'owner', value: 'both', label: 'both sides' }); add('§either§', { kind: 'owner', value: 'either', label: 'either player’s' });
+    add('§own§', { kind: 'owner', value: 'own', label: 'yours' }); add('§opponent§', { kind: 'owner', value: 'opponent', label: 'the opponent’s' });
+    // Whose card an effect acts on, how it picks it, and whether it is a cost (user, 2026-11-11): "tributes opponent's
+    // monster", "pops your own card non target", "banish from your gy as cost". Read per action (describeActions).
+    const owner = (value, label, words) => add(words, { kind: 'owner', value, label });
+    owner('opponent', 'the opponent’s', ['opponent', 'opponents', "opponent's", 'opponent s', "opponents'", 'opp', "opp's", 'opps', 'enemy', 'enemies', "enemy's", 'opposing',
+      'your opponent', "your opponent's", 'your opponents', 'your opponent s', "opponent's field", 'opponent s field', 'opponents field', 'opponent field', "opponent's board", 'opponent s board', 'opponents board',
+      'opponent board', "opponent's side", 'opponent s side', 'their field', 'their board', 'their side', 'they control', 'opponent controls', 'your opponent controls', 'on their field', 'on their side']);
+    owner('own', 'yours', ['own', 'your own', 'my own', 'self', 'yourself', 'myself', 'you control', 'i control', 'your field', 'your board', 'your side', 'my field', 'my board', 'my side', 'friendly', 'on your field', 'on your side']);
+    owner('either', 'either player’s', ['either player', "either player's", 'either players', 'either side', 'either side of the field', 'each player', 'any player', 'any side']);
+    // Both sides at once (user, 2026-11-11: "pops cards on both side of the field"): Dark Hole first, "1 card on the field" after.
+    owner('both', 'both sides', ['both sides', 'both side', 'both players', "both players'", 'both fields', 'both side of the field', 'both sides of the field', 'each side', 'each side of the field',
+      'whole field', 'the whole field', 'entire field', 'the entire field', 'everything on the field', 'both sides of field', 'both side of field']);
+    add(['target', 'targetting', 'targeted', 'targetted', 'targeter', 'targeters'], { kind: 'targets', value: true });
+    add(['untargeted', 'untargeting', 'nontarget', 'nontargeting', 'nontargetting', 'target free'], { kind: 'targets', value: false });
+    add(['cost', 'as cost', 'as a cost', 'for cost', 'for a cost', 'as the cost', 'as its cost', 'paid as cost'], { kind: 'cost' });
+    add(['itself', 'this card', 'themselves', 'its own self'], { kind: 'itself' });
+    add(['all', 'every', 'each', 'everything', 'mass', 'whole'], { kind: 'all' });
+    add(['then', 'and then', 'if you do', 'and if you do', 'after that', 'followed by', 'to then'], { kind: 'then' });
+    add(['not', 'non', 'no', 'without', 'except', 'but not', "doesn't", 'doesnt', 'does not', "don't", 'dont', 'do not', "isn't", 'isnt'], { kind: 'not' });
     add(['that', 'which', 'who', 'whose', 'with an effect that', 'can', 'able to'], { kind: 'that' });
-    add(['a', 'an', 'the', 'card', 'cards', 'your', 'my', 'their', 'with', 'to', 'of', 'its', 'it', 'is', 'are', 'be', 'i', 'me', 'find', 'show', 'want', 'need', 'all',
-      'any', 'some', 'and', 'or', 'also', 'effect', 'effects', 'by', 'for', 'on', 'in', 'from', 'opponent', 'turn', 'one', 'what', 'does', 'do', 'them', 'they', 'thing', 'things',
-      'synergy', 'support', 'type', 'attribute', 'archetype', 'deck', 'during', 'their turn', 'opponents turn', 'opponent turn', 'either', 'player', 'up', 'up to', 'could', 'like'], { kind: 'filler' });
+    // Everyday words around a description ("a card that lets me draw", "something that searches").
+    add(['a', 'an', 'the', 'card', 'cards', 'your', 'my', 'their', 'with', 'to', 'of', 'its', 'it', 'is', 'are', 'be', 'i', 'me', 'find', 'show', 'want', 'need',
+      'any', 'some', 'and', 'also', 'effect', 'effects', 'by', 'for', 'on', 'in', 'from', 'turn', 'one', 'what', 'does', 'do', 'them', 'they', 'thing', 'things',
+      'synergy', 'support', 'type', 'attribute', 'archetype', 'deck', 'during', 'their turn', 'opponents turn', 'opponent turn', "opponent's turn", 'opponent s turn', "your opponent's turn", 'your opponent s turn',
+      'either', 'player', 'up', 'up to', 'could', 'like', 'lets', 'let', 'allows', 'allow', 'gives', 'give', 'grants', 'grant', 'something', 'anything', 'stuff', 'makes', 'make', 'will', 'would', 'should',
+      'please', 'looking for', 'board', 'side', 'hand', 'hands', 'as', 'if', 'when', 'whenever', 'once', 'after', 'everything', 'anything else', 'at', 'into', 'onto', 'just', 'way', 'ways', 'get', 'gets', 'stuff that', 'good', 'best',
+      'to gy', 'to the gy', 'to graveyard', 'to the graveyard', 'into the gy', 'into gy', 'into the graveyard', 'to grave'], { kind: 'filler' });
+    // Where a returned card goes ("return … to hand"); after other effects ("add … to hand") it says nothing more.
+    add(['to hand', 'to the hand', 'to your hand', 'to my hand', 'into hand', 'to their hand', 'to the owner s hand', "to the owner's hand", "to its owner's hand", 'back to hand', 'back to the hand'], { kind: 'to', value: 'hand', label: 'to the hand' });
+    add(['to deck', 'to the deck', 'into deck', 'into the deck', 'to the main deck', 'on top of the deck', 'to the top of the deck', 'to the bottom of the deck', 'back to deck', 'back into the deck', 'to the extra deck'], { kind: 'to', value: 'deck', label: 'to the Deck' });
+    // "search or special summon": either effect will do (alternatives); "or" between other words says nothing.
+    add(['or', 'or else', 'and or'], { kind: 'or' });
     // Archetypes: the quoted names card texts use as one ('"Branded" Spell'), last: a word above means what it says there.
     for (const [key, label] of archetypeIndex.used) add(key, { kind: 'archetype', value: key, label: `“${label}”` });
     const names = new Map();
@@ -1104,15 +1267,54 @@
     stats: {}, archetypes: [], words: [], wordRanges: [], labels: [], not: { kinds: new Set(), attributes: new Set(), types: new Set(), frames: new Set(), abilities: new Set(), properties: new Set(), either: new Set(), archetypes: [], tuner: false, concepts: [] } });
   // The query read: { self, parts, chips, pending }. self: what the card is; parts: one per effect concept, with what it acts on
   // (group, or target: a card named) and where from (sources). Chips carry the ranges of the words they read, for ×.
+  // When an effect applies (user, 2026-11-11: "destroy everything if this card is special summoned"): a condition of the query,
+  // matched against the condition of the effect that does it. key: what the query says; test: on the effect's condition.
+  const DESCRIBE_WHEN = [
+    { query: /\b(?:if|when|whenever|once|after|on)\s+(?:this card |it |this monster |the card |its |being )?(?:is |gets |was |has been |been )?(normal |special |tribute |flip |fusion |synchro |xyz |link |ritual |pendulum )?summon(?:ed|s)?\b/g,
+      label: kind => `when ${kind ? kind[0].toUpperCase() + kind.slice(1) : ''}Summoned`.replace('when Summoned', 'when Summoned (any way)'),
+      // A Fusion, Synchro, Xyz, Link, Ritual or Pendulum Summon is a Special Summon too (Black Rose Dragon).
+      test: kind => new RegExp(`\\bthis card is (?:[a-z]+ (?:or|and/or) )*${kind.trim() === 'special' ? '(?:special|fusion|synchro|xyz|link|ritual|pendulum) ' : kind ? kind.trim() + ' ' : '(?:[a-z]+ )?'}(?:or [a-z]+ )*summoned\\b`) },
+    { query: /\b(?:if|when|whenever|once|after)\s+(?:this card |it |this monster )?(?:is |gets |was )?(?:sent|send|goes|milled|discarded)(?: to (?:the )?(?:gy|graveyard|grave))?\b/g, label: () => 'when sent to the GY',
+      test: () => /\bthis card (?:in your possession |on the field |you control |in your hand )?is (?:destroyed and )?(?:sent|discarded) (?:from [a-z ,]+ )?(?:to (?:the|your) gy)?/ },
+    { query: /\b(?:if|when|whenever|once|after)\s+(?:this card |it |this monster )?(?:is |gets |was )?destroyed\b/g, label: () => 'when destroyed', test: () => /\bthis card (?:in your possession |on the field |you control )?is destroyed\b/ },
+    { query: /\b(?:if|when|whenever|once|after)\s+(?:this card |it |this monster )?(?:is |gets |was )?banished\b/g, label: () => 'when banished', test: () => /\bthis card (?:in your possession |on the field |you control )?is banished\b/ },
+    { query: /\b(?:if|when|whenever|once|after)\s+(?:this card |it |this monster )?(?:is |gets |was )?(?:flipped|flip summoned)\b|\bflip effect\b/g, label: () => 'when flipped', test: () => /\bflip\b|\bthis card is flipped\b/ },
+    { query: /\b(?:if|when|whenever|once)\s+(?:this card |it |this monster )?(?:attacks|declares an attack|battles)\b/g, label: () => 'when it attacks', test: () => /\bthis card (?:attacks|declares an attack|battles)\b/ },
+  ];
+  // The conditions a query names, blanked out of its text (the same length, so the other words keep their places).
+  function describeConditions(text, out) {
+    for (const when of DESCRIBE_WHEN) text = text.replace(when.query, (match, kind, at) => {
+      const offset = typeof kind === 'number' ? kind : at;
+      out.push({ label: when.label(typeof kind === 'string' ? kind : ''), test: when.test(typeof kind === 'string' ? kind : ''), ranges: [[offset, offset + match.length]] });
+      return ' '.repeat(match.length);
+    });
+    return text;
+  }
+  // The condition of the effect an action belongs to ("If this card is Special Summoned"), as describeConditions tests it.
+  const describeWhenText = action => normalize(action.effect?.condition || '').replace(/graveyard/g, 'gy');
+  // "field" as a place (user, 2026-11-12: "card that pops on both field" read "field" as the Field Spell): a phrase that says
+  // where or whose ("on both fields", "on the field", "your field", "the opponent's side of the field", "either field") becomes
+  // one placeholder word of the same span (§both§, §either§, §own§, §opponent§, §field§), read like the owner and source words.
+  // "field" alone, or before "spell", stays the Field Spell ("search field").
+  const DESCRIBE_FIELD_PLACE = /\b(?:(?:on|in|from|across|to|of)\s+)?((?:(?:the|both|either|each|all|whole|entire|every|your|my|their|our|opponent'?s'?|opponents|enemy'?s?|opp'?s?)\s+)+)(?:(?:sides?|halves?|parts?)\s+of\s+(?:the\s+)?)?fields?\b(?!\s+spells?\b)|\b(?:on|in|from|across)\s+fields?\b(?!\s+spells?\b)/g;
+  function describeLocations(text, spans) {
+    return text.replace(DESCRIBE_FIELD_PLACE, (match, whose = '', at) => {
+      const place = /\b(?:both|each|all|whole|entire|every)\b/.test(whose) ? 'both' : /\beither\b/.test(whose) ? 'either' : /\b(?:their|opponent|opponents|enemy|opp)/.test(whose) ? 'opponent' : /\b(?:your|my|our)\b/.test(whose) ? 'own' : 'field';
+      const word = `§${place}§`;
+      if (word.length > match.length) return match;
+      spans.set(at, at + match.length);
+      return word + ' '.repeat(match.length - word.length);
+    });
+  }
   function readDescribe(raw) {
-    const vocab = describeWords(), text = normalize(raw).replace(/[“”]/g, '"'), self = describeGroup(), parts = [], chips = [];
+    const conditions = [], places = new Map(), vocab = describeWords(), text = describeLocations(describeConditions(normalize(raw).replace(/[“”]/g, '"'), conditions), places), self = describeGroup(), parts = [], chips = [];
     const stats = describeStats(text), tokens = [];
     for (const match of text.matchAll(/[^\s,;.!?()"]+/g)) {
       const inStat = stats.find(s => match.index >= s.start && match.index < s.end);
       if (inStat) { if (!tokens.includes(inStat)) tokens.push(inStat); continue; }
       let word = match[0], start = match.index, not = false;
       if (/^-\S/.test(word)) { not = true; word = word.slice(1); start++; } else if (/^non-\S/.test(word)) { not = true; word = word.slice(4); start += 4; }
-      tokens.push({ word, start, end: match.index + match[0].length, not });
+      tokens.push({ word, start, end: places.get(match.index) ?? match.index + match[0].length, not });
     }
     const entries = [];
     let pending = '';
@@ -1137,16 +1339,43 @@
       entries.push(hit ? { ...hit.entry, typo: hit.typo, not: token.not, start: token.start, end } : { kind: 'word', word: describeKey(token.word), not: token.not, start: token.start, end });
       i += n;
     }
-    let group = self, part = null, notNext = false;
+    let group = self, part = null, notNext = false, together = false, orNext = false;
+    const thenRanges = [];
+    // How an effect acts (whose card, targeting, cost, itself, all): on the effect just read, else on the next one ("non target destroy").
+    let how = { labels: [] };
+    const apply = target => { const { labels, ...rest } = how; Object.assign(target.how, rest); target.how.labels.push(...labels); target.ranges.push(...labels.flatMap(l => l.ranges)); how = { labels: [] }; };
     for (const entry of entries) {
       if (entry.kind === 'filler') continue;
       if (entry.kind === 'that') { group = self; continue; }
+      if (entry.kind === 'then') { if (parts.length) { together = true; thenRanges.push([entry.start, entry.end]); } continue; }
+      if (entry.kind === 'or') { orNext = parts.length > 0; continue; }
       if (entry.kind === 'not') { notNext = true; continue; }
       const not = entry.not || notNext; notNext = false;
       if (entry.kind === 'concept') {
-        if (not) { self.not.concepts.push(entry.concept); chips.push({ label: `not ${entry.concept.label}`, ranges: [[entry.start, entry.end]], title: entry.typo }); continue; }
-        part = { concept: entry.concept, group: describeGroup(), sources: [], ranges: [[entry.start, entry.end]], typo: entry.typo };
-        parts.push(part); group = entry.concept.intransitive ? self : part.group; continue;
+        if (not) { self.not.concepts.push(entry.concept); chips.push({ label: `not ${entry.concept.label}`, ranges: [[entry.start, entry.end]], title: entry.typo }); orNext = false; continue; }
+        part = { concept: entry.concept, group: describeGroup(), sources: [], ranges: [[entry.start, entry.end]], typo: entry.typo, how: { labels: [] } };
+        // "search or special summon": this effect or the one before (anyOf: the index of the first of them).
+        if (orNext) { const before = parts[parts.length - 1]; part.anyOf = before.anyOf ?? parts.length - 1; before.anyOf ??= parts.length - 1; }
+        orNext = false;
+        parts.push(part); apply(part); group = entry.concept.intransitive ? self : part.group; continue;
+      }
+      // "or" between other words ("spell or trap") says nothing about effects.
+      orNext = false;
+      if (entry.kind === 'to') {
+        if (part && [].concat(part.concept.verbs || part.concept.verb).includes('return')) { part.how.to = entry.value; part.how.labels.push({ label: entry.label, ranges: [[entry.start, entry.end]] }); part.ranges.push([entry.start, entry.end]); }
+        continue;
+      }
+      if (['owner', 'targets', 'cost', 'itself', 'all'].includes(entry.kind)) {
+        const range = [[entry.start, entry.end]];
+        if (entry.kind === 'owner') { how.owner = entry.value; how.labels.push({ label: entry.label, ranges: range }); }
+        else if (entry.kind === 'targets') { how.targets = not ? !entry.value : entry.value; how.labels.push({ label: how.targets ? 'targeting' : 'not targeting', ranges: range }); }
+        else if (entry.kind === 'cost') { how.cost = !not; how.labels.push({ label: not ? 'not as a cost' : 'as a cost', ranges: range }); }
+        else if (entry.kind === 'itself') { how.itself = true; how.labels.push({ label: 'itself', ranges: range }); }
+        else { how.all = true; how.labels.push({ label: 'all', ranges: range }); }
+        // On an effect read from actions ("draw as cost", "omni negate non target"); a concept read from the whole text
+        // (extender, hand trap) has none, so they wait for the next effect.
+        if (part && (part.concept.verb || part.concept.verbs || part.concept.action)) apply(part);
+        continue;
       }
       if (entry.kind === 'source') { if (part) { part.sources.push(entry.value); part.ranges.push([entry.start, entry.end]); } continue; }
       const into = not ? group.not : group, label = (not ? 'not ' : '') + (entry.label || entry.word);
@@ -1159,12 +1388,20 @@
       else if (entry.kind === 'word') { if (not) group.not.archetypes.push({ word: entry.word, label: entry.word }); else { group.words.push(entry.word); group.wordRanges.push([entry.start, entry.end]); continue; } }
       group.labels.push({ label, ranges: [[entry.start, entry.end]], title: entry.typo });
     }
+    // "destroy or banish opponent's monster": what the last alternative acts on, and how, holds for the ones before it that say nothing.
+    for (const p of parts) {
+      if (p.anyOf == null) continue;
+      const last = parts.filter(other => other.anyOf === p.anyOf).at(-1);
+      if (last === p || p.group.labels.length || p.group.words.length || p.how.labels.length || p.sources.length || p.concept.intransitive) continue;
+      p.group = last.group; p.sources = last.sources; p.how = { ...last.how, labels: [...last.how.labels] }; p.shared = true;
+    }
     // Words no list knows: after a verb, a card's name ("search phara"); for the card itself, a name, else words of its text.
-    for (const p of parts) if (p.group.words.length) {
+    for (const p of parts) if (p.group.words.length && !p.shared) {
       const card = describeCard(vocab, p.group.words);
       if (card) { p.target = card; p.group.labels.push({ label: `“${card.name}”`, ranges: p.group.wordRanges }); }
       else p.group.labels.push({ label: `text “${p.group.words.join(' ')}”`, ranges: p.group.wordRanges, plain: true });
     }
+    for (const p of parts) if (p.shared) p.target = parts.filter(other => other.anyOf === p.anyOf).at(-1).target;
     if (self.words.length) {
       const key = self.words.join(' '), card = vocab.names.get(key);
       if (card) self.card = card;
@@ -1172,14 +1409,17 @@
     }
     for (const p of parts) {
       for (const label of p.group.labels) p.ranges.push(...label.ranges);
-      const object = p.group.labels.map(l => l.label).join(' '), sources = p.sources.map(s => DESCRIBE_SOURCE_LABELS[s]).join(', ');
-      chips.push({ label: [p.concept.label, object, sources].filter(Boolean).join(' · '), ranges: p.ranges, title: [p.typo, ...p.group.labels.map(l => l.title)].filter(Boolean).join('; ') || '', concept: true });
+      const object = p.group.labels.map(l => l.label).join(' '), sources = p.sources.map(s => DESCRIBE_SOURCE_LABELS[s]).join(', '), how = p.how.labels.map(l => l.label).join(', ');
+      chips.push({ label: (p.anyOf != null && parts.indexOf(p) !== p.anyOf ? 'or ' : '') + [p.concept.label, object, sources, how].filter(Boolean).join(' · '), ranges: p.ranges, title: [p.typo, ...p.group.labels.map(l => l.title)].filter(Boolean).join('; ') || '', concept: true });
       p.spec = describeSpec(p.group); p.not = describeExclusions(p.group);
     }
     for (const label of self.labels) chips.push({ ...label, title: label.title || '' });
     self.spec = describeSpec(self); self.exclude = describeExclusions(self);
     const active = parts.length > 0 || !!self.spec || !!self.exclude || self.words.length > 0 || self.not.concepts.length > 0;
-    return { raw, self, parts, chips, pending, active };
+    if (together) chips.push({ label: 'in one effect', ranges: thenRanges, title: 'The effects asked, in one effect of the card first' });
+    for (const when of conditions) chips.push({ label: when.label, ranges: when.ranges, title: 'The condition of the effect that does it' });
+    for (const p of parts) p.when = conditions;
+    return { raw, self, parts, chips, pending, active: active || conditions.length > 0, together, conditions };
   }
   // A group as a card-text phrase (fetchPhrase's shape), for fetchRank and objectRank; null when it says nothing.
   function describeSpec(g) {
@@ -1303,7 +1543,8 @@
       // by the first word, "The Phantom Knights" read every card with "the" (1 s live on DuelingBook, 2026-10-31).
       const seen = new Set(), words = ref ? ref.name.split(/[^\p{L}\p{N}]+/u).filter(Boolean) : [], index = describeFits.words;
       const lists = words.map((word, i) => i < words.length - 1 ? index.get(word) || [] : [...new Set([word, word + 's', word + 'es'].flatMap(w => index.get(w) || []))]);
-      const candidates = !ref || !['exact', 'archetype'].includes(ref.mode) || !lists.length ? cards : lists.reduce((a, b) => b.length < a.length ? b : a);
+      // An archetype inside a longer word ("Memento" in "Mementotlan") is not a word of the name: every card is a candidate.
+      const candidates = !ref || !['exact', 'archetype'].includes(ref.mode) || !lists.length || EMBEDDED_ARCHETYPES.has(ref.name) ? cards : lists.reduce((a, b) => b.length < a.length ? b : a);
       const bare = { refs: ref ? [ref] : [], kinds: null, frames: [], properties: [], tuner: false, abilities: [], attributes: [], types: [], stats: {}, not: [] };
       // A mention is read straight from the texts: fetchRank over the whole catalog took about a second live.
       const fits = ref?.mode === 'mention' ? card => indexedText(card).effect.some(s => s.includes(`"${ref.name}"`)) : card => !ref || fetchRank(card, bare) < Infinity;
@@ -1359,31 +1600,59 @@
     const objectOf = phrase => !phrase ? (part.target || part.spec ? Infinity : 0) : part.target ? (() => { if (sources.includes('deck') && extraDeckMonster(part.target)) return Infinity; const r = fetchRank(part.target, phrase); return r === Infinity ? Infinity : r <= 1 ? 0 : r === 2 ? 0.5 : 1; })()
       : part.not && objectExcluded(phrase, part.not) ? Infinity : objectRank(phrase, part.spec);
     let best = null;
-    const keep = (rank, text, self = false) => { if (rank < Infinity && (!best || rank < best.rank)) best = { rank, text, self }; };
+    // Also the best per effect, for "pops … then special summons" (both in one effect); note: why it comes after.
+    const byEffect = new Map();
+    const keep = (rank, text, self = false, effect = null, note = '') => {
+      if (rank === Infinity) return;
+      if (!best || rank < best.rank) best = { rank, text, self, note };
+      if (effect && (!byEffect.has(effect) || rank < byEffect.get(effect).rank)) byEffect.set(effect, { rank, text, self, note });
+    };
+    const side = action => !how.owner || action.owner === how.owner ? '' : how.owner === 'both' ? (action.all ? '' : 'one card') : 'either side';
+    // How the action acts against how the query asked: whose card (asked: either side comes after; a concept's own default,
+    // "removal" for the opponent's, takes either side as it is), targeting, cost, all of a kind, itself, field only.
+    const how = part.how || {}, want = how.owner || concept.owner;
+    const fit = action => {
+      if (part.when?.length && !part.when.every(when => when.test.test(describeWhenText(action)))) return Infinity;
+      if (how.itself && !action.self) return Infinity;
+      if (how.targets != null && !!action.targets !== how.targets) return Infinity;
+      if (how.cost != null && !!action.cost !== how.cost) return Infinity;
+      if ((how.all || concept.all) && !action.all) return Infinity;
+      if (concept.field && (action.unknown || !part.sources.length && ['gy', 'hand', 'deck', 'banished', 'extra'].some(place => DESCRIBE_SOURCES[place](action.where || '')))) return Infinity;
+      if (want === 'both') return action.owner !== 'either' ? Infinity : action.all ? 0 : 1;
+      if (!want || action.owner === want) return 0;
+      if (action.owner === 'either' || !action.owner) return how.owner ? 1 : 0;
+      return Infinity;
+    };
     if (['floodgate', 'gain', 'protect', 'extender', 'quick', 'token', 'burn'].includes(concept.key)) { const text = describeBenefit(card, concept.key); if (text) keep(0, text); }
     else if (concept.category) { if (categoriesOf(card).has(concept.category)) keep(0, describeSentence(card, concept.mark)); }
     else if (concept.test) { const text = normalize((card.card_type === 'Monster' && String(card.monster_color) === 'Normal' ? '' : card.effect) + '\n' + card.pendulum_effect).replace(/graveyard/g, 'gy'); if (concept.test.test(text)) keep(0, describeSentence(card, concept.test)); }
     else if (concept.action) {
       for (const action of describeActions(card)) {
         if (action.verb !== concept.action || !action.phrase || !from(action.where.replace(concept.action === 'add' ? /\bto (?:your|the|their|its owner's) hand\b/gi : /^$/, ' '))) continue;
-        if (concept.action === 'summon' && sources.includes('gy') && action.phrase.fromExtra) continue;
+        if (concept.action === 'summon' && sources.includes('gy') && action.phrase?.fromExtra) continue;
         if (concept.action === 'add' && /\byour opponent\s+(?:can |may )?adds?\b/i.test(action.clause)) continue;
         if (concept.action === 'add' && !/\bto (?:your|the|their|its owner's) hand\b/i.test(action.where)) continue;
         // A card that revives (searches …) itself comes after the ones that do it for other cards (Nine-Tailed Fox for "revive fire monster").
-        keep(objectOf(action.phrase) + (action.self ? 1 : 0), unmaskClause(card, action.clause), action.self);
+        keep(objectOf(action.phrase) + (action.self && !how.itself ? 1 : 0) + fit(action), unmaskClause(card, action.clause), action.self, action.effect, side(action));
       }
     } else {
+      const verbs = [].concat(concept.verbs || concept.verb);
       for (const action of describeActions(card)) {
-        if (action.verb !== concept.verb || action.self && concept.verb !== 'banish' || concept.to && action.to !== concept.to || !from(action.where)) continue;
+        // Banishing or Tributing this card is a way to do it (A/D Changer, Photon Lizard); other verbs on itself only when asked
+        // ("destroys itself"), or after the others for your own cards.
+        if (!verbs.includes(action.verb) || action.self && !['banish', 'tribute'].includes(action.verb) && !how.itself && want !== 'own' || (how.to || concept.to) && action.to !== (how.to || concept.to) || !from(action.where)) continue;
+        const extra = fit(action) + (action.self && !how.itself && !['banish', 'tribute'].includes(action.verb) ? 1 : 0);
+        if (extra === Infinity) continue;
         // "pop backrow" must be able to remove opposing backrow (Harpie Conductor only destroys yours).
         if (concept.key === 'destroy' && /\bbackrow\b/i.test(query) && /\byou control\b|\bin your (?:spell [&/] trap|pendulum) zone/i.test(action.object) && !/\b(?:your opponent controls|on the field)\b/i.test(action.object)) continue;
         if (concept.key === 'destroy' && /\bbackrow\b/i.test(query) && /\bdestroy (?:that|the) card you control\b/i.test(action.clause)) continue;
         // A negation of any card or effect fits "negate spell" as well, after the ones that name Spells.
-        if (concept.verb === 'negate') { if (concept.any && !action.any) continue; keep(concept.any ? 0 : action.any ? (part.spec ? 1 : 0) : objectRank(action.phrase, part.spec), unmaskClause(card, action.clause)); }
-        else keep(concept.verb === 'draw' ? 0 : objectOf(action.phrase), unmaskClause(card, action.clause));
+        if (concept.verb === 'negate') { if (concept.any && !action.any) continue; keep(extra + (concept.any ? 0 : action.any ? (part.spec ? 1 : 0) : objectRank(action.phrase, part.spec)), unmaskClause(card, action.clause), false, action.effect, side(action)); }
+        else keep(extra + (concept.verb === 'draw' ? 0 : objectOf(action.phrase)), unmaskClause(card, action.clause), false, action.effect, side(action));
       }
     }
     if (best && part.group.words.length && !part.target && !part.group.words.every(word => describeKey(best.text).includes(word))) best = null;
+    if (best) best.byEffect = byEffect;
     return best;
   }
   // A card against a read query: { rank: the sum of its parts' ranks (Infinity: no match), why: [{ label, text }] }.
@@ -1404,12 +1673,43 @@
       if (!hit) return { rank: Infinity, why };
     }
     for (const concept of self.not.concepts) if (conceptHit(card, { concept, sources: [], group: describeGroup(), spec: null })) return { rank: Infinity, why };
-    for (const part of read.parts) {
-      const hit = conceptHit(card, part, read.raw);
-      if (!hit) return { rank: Infinity, why };
-      total += hit.rank;
-      why.push({ label: part.concept.label + (hit.self ? ' (itself)' : hit.rank >= 1 ? ' (also other cards)' : ''), text: hit.text });
+    // A condition with no effect asked ("if this card is special summoned"): any effect of the card under it.
+    if (read.conditions?.length && !read.parts.some(part => !part.concept.test && !part.concept.category && !['floodgate', 'gain', 'protect', 'extender', 'quick', 'token', 'burn'].includes(part.concept.key))) {
+      const { effects } = cardClauses(card), effect = effects.find(e => read.conditions.every(when => when.test.test(normalize(e.condition || '').replace(/graveyard/g, 'gy'))));
+      if (!effect) return { rank: Infinity, why };
+      why.push({ label: read.conditions.map(when => when.label).join(', '), text: effect.text.replace(/"§(\d+)§"/g, '"…"') });
     }
+    // Each effect asked must be there; of alternatives ("search or special summon", anyOf) the best one will do.
+    const hits = [], used = [], seen = new Set();
+    read.parts.forEach((part, i) => {
+      if (part.anyOf == null) { used.push({ part, hit: conceptHit(card, part, read.raw) }); return; }
+      if (seen.has(part.anyOf)) return;
+      seen.add(part.anyOf);
+      const choices = read.parts.filter(other => other.anyOf === part.anyOf).map(other => ({ part: other, hit: conceptHit(card, other, read.raw) })).filter(c => c.hit);
+      used.push(choices.sort((a, b) => a.hit.rank - b.hit.rank)[0] || { part, hit: null });
+    });
+    if (used.some(u => !u.hit)) return { rank: Infinity, why };
+    hits.push(...used.map(u => u.hit));
+    // "then" between effects (user, 2026-11-11: "pops opponent's card then special summons", Gandora-G): both in one effect of the
+    // card first; a card that does them in different effects comes after.
+    // A concept read from a sentence (burn, protection, Tokens …) is not tied to an effect, so neither "then" nor a condition
+    // can be confirmed for it: such a card comes after the confirmed ones (Codex review: "search then burn", Trickstar Candina).
+    if ((read.together || read.conditions?.length) && hits.some(hit => !hit.byEffect.size)) total += 2;
+    const chained = read.together && hits.filter(hit => hit.byEffect.size);
+    if (chained?.length >= 2) {
+      let best = null;
+      for (const effect of chained[0].byEffect.keys()) {
+        if (!chained.every(hit => hit.byEffect.has(effect))) continue;
+        const sum = chained.reduce((n, hit) => n + hit.byEffect.get(effect).rank, 0);
+        if (!best || sum < best.sum) best = { sum, effect };
+      }
+      if (best) chained.forEach(hit => Object.assign(hit, hit.byEffect.get(best.effect)));
+      else total += 2;
+    }
+    used.forEach(({ part, hit }) => {
+      total += hit.rank;
+      why.push({ label: part.concept.label + (hit.self ? ' (itself)' : hit.note ? ` (${hit.note})` : hit.rank >= 1 ? ' (also other cards)' : ''), text: hit.text });
+    });
     return { rank: total, why };
   }
   let describeCache = null;
@@ -2530,7 +2830,7 @@
     const extra = extraDeckMonster(target);
     actions ||= accessActions[extra ? 'extra' : 'main'];
     return (indexedText(card).fetch ||= fetchClauses(card)).filter(phrase => actions.has(phrase.action) && (extra ? phrase.fromExtra : phrase.fromMain) &&
-      usableAfter(target, phrase) && summonAllowed(target, phrase, card, 'access'));
+      usableAfter(target, phrase) && summonAllowed(target, phrase, card, 'access') && accessUsable(target, phrase));
   }
   // What a line's first step may do to its Main Deck step (user, 2026-11-09): the ⚙ says how the line gets the card, its
   // last step; the step before only has to get the step card where its effect works, so a search or a Special Summon
@@ -2656,7 +2956,9 @@
     // The steps it reaches, once; a step of a kind none of its effects can fetch ("1 Spell" for a monster step) is not tried.
     // This is relatedRank(card, step) < Infinity over the phrases already sorted by Deck (most of a search's time).
     const fetchable = (step, phrases) => phrases.some(phrase => phrase.alternatives || !phrase.kinds || phrase.kinds.includes(step.card_type));
-    const reaches = (step, phrases) => phrases.some(phrase => summonAllowed(step, phrase, card, 'access') && fetchRank(step, phrase) < Infinity);
+    // An Extra Deck step it Summons with materials the line does not have ("Fusion Summon 1 Fusion Monster ..., using monsters
+    // from your hand or field": Polymerization) is no step (user, 2026-11-11: before, such lines filled Ideas).
+    const reaches = (step, phrases) => phrases.some(phrase => summonAllowed(step, phrase, card, 'access') && accessUsable(step, phrase) && summonsAlone(phrase, step) && fetchRank(step, phrase) < Infinity);
     const reached = steps.filter(({ card: step, extra }) => step.name !== card.name && fetchable(step, decks[extra ? 'extra' : 'main']) && reaches(step, decks[extra ? 'extra' : 'main'])), direct = relatedRank(card, target, 'access') < Infinity;
     if (!reached.length && !direct && !lineSummonPhrases(card).length) return via.material?.get(card) || { rank: Infinity };
     const sure = starterRank(card, target, via);
@@ -2679,7 +2981,7 @@
     for (const { card: step, rank: second } of reached) {
       for (const first of accessPhrases(card, step, bridgeActions(step))) {
         const firstRank = fetchRank(step, first);
-        if (firstRank === Infinity) continue;
+        if (firstRank === Infinity || !summonsAlone(first, step)) continue;
         // A starter that works only "During the End Phase" (Watch Cat) leaves the step no Main Phase.
         const open = opening(first), starter = !open ? effectNeed(card, first, 'hand', '', true) : /\bEnd Phase\b/i.test(first.effect?.condition || '') ? 'the End Phase' : summonsAlone(first, step) ? '' : 'materials for its Summon';
         const place = first.destroy ? 'destroyed' : first.action === 'summon' && /\bin face-down Defense Position\b/i.test(first.effect?.text || '') && !/\bor face-down Defense Position\b/i.test(first.effect?.text || '') ? 'set' : PLACE[first.action];
@@ -3418,19 +3720,38 @@
     run(); recordQuery(true, origin); return true;
   }
   // Card overview links: Access (the cards that add or summon this card from its Deck) and Synergy (see relatedRank).
+  // The search before a list opened from the card overview (Access, Starters, Ideas, Support): × on the list brings it back,
+  // its fields, results and page (playtest F5, user's pick for 0.9.3, 2026-11-12: closing Starters after a Name search showed
+  // every card). opened: the list's own state, so a search changed while the list is open is kept and only the list goes.
+  let fetchReturn = null;
+  function openReverse(value) {
+    const before = queryState(), opened = fetchReturn && JSON.stringify(before) === fetchReturn.opened;
+    // From one list to another, × still goes back to the search before the first.
+    if (!opened) fetchReturn = { state: before, page };
+    recordQuery(true);
+    clearSearch();
+    controls.fetches.value = value;
+    run(); recordQuery(true);
+    fetchReturn.opened = JSON.stringify(queryState());
+    return true;
+  }
+  // × on the list: the search from before it, if nothing else changed meanwhile; else only the list goes.
+  function closeReverse() {
+    const back = fetchReturn && JSON.stringify(queryState()) === fetchReturn.opened && fetchReturn;
+    fetchReturn = null;
+    if (back && !blankState(back.state)) { restoreQuery(back); return; }
+    controls.fetches.value = ''; run();
+  }
   function searchFetchers(id, name, mode = 'access') {
     if (!SYNERGY_ENABLED && mode === 'synergy') return false;
     const target = catalogCard(id, name);
     if (!ui || !active || window.currentLabel !== 'deck_constructor' || !target) return false;
-    recordQuery(true);
-    clearSearch();
-    controls.fetches.value = `${['synergy', 'starters', 'ideas'].includes(mode) ? mode : 'access'}:${target.id}`;
-    run(); recordQuery(true); return true;
+    return openReverse(`${['synergy', 'starters', 'ideas'].includes(mode) ? mode : 'access'}:${target.id}`);
   }
   // Card overview link: generic and other support for an archetype.
   function searchSupport(name) {
     if (!ui || !active || window.currentLabel !== 'deck_constructor' || !name) return false;
-    recordQuery(true); clearSearch(); controls.fetches.value = `support:${encodeURIComponent(name)}`; run(); recordQuery(true); return true;
+    return openReverse(`support:${encodeURIComponent(name)}`);
   }
   // Card overview link: cards that fill what a Summon Lab result still needs.
   function searchNeed(id) {
@@ -3593,7 +3914,7 @@
     const area = element('textarea'); area.rows = 8; area.maxLength = 8 * 41; area.setAttribute('aria-label', 'Messages for this deck, one per line');
     area.placeholder = 'One message per line, e.g.\nmy chain\nresponse?\ngo ahead';
     area.value = (deckChat()[name] || []).join('\n');
-    Object.assign(area.style, { width: '100%', resize: 'vertical', padding: '6px', background: 'var(--dbt-input)', color: 'inherit', border: '1px solid var(--dbt-line)', borderRadius: '4px', font: '13px/1.35 system-ui' });
+    Object.assign(area.style, { width: '100%', resize: 'vertical', padding: '6px', background: 'var(--ssp-input)', color: 'inherit', border: '1px solid var(--ssp-line)', borderRadius: '4px', font: '13px/1.35 system-ui' });
     const hint = element('p', 'Shown first in the 💬 chat wheel when you duel with this deck, then your general messages (Spellspeed settings). Up to 8 in all; 40 characters each.');
     const save = () => {
       const all = deckChat(), list = [...new Set(area.value.split('\n').map(text => text.replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean))].slice(0, 8);
@@ -3878,6 +4199,91 @@
     }
     return [...byKey.values()];
   }
+  // Board breakers: an effect that destroys, banishes, returns, negates, sends, shuffles, Tributes or takes what the
+  // opponent controls, or clears cards from the field (Lightning Storm, Dark Ruler No More, Evenly Matched, Kaiju,
+  // Called by the Grave, Hey, Space Trunade!).
+  const BOARD_BREAKER_TEXT = /\b(?:destroy|banish|return|negate|send|shuffle|tribut|take control|change control|gain control)\w*\b[^.;]*?\b(?:your opponent (?:currently )?controls|your opponent's (?:field|side of the field|monsters?|cards?|GY|Graveyard|Main Monster Zones?)|on your opponent's field|(?:cards?|monsters?) (?:on|from) the field)\b|\b(?:your opponent (?:currently )?controls|your opponent's (?:field|monsters?|cards?|GY|Graveyard))\b[^.]*?\b(?:destroy|banish|return|negate|shuffle|take control|change control|gain control)\w*\b|\byour opponent must (?:banish|send|return|shuffle|destroy)\b/i;
+  // What a 🔗 Starter needs, in the card's words, when it is one more card: "If you control an "Artmage", "DoomZ", or
+  // "Elfnote" card", "If a "Power Patron" card is on the field", "discard 1 Spell/Trap", "reveal 1 "Artmage" monster in
+  // your hand", "Tribute 1 Fairy monster". The quoted names and the kind decide which deck cards fill it; null when the
+  // need is something else (a monster banished, a card in the GY, a Summon by the opponent).
+  function partnerNeed(need) {
+    const text = String(need || '').replace(/[“”]/g, '"').trim();
+    if (!text || /;/.test(text) || /\b(?:GY|Graveyard|banished|Summoned|opponent|Extra Deck|Pendulum Zone|destroyed|Damage Step)\b/i.test(text)) return null;
+    // A card to have or to pay with, counted: not "a Tribute Summon" or "its Special Summon".
+    const shape = text.match(/\byou control\b|\b(?:is|are) on the field\b|\bon your field\b|\b(?:discard|reveal|tribute|send)\s+(?:\d+|a|an|one)\b(?!\s+(?:Tribute|Normal|Special)?\s*Summon)/i);
+    if (!shape) return null;
+    const after = text.slice(shape.index), kind = (text.match(/\b(Spell\/Trap|Spell|Trap|monster|card)s?\b(?![^"]*")/gi) || []).pop()?.toLowerCase() || 'card';
+    const names = [...text.matchAll(/"([^"]+)"/g)].map(match => normalize(match[1]));
+    const fits = card => (!names.length || indexedText(card).name.some(name => names.some(part => name === part || namePart(name, part))) || archetypesOf(card).some(name => names.includes(normalize(name))))
+      && (kind === 'card' || kind === 'monster' ? kind === 'card' || card.card_type === 'Monster' : kind === 'spell/trap' ? ['Spell', 'Trap'].includes(card.card_type) : card.card_type.toLowerCase() === kind)
+      && (!/\bnon-/i.test(after));
+    return { fits, any: !names.length && kind === 'card' };
+  }
+  // Suggested roles for the cards of a deck (user, 2026-11-11: fewer wrong Starters, 🔗 partners, board breakers,
+  // Bricks and more Normal Summon plays), read by the same engine as Access and Starters:
+  // - Starter: it gets another card of this deck on its own from the opening hand, as a one-card Starter does (only it
+  //   in hand, empty field and GY, opponent idle; no line by chance). A Continuous or Field Spell counts as on the field
+  //   once activated ("Once, while this card is face-up on the field, during your Main Phase: add ...");
+  // - 🔗 Starter: its effect that gets a deck card needs one more card, and the deck has cards that fill the need (read
+  //   by the engine with that card present, or from the need's words); a need any card fills is a plain Starter;
+  // - Normal Summon: its play needs the card's Normal Summon (or "If this card is Normal Summoned");
+  // - Non-engine: a hand trap or a board breaker outside the deck's own archetypes;
+  // - Brick: a monster with none of these that cannot reach the field from the hand (no Normal Summon, no Special Summon
+  //   of itself, no Pendulum Zone), and no partner of a 🔗 Starter.
+  // Not read: plays through "added to the Extra Deck face-up" (Power Patron), a monster banished, cards in the GY. Returns
+  // { starters, handtraps, bricks, normals: [names], pairs: { name: [partner names] } }.
+  function suggestOddsRoles(cards) {
+    const unique = [...new Map(cards.filter(card => card?.name).map(card => [card.name, card])).values()];
+    const copies = name => cards.filter(card => card?.name === name).length;
+    const out = { starters: [], handtraps: [], bricks: [], normals: [], pairs: {} };
+    const archetypeCount = new Map();
+    for (const card of unique) for (const name of archetypesOf(card)) archetypeCount.set(name, (archetypeCount.get(name) || 0) + 1);
+    const engine = card => archetypesOf(card).some(name => archetypeCount.get(name) >= 3);
+    const partnered = new Set();
+    const onField = card => card.card_type === 'Spell' && ['Continuous', 'Field'].includes(card.type);
+    const fieldOnly = need => !String(need).replace(/\b(?:Once,?\s*)?while this card is face-up on the field\b|\bduring your Main Phase\b|\bonce per turn\b/gi, ' ').replace(/[\s,.:;]+/g, '');
+    for (const card of unique) {
+      if (extraDeckMonster(card) || card.card_type === 'Skill') continue;
+      const text = `${card.effect || ''} ${card.pendulum_effect || ''}`;
+      // Its Normal Summon is the play: "If this card is Normal Summoned", "this Normal Summoned/Set card", "Tribute Summon this card".
+      if (card.card_type === 'Monster' && (NORMAL_SUMMON_TEXT.test(card.effect || '') || /\bthis Normal Summoned(?:\/Set)? card\b|\bTribute Summon this card\b/i.test(card.effect || ''))) out.normals.push(card.name);
+      const targets = unique.filter(target => target.name !== card.name && target.card_type !== 'Skill');
+      const ways = targets.flatMap(target => accessPhrases(card, target).filter(phrase => fetchRank(target, phrase) < Infinity && summonsAlone(phrase, target) && !chanceOf(phrase.effect)).map(phrase => ({ target, phrase })));
+      let sure = targets.find(target => { const found = directRank(card, target); return found.rank < Infinity && !found.how?.chance; });
+      if (!sure && onField(card)) sure = ways.find(({ phrase }) => fieldOnly(effectNeed(card, phrase, 'hand', '', true)))?.target;
+      const partners = new Set(); let anyCard = false;
+      const selfCost = card.card_type === 'Monster' && (card.effect || '').match(/\bSpecial Summon this card \(from your hand\)[^.]*?\bby (sending|discarding|banishing|revealing|Tributing|returning) (1|one|a|an) ([^.;]*?)(?:\s+(?:from|in|to)\b|[.;,])/i);
+      if (!sure) for (const { phrase } of ways) {
+        const said = effectNeed(card, phrase, 'hand', '', true), own = selfCost && /\bSummon/i.test(said) ? partnerNeed(`${selfCost[1].replace(/ing$/, '').replace(/^send$/i, 'send').replace(/^Tribut$/i, 'Tribute')} 1 ${selfCost[3]}`) : null;
+        const need = own || partnerNeed(said);
+        if (need?.any) { anyCard = true; break; }
+        for (const other of unique) {
+          if (other.name === card.name && copies(card.name) < 2 || partners.has(other.name) || extraDeckMonster(other)) continue;
+          if (effectUse(card, phrase, 'hand', '', true, null, [other]) || need?.fits(other)) partners.add(other.name);
+        }
+      }
+      if (sure || anyCard) {
+        out.starters.push(card.name);
+        // Its play needs the Normal Summon when no effect that gets the deck card works without it.
+        const uses = ways.map(({ phrase }) => effectUse(card, phrase, 'hand', '', true)).filter(Boolean);
+        if (uses.length && uses.every(use => use.normal) && !out.normals.includes(card.name)) out.normals.push(card.name);
+        continue;
+      }
+      if (partners.size) {
+        out.starters.push(card.name); out.pairs[card.name] = [...partners];
+        for (const name of partners) partnered.add(name);
+        continue;
+      }
+      if (card.card_type !== 'Spell' && HAND_TRAP_TEXT.test(text) || !engine(card) && BOARD_BREAKER_TEXT.test(text)) out.handtraps.push(card.name);
+    }
+    const roled = new Set([...out.starters, ...out.handtraps, ...partnered]);
+    for (const card of unique) {
+      if (roled.has(card.name) || card.card_type !== 'Monster' || extraDeckMonster(card) || card.pendulum) continue;
+      if (!normalSummonable(card) && !selfSummon(card).hand) out.bricks.push(card.name);
+    }
+    return out;
+  }
   function ruleText(rule) {
     // "1+ play and 1+ play" is "2+ plays": at-least parts of one role add up.
     const parts = [];
@@ -3899,16 +4305,18 @@
     document.getElementById('deck_constructor')?.classList.remove('dblite-odds-open');
   }
   // The menu takes the place of the search panel (its search and results), so the deck stays in view;
-  // without one (phones, narrow windows) it opens beside the button.
+  // without one (narrow windows) it opens beside the button. Phones dock too (user, 2026-11-11: opened
+  // beside the button, the menu covered the Main Deck); their search column is about 316 × 388 px.
   function oddsDock() {
     const search = document.querySelector('#deck_constructor .dblite-builder-search'), results = document.querySelector('#deck_constructor .dblite-results-bg');
     const rects = [search, results].filter(n => n?.offsetParent).map(n => n.getBoundingClientRect()).filter(r => r.width > 0);
     if (!rects.length) return null;
     const left = Math.min(...rects.map(r => r.left)), top = Math.min(...rects.map(r => r.top)), right = Math.max(...rects.map(r => r.right)), bottom = Math.max(...rects.map(r => r.bottom));
-    return right - left >= 360 && bottom - top >= 360 ? { left, top, width: right - left, height: bottom - top } : null;
+    const least = phoneLayout() ? 280 : 360;
+    return right - left >= least && bottom - top >= least ? { left, top, width: right - left, height: bottom - top } : null;
   }
   function placeOdds(panel) {
-    const dock = phoneLayout() ? null : oddsDock();
+    const dock = oddsDock();
     panel.classList.toggle('dblite-odds-docked', !!dock);
     if (dock) {
       const left = Math.max(8, dock.left), top = Math.max(8, dock.top), right = Math.min(innerWidth - 8, dock.left + dock.width), bottom = Math.min(innerHeight - 8, dock.top + dock.height);
@@ -4188,19 +4596,16 @@
     for (const hand of [5, 6]) { const b = element('button', `Draw ${hand} (${hand === 5 ? 'first' : 'second'})`); b.type = 'button'; b.onclick = () => deck.length >= hand && draw(hand); sampleTools.append(b); }
     sample.append(sampleTools, sampleResult);
     suggest.onclick = () => {
-      const starters = new Set(own.starters), traps = new Set(own.handtraps), normals = new Set(own.normals), cards = [...counts.values()].map(item => item.card);
-      // Searches and summons only: sending to the GY or Setting is rarely a play on its own.
-      const starting = new Set(['add', 'summon']);
-      const lib = library(), fromDecks = new Set(cards.filter(card => lib[card.name]).map(card => card.name));
-      for (const cardName of fromDecks) for (const [key] of ODDS_ROLES) own[key] = own[key].filter(n => n !== cardName);
+      const cards = [...counts.values()].map(item => item.card), lib = library(), fromDecks = new Set(cards.filter(card => lib[card.name]).map(card => card.name));
+      const read = suggestOddsRoles(deck);
       for (const card of cards) {
+        for (const [key] of ODDS_ROLES) own[key] = own[key].filter(n => n !== card.name);
+        delete own.pairs[card.name];
         if (fromDecks.has(card.name)) { takeFrom(lib, card.name); continue; }
-        if (/Monster/.test(card.card_type || '') && NORMAL_SUMMON_TEXT.test(card.effect || '')) normals.add(card.name);
-        if (/Monster|Trap/.test(card.card_type || '') && HAND_TRAP_TEXT.test(card.effect || '')) traps.add(card.name);
-        else if (cards.some(other => other.name !== card.name && relatedRank(card, other, 'access', starting) < Infinity)) starters.add(card.name);
+        for (const [key] of ODDS_ROLES) if (read[key].includes(card.name)) own[key].push(card.name);
+        if (read.pairs[card.name]) own.pairs[card.name] = read.pairs[card.name];
       }
-      const fresh = (set, key) => [...new Set([...[...set].filter(n => !fromDecks.has(n)), ...own[key].filter(n => fromDecks.has(n))])];
-      own.starters = fresh(starters, 'starters'); own.handtraps = fresh(traps, 'handtraps'); own.normals = fresh(normals, 'normals'); save(); render();
+      save(); render();
     };
     clear.onclick = () => { for (const [key] of ODDS_ROLES) own[key] = []; own.pairs = {}; save(); render(); };
     render();
@@ -4706,8 +5111,11 @@
     labClear.onclick = () => { cancelJob(); labInput.value = ''; run(); };
     labRow.append(labInput, labLabel, labEdit, labClear); labRow.hidden = true; fields.prepend(labRow);
     const lab = element('section', '', 'dblite-lab'); lab.hidden = true; lab.setAttribute('aria-label', 'Summon Lab');
-    const head = element('div', '', 'dblite-lab-head'), back = element('button', '‹ Filters', 'dblite-lab-back'); back.type = 'button';
-    head.append(labIcon(), element('strong', 'Summon Lab'), element('span', 'Beta', 'dblite-lab-beta'), back);
+    // The way back sits first, where a Back button is looked for, and names where it goes (user, 2026-11-11: "‹ Filters"
+    // at the right end was hard to find). Esc, Search and Clear go back too.
+    const head = element('div', '', 'dblite-lab-head'), back = element('button', '‹ Back to search', 'dblite-lab-back'); back.type = 'button';
+    back.title = 'Close the Summon Lab and go back to the card search (Esc)';
+    head.append(back, labIcon(), element('strong', 'Summon Lab'), element('span', 'Beta', 'dblite-lab-beta'));
     const help = element('p', 'Pick monsters, or describe one with Any: which Fusion, Synchro, Xyz and Link Monsters can they make?', 'dblite-lab-help');
     help.setAttribute('role', 'status');
     const defaultHelp = help.textContent;
@@ -4724,7 +5132,10 @@
     fields.after(lab);
     // Lab typing is not a search: keep it from the panel's own input / change / Enter handling.
     for (const type of ['input', 'change']) lab.addEventListener(type, event => { cancelJob(); event.stopPropagation(); });
-    lab.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); event.stopPropagation(); find.click(); } });
+    lab.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); event.stopPropagation(); find.click(); }
+      else if (event.key === 'Escape' && !event.isComposing && !event.defaultPrevented) { event.preventDefault(); event.stopPropagation(); back.click(); }
+    });
     const shown = () => catalogCard(window.preview?.data?.('id'), document.querySelector('#preview .name_txt')?.textContent.trim());
     // Any monster (user, 2026-10-29; docs/summon-lab-design.md): a material described by what is known about it.
     // What is left unset can be anything; the engine reads the description (labItemValue, labGenericLabel).
@@ -4849,6 +5260,7 @@
       if (!document.documentElement.classList.contains('dbetter-touch')) slots.querySelector('input:placeholder-shown')?.focus?.();
     };
     back.onclick = () => { cancelJob(); lab.hidden = true; fields.hidden = false; };
+    controls.closeLab = () => { if (!lab.hidden) back.click(); };
     labEdit.onclick = open;
     const opener = element('button', '', 'dblite-lab-open'); opener.type = 'button';
     opener.append(labIcon(), document.createTextNode(' Summon Lab'), element('span', 'Beta', 'dblite-lab-beta'));
@@ -4888,7 +5300,7 @@
     // beside the Summon Lab (user, 2026-11-02): it reads the card texts literally.
     const describeRow = element('div', '', 'dblite-describe'), describeLine = element('div', '', 'dblite-describe-line'), describe = controls.describe = element('input');
     describe.type = 'search'; describe.placeholder = 'Describe it: revive fire monster, level 4 tuner…'; describe.setAttribute('aria-label', 'Describe the cards (beta)');
-    describe.title = 'What the card is and what it does, in plain words: "hand trap", "spellcasters that can search", "negate spell", "level 4 or lower tuner", "search Phara", "-fire". Words after an effect say what it acts on. Beta: it reads the card texts literally, so slang such as "board breaker" or "omni negate" in the meta sense is not understood.';
+    describe.title = 'What the card is and what it does, in plain words: "hand trap", "spellcasters that can search", "negate spell", "level 4 or lower tuner", "search Phara", "-fire", "a card that tributes opponent\'s monster", "pops your own card non target", "board wipe". Words after an effect say what it acts on. Beta: it reads the card texts literally, so slang such as "board breaker" or "omni negate" in the meta sense is not understood.';
     describe.spellcheck = false; describe.autocomplete = 'off';
     controls.describeChips = element('div', '', 'dblite-describe-chips'); controls.describeChips.setAttribute('aria-live', 'polite');
     describeLine.append(describe, element('span', 'Beta', 'dblite-lab-beta')); describeRow.append(describeLine, controls.describeChips);
@@ -4905,7 +5317,7 @@
     fetchInput.type = 'hidden';
     const fetchLabel = element('span', '', 'dblite-fetch-label'), fetchClear = element('button', '×', 'dblite-fetch-clear');
     fetchClear.type = 'button'; fetchClear.title = 'Stop the reverse search'; fetchClear.setAttribute('aria-label', 'Stop the reverse search');
-    fetchClear.onclick = () => { fetchInput.value = ''; run(); };
+    fetchClear.onclick = () => closeReverse();
     const accessGear = element('button', '⚙', 'dblite-access-gear'); accessGear.type = 'button';
     accessGear.title = 'What counts as Access'; accessGear.setAttribute('aria-label', 'What counts as Access'); accessGear.setAttribute('aria-expanded', 'false');
     const accessOptions = element('div', '', 'dblite-access-options'); accessOptions.hidden = true; accessOptions.setAttribute('role', 'group'); accessOptions.setAttribute('aria-label', 'What counts as Access');
@@ -4993,10 +5405,10 @@
     const actions = element('div', '', 'dblite-builder-actions'), submit = element('button', 'Search'), clear = element('button', '⌫ Clear');
     controls.phrase = element('input'); controls.phrase.type = 'hidden'; fields.append(controls.phrase);
     fields.addEventListener('input', event => { if (event.target === controls.name || event.target === controls.effect) controls.phrase.value = ''; });
-    submit.type = clear.type = 'button'; clear.title = 'Clear search filters'; clear.setAttribute('aria-label', 'Clear search filters'); submit.onclick = run;
+    submit.type = clear.type = 'button'; clear.title = 'Clear search filters'; clear.setAttribute('aria-label', 'Clear search filters'); submit.onclick = () => { controls.closeLab?.(); run(); };
     // A link's search clears the fields, then searches once: no search of the whole catalog in between (about 50 ms).
     clearSearch = () => resetFields();
-    clear.onclick = () => { resetFields(); run(); }; actions.append(submit, clear); ui.append(actions);
+    clear.onclick = () => { controls.closeLab?.(); resetFields(); run(); }; actions.append(submit, clear); ui.append(actions);
     const resetFields = () => { controls.phrase.value = ''; controls.nameMode.value = controls.effectMode.value = 'exact'; controls.describe.value = controls.name.value = controls.effect.value = controls.fetches.value = controls.lab.value = ''; for (const inputs of Object.values(multis)) for (const input of inputs) { input.checked = false; delete input.dataset.exclude; input.dispatchEvent(new Event('change')); } for (const inputs of Object.values(ranges)) inputs.forEach(n => n.value = ''); for (const key of ['pendulum', 'tcg', 'ocg', 'pointsEnabled']) controls[key].checked = false; pointRange.hidden = true; controls.arrows.forEach(n => n.checked = false); controls.statRelation.value = controls.statExpr.value = ''; controls.statCompare.value = 'eq'; controls.statValue.value = ''; };
     const pager = element('div', '', 'dblite-builder-pager'); controls.previous = element('button', '‹'); controls.next = element('button', '›'); controls.status = element('output', 'Search cards');
     controls.previous.setAttribute('aria-label', 'Previous results'); controls.next.setAttribute('aria-label', 'Next results');
@@ -5047,8 +5459,11 @@
     active = true; root.classList.toggle('dblite-constructor', true);
   }
   // Stop native document/html Tab handlers from moving focus a second time.
+  // Keys typed in DBuddy's panel (another extension; its fields sit in a shadow root, so the checks below cannot see
+  // them) are not the constructor's (rules.skipInput, docs/dbuddy-compat.md).
+  const otherExtensionKey = event => !!window.DBLiteRules?.skipInput?.(event);
   window.addEventListener('keydown', event => {
-    if (window.currentLabel !== 'deck_constructor' || event.key !== 'Tab' || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (otherExtensionKey(event) || window.currentLabel !== 'deck_constructor' || event.key !== 'Tab' || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
     const nativeName = document.querySelector('#search .name_txt'), nativeEffect = document.querySelector('#search .desc_txt');
     const destination = event.target === controls.name ? controls.effect : event.target === controls.effect ? controls.name :
       event.target === nativeName ? nativeEffect : event.target === nativeEffect ? nativeName : null;
@@ -5059,7 +5474,7 @@
   }, true);
   // Left / Right arrows turn the result pages unless a text field or menu has the keyboard.
   window.addEventListener('keydown', event => {
-    if (!active || !ui || ui.hidden || window.currentLabel !== 'deck_constructor' || !['ArrowLeft', 'ArrowRight'].includes(event.key) ||
+    if (otherExtensionKey(event) || !active || !ui || ui.hidden || window.currentLabel !== 'deck_constructor' || !['ArrowLeft', 'ArrowRight'].includes(event.key) ||
       event.isComposing || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.defaultPrevented) return;
     const target = event.target;
     if (target?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="separator"], details[open]')) return;
@@ -5169,8 +5584,18 @@
   }
   // Each click, drag or key press is one step, whatever number of native changes it makes.
   for (const type of ['pointerdown', 'mousedown', 'keydown', 'dblclick', 'contextmenu', 'drop']) document.addEventListener(type, () => { undo.gesture++; undo.gestureDeck = deckKey(); }, true);
+  // Right-click is a deck action here. DuelingBook blocks the browser menu only on its card faces (and for ~5 ms after a
+  // card's right press), so a release beside a card opened the browser menu instead (user report, 2026-11-11).
+  // Text fields keep the browser menu (paste, spelling).
+  document.addEventListener('contextmenu', event => {
+    if (window.currentLabel !== 'deck_constructor' || event.dbetterTouch) return;
+    const target = event.target;
+    if (!target?.closest?.('#deck_constructor') || target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),a[href]')) return;
+    event.preventDefault();
+  });
   document.addEventListener('keydown', event => {
-    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z' || !undoReady()) return;
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z' || !undoReady() ||
+        window.DBLiteRules?.skipInput?.(event)) return;
     if (event.target.closest?.('input,textarea,select,[contenteditable="true"]')) return;
     if (undoDeck()) { event.preventDefault(); event.stopPropagation(); }
   }, true);
@@ -5470,7 +5895,11 @@
     'border-width', 'border-style', 'border-color', 'border-radius', 'background-color', 'background-image', 'background-size', 'background-position',
     'background-repeat', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align',
     'text-transform', 'text-shadow', 'text-overflow', 'white-space', 'word-break', 'overflow', 'opacity', 'visibility', 'transform', 'transform-origin',
-    'z-index', 'box-shadow', 'filter', 'object-fit', 'vertical-align', 'writing-mode', 'flex-direction', 'align-items', 'justify-content', 'gap'];
+    'z-index', 'box-shadow', 'filter', 'object-fit', 'vertical-align', 'writing-mode', 'flex-direction', 'align-items', 'justify-content', 'gap',
+    // The deck's slot outlines are laid out by a grid (Main) and flex rows (Side, Extra): without these the copy stacked
+    // every slot in the first column (user's export, 2026-11-12).
+    'grid-template-columns', 'grid-template-rows', 'grid-auto-rows', 'grid-auto-columns', 'grid-auto-flow', 'align-content',
+    'flex-grow', 'flex-shrink', 'flex-basis', 'flex-wrap', 'translate', 'scale'];
   // Every address the export reads or writes passes a check first: a data: URL made here, or what DuelingBook's own check
   // accepts (rules.pageImage: https on duelingbook.com or a subdomain, data:image/, blob: or page-relative). Anything
   // else is left out of the export.
@@ -5505,8 +5934,8 @@
   }
   // The export takes the colours of the theme chosen in Spellspeed (user, 2026-11-10: "the full white is a bit harsh … the
   // printed page should match the chosen theme"): the panel, text, muted, accent and "you" colours of the page.
-  const SIDING_EXPORT_COLOURS = { bg: ['--dbt-panel', '#eef1f0'], bg2: ['--dbt-panel-2', '#dfe5e2'], text: ['--dbt-text', 'CanvasText'], muted: ['--dbt-muted', '#4c5a5f'],
-    accent: ['--dbt-accent', '#1f6e89'], onAccent: ['--dbt-on-accent', '#ffffff'], out: ['--dbt-you', '#b43b42'], line: ['--dbt-line', '#697873'] };
+  const SIDING_EXPORT_COLOURS = { bg: ['--ssp-panel', '#eef1f0'], bg2: ['--ssp-panel-2', '#dfe5e2'], text: ['--ssp-text', 'CanvasText'], muted: ['--ssp-muted', '#4c5a5f'],
+    accent: ['--ssp-accent', '#1f6e89'], onAccent: ['--ssp-on-accent', '#ffffff'], out: ['--ssp-you', '#b43b42'], line: ['--ssp-line', '#697873'] };
   function sidingExportColours() {
     const css = getComputedStyle(document.documentElement), out = {};
     for (const [key, [variable, fallback]] of Object.entries(SIDING_EXPORT_COLOURS)) {
@@ -5573,7 +6002,9 @@
       '.brand{position:fixed;right:12mm;bottom:6mm;display:flex;align-items:center;gap:5px;font-size:9px;color:var(--muted)}.brand img{width:14px;height:14px}' +
       '.shot{margin-top:6px}@media screen{body{max-width:820px;margin:0 auto;padding:16px}}.howto{margin:0 0 14px;padding:10px 14px;border-radius:8px;background:var(--accent);color:var(--on-accent);font-size:13px}@media print{.howto{display:none}}';
     return '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(deckName + ' - siding patterns') + '</title><style>' + (shot?.fonts || '') + css + '</style></head><body>' +
-      '<p class="howto">To save it as a PDF: press Ctrl+P (⌘P on a Mac) and choose <b>Save as PDF</b>. You can close this tab afterwards.</p><footer class="brand"><img src="' + SPELLSPEED_ICON + '" alt="">Made with Spellspeed · spellspeed.com</footer>' + pages.join('') + '</body></html>';
+      '<p class="howto">To save it as a PDF: press Ctrl+P (⌘P on a Mac) and choose <b>Save as PDF</b>. You can close this tab afterwards.</p><footer class="brand"><img src="' + SPELLSPEED_ICON + '" alt="">Made with Spellspeed · spellspeed.com' +
+      // The colours come from a DBuddy theme when one is on (Spellspeed's tokens follow it): credit it (user, 2026-11-12).
+      (window.DBLiteRules?.dbuddy?.().theme ? ' · theme by DBuddy' : '') + '</footer>' + pages.join('') + '</body></html>';
   }
   // Download PDF (user, 2026-11-10: "it automatically triggers the download … save as PDF might be too much for them").
   // Each page of the export is drawn to a picture: its HTML, with every picture and font inlined, inside an SVG
@@ -5669,7 +6100,7 @@
     document.querySelectorAll('.dblite-siding-mark').forEach(n => n.remove());
   }
   function placeSiding(panel) {
-    const dock = phoneLayout() ? null : oddsDock();
+    const dock = oddsDock();
     panel.classList.toggle('dblite-odds-docked', !!dock);
     if (dock) {
       const left = Math.max(8, dock.left), top = Math.max(8, dock.top), right = Math.min(innerWidth - 8, dock.left + dock.width), bottom = Math.min(innerHeight - 8, dock.top + dock.height);
@@ -5975,7 +6406,7 @@
           const matrix = /matrix\(([^)]+)\)/.exec(getComputedStyle(node).transform)?.[1].split(',').map(Number);
           const sx = matrix?.[0] > 0 ? matrix[0] : 1, sy = matrix?.[3] > 0 ? matrix[3] : 1; markScale = String(sx);
           const side = sided ? i !== 1 : i === 1, frame = element('span', '', 'dblite-siding-mark dblite-siding-frame ' + (side ? 'dblite-siding-mark-in' : 'dblite-siding-mark-out'));
-          frame.style.boxShadow = `inset 0 0 0 ${4 / sx}px var(${side ? '--dbt-accent' : '--dbt-you'})`;
+          frame.style.boxShadow = `inset 0 0 0 ${4 / sx}px var(${side ? '--ssp-accent' : '--ssp-you'})`;
           // A band across the card, readable at a glance: as wide as the card on screen, a little above its middle.
           const badge = element('span', side ? 'IN' : 'OUT', 'dblite-siding-mark dblite-siding-badge ' + (side ? 'dblite-siding-mark-in' : 'dblite-siding-mark-out'));
           // The card's own layout size (its screen box also holds DuelingBook's overflowing parts).
@@ -6029,7 +6460,7 @@
       if (sidingPanel !== panel) return;
       if (!panel.isConnected || oddsPanel || window.currentLabel !== 'deck_constructor' || (window.deck?.data || 'This deck') !== name) { closeSiding(); return; }
       // Opened before the search panel was laid out: it docks once the panel is there.
-      if (!panel.classList.contains('dblite-odds-docked') && !phoneLayout() && oddsDock()) placeSiding(panel);
+      if (!panel.classList.contains('dblite-odds-docked') && oddsDock()) placeSiding(panel);
       const now = deckSignature();
       // A change made elsewhere (a card dragged, ↶ Undo) clears the note of the last Side in or Side back.
       if (now !== seen) { seen = now; status = ''; if (editing) { setSidingSlowDrag(true); refresh(); } else renderList(); return; }
@@ -6070,7 +6501,7 @@
     // A card's names for a name search, normalized: its own and the names it is always treated as ("Power Patron" for Theorealized Medius).
     names: card => card?.name ? indexedText(card).name : [], textMatch, inRange, matches, effectCategories: card => [...categoriesOf(card)], statMatch, searchWidth: currentWidth,
     searchFor, searchFetchers, catalogCard, archetypesOf, fetches, fetchRank: relatedRank, fetchClauses, fitsPhrase, phraseRequest, materialRecipe,
-    searchSupport, searchNeed, searchLabWay, openingOdds, handChances, oddsClasses, showOdds, undoDeck, sidingCheck, sidingLists, sidingState, sidingPatterns, showSiding, applySiding, sidingStability, sidingOddsMarks, sidingStates, sidingPrintHtml, sidingDeckSnapshot, openSidingExport, sidingPdf, downloadSidingPdf,
+    searchSupport, searchNeed, searchLabWay, openingOdds, handChances, oddsClasses, suggestOddsRoles, showOdds, undoDeck, sidingCheck, sidingLists, sidingState, sidingPatterns, showSiding, applySiding, sidingStability, sidingOddsMarks, sidingStates, sidingPrintHtml, sidingDeckSnapshot, openSidingExport, sidingPdf, downloadSidingPdf,
     // Describe search: the query read, a card's rank against it, and why a result of the current search matched ([{ label, text }]).
     describeRead: raw => describeRead(String(raw ?? '')), describeRank: (card, raw) => describeRank(card, describeRead(String(raw ?? ''))),
     describeWhy: card => query?.described?.active && card ? environmentCache?.describeWhy?.get(card) || null : null,

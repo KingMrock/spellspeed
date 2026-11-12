@@ -135,6 +135,25 @@
     tourButton.addEventListener('click', () => save({ tourSeen: [], tourOff: false }));
     tour.append(tourButton, tourNote);
     $('quick').append(lookTitle, looks, tour, title, chooser, essentialsTitle, essentials, themeTitle, picker);
+    // The welcome page (welcome.html, opened on install by background.js): the setup again, and once after an update
+    // its What's new. Not in the Android app, which has no extension pages.
+    if (!window.DBETTERApp && api.tabs?.create) {
+      const open = hash => { Promise.resolve(api.tabs.create({ url: api.runtime.getURL('welcome.html') + hash })).catch(() => {}); if (!full) window.close(); };
+      const news = document.createElement('div'); news.className = 'tour-row whats-new'; news.hidden = true;
+      const newsButton = document.createElement('button'); newsButton.type = 'button'; newsButton.id = 'whats-new'; newsButton.textContent = 'What’s new';
+      const newsNote = document.createElement('small');
+      newsButton.addEventListener('click', () => { Promise.resolve(api.storage.local.remove?.('whatsNew')).catch(() => {}); open('#new'); });
+      news.append(newsButton, newsNote);
+      const setup = document.createElement('div'); setup.className = 'tour-row';
+      const setupButton = document.createElement('button'); setupButton.type = 'button'; setupButton.id = 'welcome-open'; setupButton.textContent = 'Setup page';
+      setupButton.addEventListener('click', () => open(''));
+      setup.append(setupButton, Object.assign(document.createElement('small'), { textContent: 'Pick what you use, the look and card actions, and see where things are.' }));
+      tour.after(setup); $('quick').prepend(news);
+      Promise.resolve(api.storage.local.get('whatsNew')).then(saved => {
+        if (typeof saved?.whatsNew !== 'string' || !saved.whatsNew) return;
+        newsNote.textContent = `Spellspeed was updated to ${saved.whatsNew}.`; news.hidden = false;
+      }).catch(() => {});
+    }
     try { { const manifest = api.runtime.getManifest(); $('version').textContent = 'v' + (manifest.version_name || manifest.version); } } catch {}
   }
   let config, capturing, queue = Promise.resolve(), ready = false;

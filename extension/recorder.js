@@ -390,16 +390,16 @@
   // font is !important because DuelingBook writes an inline font-size on every select when the window resizes.
   const style = document.createElement('style');
   style.textContent = `
-    #dblite-record{position:fixed;left:12px;bottom:62px;z-index:2147483000;display:flex;flex-wrap:wrap;gap:2px;align-items:center;max-width:min(560px,calc(100vw - 24px));background:var(--dbt-panel);border:1px solid var(--dbt-line);border-radius:6px;padding:3px 4px;color:var(--dbt-text);font:10px/1.25 system-ui,sans-serif;box-shadow:0 6px 18px #0007}
+    #dblite-record{position:fixed;left:12px;bottom:62px;z-index:2147483000;display:flex;flex-wrap:wrap;gap:2px;align-items:center;max-width:min(560px,calc(100vw - 24px));background:var(--ssp-panel);border:1px solid var(--ssp-line);border-radius:6px;padding:3px 4px;color:var(--ssp-text);font:10px/1.25 system-ui,sans-serif;box-shadow:0 6px 18px #0007}
     #dblite-record[hidden],#dblite-record [hidden]{display:none!important}
     #dblite-record.dblite-record-compact:not(.dblite-record-expanded)>:not(.dblite-record-dock){display:none!important}
-    #dblite-record button,#dblite-record select,#dblite-record a{background:var(--dbt-input);color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:4px;padding:1px 2px;font:inherit!important;text-decoration:none;cursor:pointer}
-    #dblite-record .dblite-record-start{background:var(--dbt-panel);border-color:var(--dbt-line);font-weight:600}#dblite-record .dblite-record-start:hover{background:var(--dbt-panel-2)}
+    #dblite-record button,#dblite-record select,#dblite-record a{background:var(--ssp-input);color:var(--ssp-text);border:1px solid var(--ssp-line);border-radius:4px;padding:1px 2px;font:inherit!important;text-decoration:none;cursor:pointer}
+    #dblite-record .dblite-record-start{background:var(--ssp-panel);border-color:var(--ssp-line);font-weight:600}#dblite-record .dblite-record-start:hover{background:var(--ssp-panel-2)}
     #dblite-record label{display:flex;align-items:center;gap:2px;cursor:pointer}#dblite-record input[type=checkbox]{margin:0;width:11px;height:11px}
-    #dblite-record.dblite-record-invite{outline:3px solid var(--dbt-accent);outline-offset:2px}
+    #dblite-record.dblite-record-invite{outline:3px solid var(--ssp-accent);outline-offset:2px}
     .dblite-record-status{opacity:.85}
-    #duel .dblite-solo-session .dblite-solo-replay{display:block;width:98px;height:22px;box-sizing:border-box;line-height:20px;text-align:center;border:1px solid var(--dbt-line);border-radius:4px;background:var(--dbt-panel);color:var(--dbt-text);font:11px system-ui;text-decoration:none;cursor:pointer}
-    #duel .dblite-solo-session .dblite-solo-replay:hover{background:var(--dbt-panel-2)}
+    #duel .dblite-solo-session .dblite-solo-replay{display:block;width:98px;height:22px;box-sizing:border-box;line-height:20px;text-align:center;border:1px solid var(--ssp-line);border-radius:4px;background:var(--ssp-panel);color:var(--ssp-text);font:11px system-ui;text-decoration:none;cursor:pointer}
+    #duel .dblite-solo-session .dblite-solo-replay:hover{background:var(--ssp-panel-2)}
     html.dblite-recording :is(#dblite-replay-rate,#dblite-vfx-volume,#dblite-status,#dblite-replay){visibility:hidden!important}
   `;
   document.head.append(style);

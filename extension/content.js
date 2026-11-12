@@ -118,8 +118,12 @@
       const box = (selector, l, t, w, h) => `html.dblite-adaptive #duel ${selector}{left:${l}px!important;top:${t}px!important;width:${w}px!important;max-width:${w}px!important;height:${h}px!important;max-height:${h}px!important;translate:none!important;box-sizing:border-box!important}`;
       const col = wide ? bw : bw / 3, chatX = wide ? bx : bx + col * 2, chatY = wide ? by + bh * .57 : by;
       const chatH = wide ? bh * .43 : bh;
-      css += box('>.cout_txt', chatX, chatY, col - 6, Math.max(30, chatH - 30));
+      // 13 px under the chat output for the "X is typing…" line (placeTyping).
+      css += box('>.cout_txt', chatX, chatY, col - 6, Math.max(30, chatH - 43));
       css += box(':is(.cin_txt,.cin_txt+.textinput)', chatX, chatY + chatH - 26, col - 6, 22);
+      // The chat's refresh button goes with the box (anchor audit 2026-11-11: it stayed in the old column and showed on
+      // hover over the profiles). DuelingBook shows it on hover, 17 px left of the box's right edge and 2 px down.
+      css += `html.dblite-adaptive #duel>.refresh_btn{left:${chatX + col - 6 - 17}px!important;top:${chatY + 2}px!important}`;
       css += box('.dblite-action-history[data-player="2"]', wide ? bx + bw * .48 : bx + col, by, wide ? bw * .52 : col - 6, (wide ? bh * .56 : bh) / 2 - 3);
       css += box('.dblite-action-history[data-player="1"]', wide ? bx + bw * .48 : bx + col, by + (wide ? bh * .56 : bh) / 2, wide ? bw * .52 : col - 6, (wide ? bh * .56 : bh) / 2 - 3);
       const previewWidth = wide ? bw * .46 : col - 6, previewHeight = wide ? bh * .31 : bh * .65;
@@ -362,7 +366,7 @@
   // once the pointer is more than MENU_SLACK px outside both the card and the menu, so the way into the menu stays open.
   // Live, the cards sit in the scroll pane's .os_viewport inside .content (2026-10-29: a parent check never matched).
   const MENU_SLACK = 6;
-  document.addEventListener('mousemove', event => {
+  document.addEventListener('mousemove', event => { if (rules.skipInput(event)) return;
     const card = window.menu_card?.[0], menu = window.menu?.[0];
     if (!card || !menu?.isConnected || !document.querySelector('#view > .content')?.contains(card) || typeof window.removeCardMenu !== 'function') return;
     const near = node => { const r = node.getBoundingClientRect(); return event.clientX >= r.left - MENU_SLACK && event.clientX <= r.right + MENU_SLACK && event.clientY >= r.top - MENU_SLACK && event.clientY <= r.bottom + MENU_SLACK; };
@@ -454,6 +458,35 @@
   function recoverImages() {
     for (const img of document.querySelectorAll('#duel img,#rps_start img,#tp_start img')) if (img.complete && img.naturalWidth === 0) retryImage(img);
   }
+  // "Next game →" follows the replay's chat box (anchor audit 2026-11-11). It used to keep a fixed left of 843 px and
+  // only measured the top, so with the adaptive dock it stayed in the empty profile column while the chat sat in the
+  // dock. Measured in the stage's unscaled pixels (rules.offsetBox): under the box when nothing is in the way, else
+  // above it, else a strip over the box's top edge (the oldest lines, not the newest). Written only on change.
+  const NEXT_GAME_HEIGHT = 17, NEXT_GAME_OBSTACLES = '.cin_txt,.cin_txt+.textinput,.duel_avatar,.dblite-action-history,.lifepoints,#duel>.radiobutton,#show_lbl,#show1_lbl,#show2_lbl,#duel>.like_btn';
+  let nextGameAt = '', nextGameNode = null;
+  // A strip over the chat box's top edge (its oldest lines), stopping short of DuelingBook's refresh button there, which
+  // shows on hover (seen live 2026-11-11: a full-width strip covered it).
+  function chatStrip(duel, chat, parent, height) {
+    const left = chat.left + 2, top = chat.top + 1, refresh = rules.offsetBox(duel.querySelector(':scope>.refresh_btn'), parent);
+    let right = chat.left + chat.width - 2;
+    if (refresh && refresh.top < top + height && refresh.top + refresh.height > top && refresh.left < right && refresh.left + refresh.width > left) right = refresh.left - 2;
+    return { left, top, width: Math.max(20, right - left) };
+  }
+  function placeNextGame(duel, button) {
+    const parent = button.offsetParent, chat = rules.offsetBox(duel.querySelector('.cout_txt'), parent);
+    let spot = '';
+    if (chat) {
+      const obstacles = [...duel.querySelectorAll(NEXT_GAME_OBSTACLES)], free = box => box.top >= 0 && !rules.boxBlocked(box, obstacles, parent, button);
+      const below = { left: chat.left, top: chat.top + chat.height + 3, width: chat.width, height: NEXT_GAME_HEIGHT };
+      const above = { ...below, top: chat.top - NEXT_GAME_HEIGHT - 3 };
+      const at = free(below) ? below : free(above) ? above : chatStrip(duel, chat, parent, NEXT_GAME_HEIGHT);
+      spot = `${at.left}|${at.top}|${at.width}`;
+    }
+    if (spot === nextGameAt && nextGameNode === button) return;
+    nextGameAt = spot; nextGameNode = button;
+    const [left, top, width] = spot.split('|');
+    Object.assign(button.style, spot ? { left: `${left}px`, top: `${top}px`, width: `${width}px` } : { left: '', top: '', width: '' });
+  }
   function replayNextGame() {
     const duel = document.getElementById('duel');
     let button = document.getElementById('dblite-next-game');
@@ -465,12 +498,8 @@
     }
     const parent = document.getElementById('avatar1')?.parentElement || document.getElementById('content') || duel;
     if (button.parentElement !== parent) parent.append(button);
-    const chat = duel.querySelector('.cout_txt'), board = document.getElementById('content') || parent;
-    if (chat && visible(chat)) {
-      const box = chat.getBoundingClientRect(), root = board.getBoundingClientRect(), scale = root.width / 1024 || 1;
-      Object.assign(button.style, { top: ((box.bottom - root.top) / scale + 3) + 'px', width: (box.width / scale) + 'px' });
-    }
-    button.hidden = false;
+    if (button.hidden) button.hidden = false;
+    placeNextGame(duel, button);
     button.disabled = typeof window.nextGameE !== 'function' || !(window.replay_arr || []).some(e => ['Siding', 'Begin next duel', 'Back to RPS'].includes(e.play));
   }
   function startupRecovery() {
@@ -556,7 +585,7 @@
     const changed = [];
     // Row data can hold jQuery elements (e.g. format); they are not part of the row's identity and cannot be serialized.
     const plain = (key, value) => value && typeof value === 'object' && (value.jquery || value.nodeType) ? undefined : value;
-    const stamp = row => JSON.stringify([config.nightMode, $(row).data(), window.friends_arr, window.following_arr, row.innerHTML, row.className], plain);
+    const stamp = row => JSON.stringify([roomRestyle(), $(row).data(), window.friends_arr, window.following_arr, row.innerHTML, row.className], plain);
     for (const [row, previous] of roomRows) {
       if (!row.isConnected) { roomRows.delete(row); continue; }
       if (stamp(row) !== previous) changed.push(row);
@@ -569,8 +598,14 @@
     }
   }
 
+  // A DBuddy theme switched on or off: the rows follow (roomRestyle is part of each row's stamp).
+  rules.onDbuddy?.(() => layoutRoomRows());
+  // Spellspeed's own Duel Room rows (grouped heading and tags) go with its look: under a DBuddy theme its CSS steps aside,
+  // so the rows keep DuelingBook's structure, which DBuddy styles (user's report, 2026-11-12: name and rating overlapped).
+  const roomRestyle = () => config.nightMode && !rules.dbuddy().theme;
   function roomPresentation(rows = document.querySelectorAll("#duel_room .duelbutton")) {
     if (!window.jQuery) return;
+    const restyle = roomRestyle();
     for (const row of rows) {
       if (!roomRows.has(row)) roomRows.set(row, '');
       // Keep the native controls and handlers; only group their layout.
@@ -580,7 +615,7 @@
       // WatchButton uses the native note field for these formats' Rated label.
       const ratedNote = row.classList.contains('watchbutton') && ['yr', 'gr', 'er', 'sr'].includes(format) && note?.textContent.trim() === '(Rated)';
       let metadata = row.querySelector('.dblite-room-meta');
-      if (config.nightMode) {
+      if (restyle) {
         if (!metadata) {
           metadata = document.createElement('div'); metadata.className = 'dblite-room-meta';
           row.append(metadata);
@@ -591,7 +626,7 @@
       } else if (metadata) { row.append(...metadata.childNodes); metadata.remove(); }
       let heading = row.querySelector('.dblite-room-heading');
       const username = row.querySelector('.username_txt'), rating = row.querySelector('.rating_txt');
-      if (config.nightMode && username && rating) {
+      if (restyle && username && rating) {
         if (!heading) {
           heading = document.createElement('div'); heading.className = 'dblite-room-heading';
           row.insertBefore(heading, username);
@@ -602,7 +637,7 @@
       row.classList.toggle('dblite-room-tag', !!row.querySelector('.title2_txt'));
       row.classList.toggle('dblite-room-rated', format === 'ar');
       row.classList.toggle('dblite-room-hide-match', ['ar', 'yr', 'yu'].includes(format) && /^Match\b/i.test(row.querySelector('.game_type')?.textContent.trim() || ''));
-      row.classList.toggle('dblite-room-no-meta', config.nightMode && !!metadata && ![...metadata.children].some(node => getComputedStyle(node).display !== 'none'));
+      row.classList.toggle('dblite-room-no-meta', restyle && !!metadata && ![...metadata.children].some(node => getComputedStyle(node).display !== 'none'));
       const names = [...new Set(['username', 'username1', 'username2', 'username3', 'username4'].map(key => data[key])
         .filter(value => typeof value === 'string' && value))].sort((a, b) => b.length - a.length);
       const relation = name => window.friends_arr?.includes(name) ? 'friend' : window.following_arr?.includes(name) ? 'following' : '';
@@ -639,7 +674,7 @@
   }
 
   function fitRoomLabels(labels = document.querySelectorAll("#duel_room .duelbutton :is(.username_txt,.title_txt,.title2_txt)")) {
-    if (!config.nightMode) return;
+    if (!roomRestyle()) { for (const label of labels) label.querySelectorAll('.dblite-room-player').forEach(player => { player.style.fontSize = ''; }); return; }
     for (const label of labels) {
       if (!label.clientWidth || !label.clientHeight) continue;
       const key = `${label.textContent}:${label.clientWidth}:${label.clientHeight}`;
@@ -715,7 +750,7 @@
     panel.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left - w - 8 < 8 ? r.right + 8 : r.left - w - 8)) + 'px';
     panel.style.top = Math.max(8, Math.min(innerHeight - h - 8, r.top + r.height / 2 - h / 2)) + 'px';
   }
-  document.addEventListener('mousedown', event => { if (avatarPanel && !avatarPanel.contains(event.target) && !event.target.closest?.('.duel_avatar')) closeAvatarMenu(); }, true);
+  document.addEventListener('mousedown', event => { if (rules.skipInput(event)) return; if (avatarPanel && !avatarPanel.contains(event.target) && !event.target.closest?.('.duel_avatar')) closeAvatarMenu(); }, true);
   function profilePicture(avatar, enabled) {
     const picture = avatar.querySelector(':scope > .image'); if (!picture) return;
     // Touch: anywhere on the avatar, DuelingBook's rating and name overlays included, opens the menu.
@@ -812,7 +847,8 @@
   }
 
   function autoRps() {
-    if (window.DBETTERRebuilding) return;
+    // DBuddy's Auto rock-paper-scissors, when its user switched it on, picks instead (docs/dbuddy-compat.md).
+    if (window.DBETTERRebuilding || rules.dbuddy().tools.has('rpsAuto')) return;
     if (!config.autoRps || !window.jQuery || window.currentLabel !== 'rps_start' || !window.duelist ||
         window.replay || window.solo || window.paused || document.hidden || conflict() ||
         !window.duelId || window.Player1?.() !== window.player1 || window.player1?.username !== window.username) {
@@ -836,14 +872,14 @@
     catch (error) { console.warn('Spellspeed random RPS:', error); }
   }
 
-  function announce(message) {
+  function announce(message, ms = 3500) {
     let node = document.getElementById('dblite-status');
     if (!node) {
       node = document.createElement('div'); node.id = 'dblite-status';
       node.setAttribute('role', 'status'); document.body.appendChild(node);
     }
     node.textContent = message; node.hidden = false;
-    clearTimeout(statusTimer); statusTimer = setTimeout(() => { node.hidden = true; }, 3500);
+    clearTimeout(statusTimer); statusTimer = setTimeout(() => { node.hidden = true; }, ms);
   }
 
   function conflict() { return typeof window.DBO_chooseZone === 'function'; }
@@ -1145,7 +1181,9 @@
       // to cardMenuE, and their separate hover preview must keep working.
       const wrapped = function (card, ...args) {
         if (window.DBETTERRebuilding) return original.call(this, card, ...args);
-        if (replaceHoverMenu(card)) { window.menu_reason = 'Use the right-click card menu'; return; }
+        // DBuddy's card hotkeys and extra card actions work through DuelingBook's own hover menu: while one is on,
+        // the hover menu stays (Spellspeed's right-click menu still opens on right-click).
+        if (!rules.dbuddy().cardMenus && replaceHoverMenu(card)) { window.menu_reason = 'Use the right-click card menu'; return; }
         const result = original.call(this, card, ...args);
         // DuelingBook lifts a hand card itself when its menu opens; a second lift covers the bottom entries.
         if (window.menu_card) { if (same(window.menu_card, $(raisedHand))) lowerHand(); document.documentElement.classList.toggle('dblite-native-menu-open', true); }
@@ -1161,7 +1199,7 @@
       rules.markHook(wrapped, remove); wrappers.set('removeCardMenu', wrapped); window.removeCardMenu = wrapped;
     }
     if (!window.menu_card) document.documentElement.classList.toggle('dblite-native-menu-open', false);
-    if (window.menu_card && replaceHoverMenu(window.menu_card)) window.removeCardMenu?.('DBETTER right-click actions');
+    if (!rules.dbuddy().cardMenus && window.menu_card && replaceHoverMenu(window.menu_card)) window.removeCardMenu?.('DBETTER right-click actions');
   }
   // Collect every native entry, including card-specific labels and command IDs.
   // Temporary capture bypasses only rendering and is restored even on failure.
@@ -1170,7 +1208,7 @@
     const original = window.showMenu, previousCard = window.menu_card;
     const previousReason = window.menu_reason;
     let choices = [];
-    window.showMenu = (target, entries) => {
+    window.showMenu = function (target, entries) {
       if (same(target, card) && Array.isArray(entries)) choices = entries
         .filter(entry => entry && typeof entry.data === 'string')
         .map(entry => ({ data: entry.data, label: typeof entry.label === 'string' ? entry.label : '' }));
@@ -1270,7 +1308,21 @@
   function shortcutContext(press) {
     return shortcutReady() && press.duelId === window.duelId && press.player === window.player1;
   }
-  document.addEventListener('keydown', event => {
+  // DBuddy's duel hotkeys (on by default: A, S, T, D, R, H…) act before Spellspeed and take the key. The first time
+  // one of them takes a key Spellspeed also uses in this duel, say so once (docs/dbuddy-compat.md).
+  const dbuddyKeys = new Set();
+  const keyActionNames = { ok: 'OK', think: 'Thinking', extra: 'Extra Deck', deck: 'Deck', grave: 'Graveyard', banished: 'Banished', hand: 'Hand',
+    declare: 'Declare', target: 'Target', sort: 'Sort', peek: 'Peek', wheel: 'Position wheel' };
+  function dbuddyTookKey(event) {
+    const key = event.key?.toLowerCase(), action = Object.keys(config.keys).find(action => config.keys[action] === key);
+    if (!action || !config.shortcuts || dbuddyKeys.has(key) || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey ||
+        !rules.dbuddy().present || event.composedPath().some(typingAt) || !shortcutReady()) return;
+    dbuddyKeys.add(key);
+    // User, 2026-11-12: Spellspeed keeps its keys; a clash is the user's to settle, by rebinding or turning one off.
+    announce(`Hotkey conflict with DBuddy: ${rules.keyLabel(key)} is Spellspeed’s ${keyActionNames[action] || action} key and also a DBuddy duel hotkey, ` +
+      'and DBuddy acted first. Rebind it in Spellspeed’s settings, or turn off DBuddy’s Duel hotkeys (Duel › Hotkeys and mouse).', 12000);
+  }
+  document.addEventListener('keydown', event => { if (rules.skipInput(event)) { dbuddyTookKey(event); return; }
     const key = event.key.toLowerCase();
     if (event.key === 'Escape' || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.isComposing) { cancelShortcuts(); return; }
     const action = Object.keys(config.keys).find(action => config.keys[action] === key);
@@ -1292,7 +1344,7 @@
     else if (action === 'wheel') toggleWheel();
     else if (!sendHovered(action) && action !== 'hand') workbench?.togglePile(({ extra: 'Extra Deck', deck: 'Deck', grave: 'Graveyard', banished: 'Banished' })[action]);
   }, true);
-  document.addEventListener('keyup', event => {
+  document.addEventListener('keyup', event => { if (rules.skipInput(event)) return;
     // Match keyup by letter even if Shift was pressed during a hold.
     const key = event.key.toLowerCase(), press = heldKeys.get(key);
     if (!press) return;
@@ -1319,7 +1371,7 @@
     for (const node of fieldHoverCards) if (!current.has(node)) node.classList.toggle('dblite-field-card', false);
     fieldHoverCards.clear();for (const node of current) {node.classList.toggle('dblite-field-card', true);fieldHoverCards.add(node);}
   }
-  document.addEventListener('mouseover', syncFieldHover, true);
+  document.addEventListener('mouseover', event => { if (rules.skipInput(event)) return; syncFieldHover(event); }, true);
   function lowerHand() {
     raisedHand?.classList.toggle('dblite-hand-raised', false); raisedHand = null;
   }
@@ -1332,7 +1384,7 @@
     for (const node of cards) if (!handCards.has(node)) { node.classList.toggle('dblite-hand-card', true); handCards.add(node); }
     if (raisedHand && (!current.has(raisedHand) || !canDrag() || gesture || pendingSelection() || workbench?.busy())) lowerHand();
   }
-  document.addEventListener('mouseover', event => {
+  document.addEventListener('mouseover', event => { if (rules.skipInput(event)) return;
     const node = event.target.closest?.('.dblite-fan-card,.card');
     if (node === hoveredNode) return;
     hoveredNode = node; lowerHand(); syncHandHover();
@@ -1341,10 +1393,10 @@
       raisedHand = node; node.classList.toggle('dblite-hand-raised', true);
     }
   }, true);
-  document.addEventListener('mouseout', event => {
+  document.addEventListener('mouseout', event => { if (rules.skipInput(event)) return;
     if (hoveredNode && !hoveredNode.contains(event.relatedTarget)) { hoveredNode = null; lowerHand(); }
   }, true);
-  document.addEventListener('mousedown', () => { cancelShortcuts(); lowerHand(); clearPileHover(); }, true);
+  document.addEventListener('mousedown', event => { if (rules.skipInput(event)) return; cancelShortcuts(); lowerHand(); clearPileHover(); }, true);
   window.addEventListener('blur', () => { cancelShortcuts(); hoveredNode = null; lowerHand(); clearPileHover(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelShortcuts(); hoveredNode = null; lowerHand(); clearPileHover(); } });
 
@@ -1376,8 +1428,8 @@
       node.classList.toggle('dblite-pile-raised', key === hoveredPile);
     }
   }
-  document.addEventListener('mouseover', event => { hoveredPile = pileAt(event.target); syncPileHover(); }, true);
-  document.addEventListener('mouseout', event => { hoveredPile = pileAt(event.relatedTarget); syncPileHover(); }, true);
+  document.addEventListener('mouseover', event => { if (rules.skipInput(event)) return; hoveredPile = pileAt(event.target); syncPileHover(); }, true);
+  document.addEventListener('mouseout', event => { if (rules.skipInput(event)) return; hoveredPile = pileAt(event.relatedTarget); syncPileHover(); }, true);
   window.addEventListener('resize', clearPileHover);
 
   // Measurements are reused until something that can move the box changes. Briefly showing a
@@ -1629,8 +1681,8 @@
       } })) });
     positionWheel = { ...wheel, duelId: g.duelId };
   }
-  document.addEventListener('mousedown', event => { if (positionWheel && !event.target.closest?.('.dblite-position-wheel')) closePositionWheel(); }, true);
-  document.addEventListener('keydown', event => { if (event.key === 'Escape' && positionWheel) { event.preventDefault(); event.stopImmediatePropagation(); closePositionWheel(); } }, true);
+  document.addEventListener('mousedown', event => { if (rules.skipInput(event)) return; if (positionWheel && !event.target.closest?.('.dblite-position-wheel')) closePositionWheel(); }, true);
+  document.addEventListener('keydown', event => { if (rules.skipInput(event)) return; if (event.key === 'Escape' && positionWheel) { event.preventDefault(); event.stopImmediatePropagation(); closePositionWheel(); } }, true);
   window.addEventListener('blur', closePositionWheel);
   function beginDrag(g, event) {
     if (!canGrab() || !dragSourceUnchanged(g) || pendingSelection()) return false;
@@ -1865,7 +1917,7 @@
     tokenGesture?.layer?.remove(); tokenGesture = null;
     document.documentElement.classList.toggle('dblite-dragging', false);
   }
-  document.addEventListener('mousedown', event => {
+  document.addEventListener('mousedown', event => { if (rules.skipInput(event)) return;
     const button = event.target.closest?.('#duel .token_btn');
     if (!button || event.button !== 0 || !tokenReady() || !visible(button)) return;
     // Native tokenDownE opens its picker after a long press. A drag must not
@@ -1875,7 +1927,9 @@
   }, true);
   // Cancel only the browser menu. Capture also covers panels whose own handlers
   // stop bubbling; native and DBETTER right-click actions still receive the event.
-  document.addEventListener('contextmenu', event => {
+  // An event another extension (DBuddy) already handled is left alone. Spellspeed's right-click actions further on
+  // still take this one: rules.skipInput counts only what was prevented before Spellspeed saw it.
+  document.addEventListener('contextmenu', event => { if (rules.skipInput(event)) return;
     // Synthetic touch dispatch cannot open a browser menu. Its cancellation is
     // reserved for action handlers so the touch adapter can detect a handled tap.
     if (event.dbetterTouch) return;
@@ -1886,22 +1940,22 @@
   }, true);
   // A right-click on anything but a card or a pile closes DuelingBook's own viewer, like its red × and Escape
   // (user, 2026-11-04). Picking and choosing viewers stay open.
-  document.addEventListener('contextmenu', event => {
+  document.addEventListener('contextmenu', event => { if (rules.skipInput(event)) return;
     if (event.dbetterTouch || event.button !== 2 || gesture || !window.duel_active || !window.viewing || /Picking|Choosing|shuffle/i.test(window.viewing) ||
         !visible(document.getElementById('view')) || !visible(document.querySelector('#view .exit_btn')) || typeof window.exitViewing !== 'function') return;
     if (event.target.closest?.('.card,#card_menu,.dblite-menu,.dblite-fan,.dblite-panel,#deck_hidden,#extra_hidden,#grave_hidden,#banished_hidden,input,textarea,select,.chat,#chats,#duel_log')) return;
     event.preventDefault(); window.exitViewing(event);
   });
-  document.addEventListener('contextmenu', event => {
+  document.addEventListener('contextmenu', event => { if (rules.skipInput(event)) return;
     const button = event.target.closest?.('#duel .token_btn');
     if (!button || !canPlay() || !visible(button)) return;
     event.preventDefault(); event.stopImmediatePropagation(); cancelToken(); window.showTokens?.();
   }, true);
-  document.addEventListener('dblclick', event => {
+  document.addEventListener('dblclick', event => { if (rules.skipInput(event)) return;
     if (!config.drag || !event.target.closest?.('#duel .token_btn')) return;
     event.preventDefault(); event.stopImmediatePropagation();
   }, true);
-  document.addEventListener('mousemove', event => {
+  document.addEventListener('mousemove', event => { if (rules.skipInput(event)) return;
     const g = tokenGesture; if (!g) return;
     if (!(event.buttons & 1) || !tokenReady() || g.player !== window.player1 || g.duel !== window.duelId) { cancelToken(); return; }
     if (!g.active && Math.hypot(event.clientX - g.x, event.clientY - g.y) < 8) return;
@@ -1916,7 +1970,7 @@
       if (selected) g.target = target.node;
     }
   }, true);
-  window.addEventListener('mouseup', event => {
+  window.addEventListener('mouseup', event => { if (rules.skipInput(event)) return;
     const g = tokenGesture; if (!g || event.button !== 0) return;
     cancelToken(); if (!g.active) return;
     event.preventDefault(); event.stopImmediatePropagation();
@@ -1927,7 +1981,7 @@
     catch (error) { window.awaiting_token = false; announce('Token summon unavailable. Use the token button.'); }
     finally { window.summoning_card = previous.card; window.summoning_play = previous.play; g.player.temp_arr = previous.temp; }
   }, true);
-  document.addEventListener('keydown', event => { if (event.key === 'Escape' && tokenGesture) { event.preventDefault(); event.stopImmediatePropagation(); cancelToken(); } }, true);
+  document.addEventListener('keydown', event => { if (rules.skipInput(event)) return; if (event.key === 'Escape' && tokenGesture) { event.preventDefault(); event.stopImmediatePropagation(); cancelToken(); } }, true);
   window.addEventListener('blur', cancelToken);
   document.addEventListener('visibilitychange', () => { if (document.hidden) cancelToken(); });
 
@@ -1937,14 +1991,20 @@
   // picked up is a double-click (declare). While a card is picked up the fan is click-through,
   // so a late second click on the card lands on the board: it is recognised by position.
   const pointIn = (node, event) => { const r = node?.getBoundingClientRect?.(); return !!r?.width && event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom; };
+  // Cancel without consuming middle-click, including an already-prevented press.
+  for (const type of ['pointerdown', 'mousedown']) window.addEventListener(type, event => {
+    if (event.button === 1 && (gesture?.sticky || gesture?.armed)) cleanDrag();
+  }, true);
   const onCard = (g, event) => g.focusTarget?.contains(event.target) || pointIn(g.focusTarget, event);
-  document.addEventListener('mousedown', event => {
+  document.addEventListener('mousedown', event => { if (rules.skipInput(event)) return;
     const g = gesture;
     if (g?.armed) {
       if (event.button === 0 && onCard(g, event)) { clearTimeout(clickDropTimer); gesture = null; return; } // the native double-click follows
       if (event.button !== 0 || !pickUp(g, event)) { cleanDrag(); return; }
     }
     if (!g?.sticky) return;
+    // DBuddy's Extra card actions own Alt/Ctrl+click: such a click drops the picked-up card and goes to DBuddy.
+    if (dbuddyModifiedClick(event)) { cleanDrag(); return; }
     event.preventDefault(); event.stopImmediatePropagation();
     if (event.button === 0 && Date.now() - g.stickyAt < 300 && onCard(g, event)) {
       cleanDrag(); suppressClickUntil = Date.now() + 450;
@@ -1960,8 +2020,11 @@
     try { dropWhenIdle(g, () => executeDrop(g, target, ...keys)); }
     catch (error) { announce('Move unavailable. Use the card menu.'); console.warn('Spellspeed:', error); }
   }, true);
-  document.addEventListener('contextmenu', event => { if (gesture?.sticky) { event.preventDefault(); event.stopImmediatePropagation(); cleanDrag(); } }, true);
-  document.addEventListener('mousedown', event => {
+  document.addEventListener('contextmenu', event => { if (rules.skipInput(event)) return; if (gesture?.sticky) { event.preventDefault(); event.stopImmediatePropagation(); cleanDrag(); } }, true);
+  // DBuddy's Extra card actions take Alt+click on one of your field cards (move it) and Ctrl+click (repeat the last menu
+  // choice): while they are on, such a click neither picks the card up nor double-clicks it.
+  const dbuddyModifiedClick = event => !event.shiftKey && (event.altKey || event.ctrlKey || event.metaKey) && rules.dbuddy().tools.has('extraActions');
+  document.addEventListener('mousedown', event => { if (rules.skipInput(event) || dbuddyModifiedClick(event)) return;
     if (workbench?.busy()) return;
     if (pendingAttach) { cancelAttach(); return; }
     if (!config.drag || event.button !== 0 || !canGrab() || pendingSelection() ||
@@ -1982,7 +2045,7 @@
     if (source === 'material') { candidate.host = materialHost(card); candidate.hostId = candidate.host?.data('id'); candidate.materialView = window.viewing; }
     if (dragSourceUnchanged(candidate)) gesture = candidate;
   }, true);
-  document.addEventListener('mousemove', event => {
+  document.addEventListener('mousemove', event => { if (rules.skipInput(event)) return;
     if (!gesture) return;
     const g = gesture;
     if (g.armed) {
@@ -2006,7 +2069,7 @@
       duelTools?.markInsertion(g, event.clientX, selected);
     } catch (error) { cleanDrag(); console.warn('Spellspeed drag:', error); }
   }, true);
-  window.addEventListener('mouseup', event => {
+  window.addEventListener('mouseup', event => { if (rules.skipInput(event)) return;
     if (!gesture || event.button !== 0) return;
     const g = gesture;
     let target;
@@ -2024,10 +2087,11 @@
     }
   }, true);
   for (const type of ['click', 'dblclick']) document.addEventListener(type, event => {
+    if (rules.skipInput(event)) return;
     if (Date.now() < suppressClickUntil && !event.target.closest?.('.dblite-position-wheel')) { event.preventDefault(); event.stopImmediatePropagation(); return; }
   }, true);
-  document.addEventListener('dragstart', event => { if (gesture) event.preventDefault(); }, true);
-  document.addEventListener('keydown', event => {
+  document.addEventListener('dragstart', event => { if (rules.skipInput(event)) return; if (gesture) event.preventDefault(); }, true);
+  document.addEventListener('keydown', event => { if (rules.skipInput(event)) return;
     if (event.target.closest?.('.dblite-card-search')) return;
     if (workbench?.allowsChat(event.target)) return;
     if (event.composedPath().some(node => node.localName === 'replay-scout')) return;
@@ -2058,7 +2122,7 @@
       window.exitViewing(event); return;
     }
   }, true);
-  document.addEventListener('keyup', event => {
+  document.addEventListener('keyup', event => { if (rules.skipInput(event)) return;
     if (!gesture?.active) return;
     if (['Shift', 'Control', 'Alt'].includes(event.key)) drawTargets(gesture, event.shiftKey, event.ctrlKey, event.altKey);
     event.stopImmediatePropagation();
@@ -2068,7 +2132,7 @@
   window.addEventListener('resize', cleanDrag);
   document.addEventListener('visibilitychange', () => { if (document.hidden) { cleanDrag(); cancelAttach(); } });
 
-  document.addEventListener('dblclick', event => {
+  document.addEventListener('dblclick', event => { if (rules.skipInput(event) || dbuddyModifiedClick(event)) return;
     if (workbench?.busy()) return;
     if (pendingAttach || (!config.doubleClick && !config.declare) || !canPlay() || pendingSelection() ||
         Date.now() < suppressClickUntil || gesture?.active ||
@@ -2743,7 +2807,7 @@
     }
     replayRateControl.hidden = !visible(fast.closest('#duel') || fast);
   }
-  document.addEventListener('click', event => { if (event.target.closest?.('#play_btn,#pause_btn,#pause_replay_btn,#fast_btn,#next_btn')) queueMicrotask(replaySpeed); }, true);
+  document.addEventListener('click', event => { if (rules.skipInput(event)) return; if (event.target.closest?.('#play_btn,#pause_btn,#pause_replay_btn,#fast_btn,#next_btn')) queueMicrotask(replaySpeed); }, true);
   function hasOwnWheelBehavior(target) {
     if (target.closest?.('input,textarea,select,[contenteditable="true"],[role="slider"],.chat,#chats,#duel_log,#watch_chat,#watchers,#online_users,.dblite-action-history,.dblite-menu,.dblite-view-settings,.dblite-panel,.dblite-builder-search,#card_menu,#combo')) return true;
     for (let node = target; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
@@ -2755,7 +2819,7 @@
   }
   // Keep the description's native wheel behavior. Elsewhere, smoothly scroll
   // that same viewport, unless the pointer is over another scrolling surface.
-  document.addEventListener('wheel', event => {
+  document.addEventListener('wheel', event => { if (rules.skipInput(event)) return;
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.shiftKey || !event.deltaY ||
         Math.abs(event.deltaX) > Math.abs(event.deltaY) || conflict() || gesture?.active || document.hidden) return;
     const preview = window.preview?.[0] || document.getElementById('preview');
@@ -2781,7 +2845,7 @@
   document.addEventListener('scrollend', event => {
     if (event.target === redirectedScroll?.viewport && Math.abs(event.target.scrollTop - redirectedScroll.top) < 1) redirectedScroll = null;
   }, true);
-  document.addEventListener('pointerdown', stopDescriptionScroll, true);
+  document.addEventListener('pointerdown', event => { if (rules.skipInput(event)) return; stopDescriptionScroll(event); }, true);
   window.addEventListener('blur', stopDescriptionScroll);
 
   // DB fits card names while constructing a front, sometimes before it has
@@ -2851,9 +2915,9 @@
     if (event.type === 'pointerdown') event.target.focus({ preventScroll: true });
     restoreBanlistScroll(); queueMicrotask(restoreBanlistScroll); requestAnimationFrame(restoreBanlistScroll);
   };
-  document.addEventListener('pointerdown', captureBanlistScroll, true);
+  document.addEventListener('pointerdown', event => { if (rules.skipInput(event)) return; captureBanlistScroll(event); }, true);
   document.addEventListener('focusin', captureBanlistScroll, true);
-  document.addEventListener('keydown', event => { if (isBanlist(event.target)) captureBanlistScroll(event); }, true);
+  document.addEventListener('keydown', event => { if (rules.skipInput(event)) return; if (isBanlist(event.target)) captureBanlistScroll(event); }, true);
   document.addEventListener('scroll', event => {
     if (isBanlist(document.activeElement) && banlistScroll?.some(item => item.node === event.target || event.target === document)) restoreBanlistScroll();
   }, true);
@@ -3149,11 +3213,11 @@
     cardPeek.style.left = Math.max(8, Math.min(box.right + 12, innerWidth - width - 8)) + 'px';
     cardPeek.style.top = Math.max(8, Math.min(box.top - height / 2, innerHeight - height - 8)) + 'px';
   }
-  document.addEventListener('pointerover', event => {
+  document.addEventListener('pointerover', event => { if (rules.skipInput(event)) return;
     const ref = event.pointerType === 'mouse' && event.target.closest?.('#preview_txt .dblite-step-ref, #preview_txt .dblite-card-ref');
     if (ref) showCardPeek(ref);
   }, true);
-  document.addEventListener('pointerout', event => { if (event.target.closest?.('.dblite-step-ref, #preview_txt .dblite-card-ref')) hideCardPeek(); }, true);
+  document.addEventListener('pointerout', event => { if (rules.skipInput(event)) return; if (event.target.closest?.('.dblite-step-ref, #preview_txt .dblite-card-ref')) hideCardPeek(); }, true);
   // Summon Lab breakdown (user, 2026-10-30): each chosen card and the part of the recipe it fills, then for
   // each Any slot the ways real cards fill it, with up to 3 of them, a search for all, and what remains.
   const labExpanded = new Set();
@@ -3278,7 +3342,7 @@
       for (const property of open.has(type) ? properties[type] : limited[type]) stProperties.push(`${type}:${property}`);
     return { cardTypes: [...cardTypes], frames: anyMonster && framedMonster ? [...frames] : [], stProperties };
   }
-  document.addEventListener('click', event => {
+  document.addEventListener('click', event => { if (rules.skipInput(event)) return;
     if (!config.previewLinks) return;
     const ref = event.target.closest?.('#preview_txt .dblite-card-ref');
     if (!ref) return;
@@ -3552,8 +3616,8 @@
           if (inDuel() && window.duelist && typeof window.Send === 'function') window.Send({ action: 'Duel', play: 'Duel message', message, html: 0 });
         } })) });
     }
-    document.addEventListener('mousedown', event => { if (chatWheel && !event.target.closest?.('.dblite-chat-wheel,.dblite-chat-wheel-button,.dbetter-chat-corner')) chatWheel.close(); }, true);
-    document.addEventListener('keydown', event => { if (event.key === 'Escape' && chatWheel) { event.preventDefault(); event.stopImmediatePropagation(); chatWheel.close(); } }, true);
+    document.addEventListener('mousedown', event => { if (rules.skipInput(event)) return; if (chatWheel && !event.target.closest?.('.dblite-chat-wheel,.dblite-chat-wheel-button,.dbetter-chat-corner')) chatWheel.close(); }, true);
+    document.addEventListener('keydown', event => { if (rules.skipInput(event)) return; if (event.key === 'Escape' && chatWheel) { event.preventDefault(); event.stopImmediatePropagation(); chatWheel.close(); } }, true);
     let chatRow, chatPlacement, chatMeasured = '';
     const chatStyle = document.createElement('style');
     document.head.append(chatStyle);
@@ -3682,10 +3746,59 @@
       controls.classList.toggle('dblite-tools-icons', spot?.mode === 'icons');
       Object.assign(controls.style, spot ? { left: `${spot.left}px`, top: `${spot.top}px`, bottom: 'auto', width: spot.width ? `${spot.width}px` : '' } : { left: '', top: '', bottom: '', width: '' });
     }
+    // DuelingBook's counts on your own piles (Deck, GY, banished, Extra Deck) can sit over the edge of your hand: the
+    // Extra Deck count over the leftmost hand card, and a lifted hand card then covered it (user, 2026-11-11). A count
+    // that meets a hand card moves up just above the hand; measured from the cards' resting place, not their lift.
+    function clearPileCounts(active) {
+      const hand = active ? (window.player1?.hand_arr || []).map(card => card[0]?.querySelector(':scope > .content')).filter(Boolean) : [];
+      for (const id of ['cid1_txt', 'cig1_txt', 'cib1_txt', 'cie1_txt']) {
+        const count = document.getElementById(id); if (!count) continue;
+        const raised = Number(count.dataset.dbliteRaised) || 0, box = count.getBoundingClientRect();
+        // The duel may be scaled (adaptive layout): translate values are in its own pixels, boxes in the window's.
+        const scale = count.offsetHeight && box.height ? box.height / count.offsetHeight : 1;
+        let up = 0;
+        if (box.width && box.height) {
+          const top = box.top + raised, bottom = box.bottom + raised;
+          const rests = hand.map(content => {
+            const card = content.getBoundingClientRect(), lift = (parseFloat(String(getComputedStyle(content.parentElement).translate || '').split(' ')[1]) || 0) * scale;
+            return { left: card.left, right: card.right, top: card.top - lift, bottom: card.bottom - lift };
+          });
+          const under = rests.filter(card => card.left < box.right && card.right > box.left && card.top < bottom && card.bottom > top);
+          if (under.length) up = Math.min(Math.ceil(bottom - Math.min(...under.map(card => card.top)) + 3), 120);
+        }
+        if (up === raised || up && raised && Math.abs(up - raised) <= 1) continue;
+        count.style.translate = up ? `0 ${-(up / scale).toFixed(1)}px` : '';
+        if (up) count.dataset.dbliteRaised = String(up); else delete count.dataset.dbliteRaised;
+      }
+    }
+    // "X is typing…" follows the duel chat box it labels (user report 2026-11-11, with a screenshot: the line sat at a fixed
+    // 845/394, over the last 9 px of the compact chat box, padding included, so it covered the newest message; it also
+    // missed the box wherever the chat sat elsewhere: action histories off, the adaptive dock). It goes under the box when
+    // nothing there is in the way (the chat input, a profile, a history box), else as a strip over the box's top edge,
+    // which covers the oldest visible lines rather than the latest message. Measured in #duel's own (unscaled) pixels, so
+    // every screen size, zoom and theme (their padding included) gets the box's real edges.
+    const TYPING_HEIGHT = 11, TYPING_OBSTACLES = '.cin_txt,.cin_txt+.textinput,.html_cb,.duel_avatar,.dblite-action-history,.lifepoints,#dblite-next-game';
+    let typingAt = '';
+    function placeTyping(duel) {
+      const parent = typing.offsetParent, chat = rules.offsetBox(duel.querySelector('.cout_txt'), parent);
+      let spot = '';
+      if (chat) {
+        const { left, width } = chat, below = chat.top + chat.height + 1;
+        const inside = rules.boxBlocked({ left, top: below, width, height: TYPING_HEIGHT }, duel.querySelectorAll(TYPING_OBSTACLES), parent);
+        const strip = inside && chatStrip(duel, chat, parent, 13);
+        spot = strip ? `${strip.left}|${strip.top}|${strip.width}|1` : `${left + 2}|${below}|${Math.max(20, width - 4)}|0`;
+      }
+      if (spot === typingAt) return; // Written only on change.
+      typingAt = spot;
+      const [left, top, width, inside] = spot.split('|');
+      Object.assign(typing.style, spot ? { left: `${left}px`, top: `${top}px`, width: `${width}px` } : { left: '', top: '', width: '' });
+      typing.classList.toggle('dblite-chat-typing-inside', inside === '1');
+    }
     function update() {
       if (!window.jQuery) return;
       hookHand();
       const active = inDuel();
+      clearPileCounts(active);
       if (!active) {
         controls?.remove(); controls = null; sortButton?.remove(); chatButton?.remove(); chatStyle.textContent = ''; chatWheel?.close(); typing?.remove(); typing = null; closeSearch(); typists.clear(); resetOrder();
         document.getElementById('duel')?.classList.toggle('dblite-local-tools', false); return;
@@ -3701,7 +3814,7 @@
           arrange(reconcile(window.player1).slice().sort(handSort));
         });
         sortButton.title = 'Sort by card type, then Level/Rank/Link rating, then name (local only)'; sortButton.className = 'dblite-sort-hand';
-        sortButton.innerHTML = '<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="3" width="18" height="25" rx="2" fill="var(--dbt-panel)" stroke="var(--dbt-line)"/><rect x="6" y="5" width="18" height="25" rx="2" fill="var(--dbt-panel-2)" stroke="var(--dbt-text)"/><path d="M9 13h8m-8 5h6m-6 5h4M27 7v18m-3-3 3 3 3-3" fill="none" stroke="var(--dbt-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        sortButton.innerHTML = '<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="3" width="18" height="25" rx="2" fill="var(--ssp-panel)" stroke="var(--ssp-line)"/><rect x="6" y="5" width="18" height="25" rx="2" fill="var(--ssp-panel-2)" stroke="var(--ssp-text)"/><path d="M9 13h8m-8 5h6m-6 5h4M27 7v18m-3-3 3 3 3-3" fill="none" stroke="var(--ssp-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
         searchButton = makeButton('⌕ Find card', openSearch); searchButton.className = 'dblite-find-card'; searchButton.dataset.icon = '⌕';
         wheelButton = makeButton('', toggleWheel); wheelButton.className = 'dblite-position-wheel-toggle';
         chatButton =makeButton('💬', openChatWheel); chatButton.className = 'dblite-chat-wheel-button';
@@ -3709,7 +3822,7 @@
         searchButton.setAttribute('aria-expanded', 'false'); searchButton.setAttribute('aria-controls', 'dblite-card-search');
         const parent = document.getElementById('avatar1')?.parentElement || document.getElementById('duel_content')?.parentElement || duel;
         controls.append(searchButton, wheelButton); document.body.append(controls); parent.append(sortButton);
-        typing = document.createElement('div'); typing.className = 'dblite-chat-typing'; typing.setAttribute('role', 'status'); parent.append(typing);
+        typing = document.createElement('div'); typing.className = 'dblite-chat-typing'; typing.setAttribute('role', 'status'); parent.append(typing); typingAt = '';
       }
       if (sortButton.hidden !== !personalHand()) sortButton.hidden = !personalHand();
       if (sortButton.disabled !== !canOrder()) sortButton.disabled = !canOrder();
@@ -3738,6 +3851,7 @@
       const label = names.length ? `••• ${names.join(' & ')} ${names.length === 1 ? 'is' : 'are'} typing…` : '';
       const quiet = !label || !visible(duel.querySelector('.cout_txt')); if (typing.hidden !== quiet) typing.hidden = quiet;
       if (typing.textContent !== label) { typing.textContent = label; typing.title = label; }
+      if (!quiet) placeTyping(duel);
       if (search) {
         const mode = cardSearchMode(), pool = cardSearchPool(mode);
         if (catalog !== window.Cards || catalogSize !== (window.Cards?.length || 0) || searchMode !== mode || searchPool !== pool || searchPoolSize !== (pool?.length || 0)) findCards();
@@ -3874,6 +3988,22 @@
     return { update };
   }
 
+  // DBuddy's themes draw DuelingBook's own buttons with values fixed per theme. Spellspeed's buttons beside them (the Deck
+  // Constructor's Solo row, Find card) take the same look, copied from a native button (user, 2026-11-12).
+  const buttonLook = ['background-color', 'background-image', 'border-color', 'border-radius', 'color', 'text-shadow', 'box-shadow', 'font-family'];
+  let buttonLookState = '';
+  function syncButtonLook(force = false) {
+    const html = document.documentElement, theme = rules.dbuddy().theme, state = `${theme}:${window.currentLabel}`;
+    if (!force && state === buttonLookState) return;
+    buttonLookState = state;
+    const sample = theme && [...document.querySelectorAll('#content .button')].find(node => node.offsetWidth && !node.matches(':hover,.button_down,.button_selected') &&
+      !node.closest('.dblite-solo-launch,.dblite-duel-tools'));
+    html.classList.toggle('dblite-button-look', !!sample);
+    if (!sample) { for (const name of buttonLook) html.style.removeProperty(`--dblite-button-${name}`); return; }
+    const style = getComputedStyle(sample);
+    for (const name of buttonLook) html.style.setProperty(`--dblite-button-${name}`, style.getPropertyValue(name));
+  }
+  rules.onDbuddy?.(() => syncButtonLook(true));
   let presentationSafety = 0, profileState = "";
   let profileCensor, profileChat, profileLoader, profileLeave;
   let profilesDirty = true;
@@ -3894,6 +4024,7 @@
     document.documentElement.classList.toggle('dblite-hide-declaration-chat', config.hideDeclarationChat && !conflict());
     document.documentElement.classList.toggle('dblite-hide-screenshot', config.hideScreenshotButton);
     layoutRoomRows();
+    syncButtonLook(safety);
     collectCardNames(cardNameObserver.takeRecords());
     fitCardNames(dirtyNames);
     dirtyNames.clear();
@@ -3918,18 +4049,23 @@
   }
   const style = document.createElement('style');
   style.textContent = `
-    .dblite-card-ref{color:var(--dbt-text);text-decoration:underline dotted;text-underline-offset:2px;cursor:pointer}.dblite-card-ref:hover{color:var(--dbt-text);text-decoration-style:solid}#preview_txt .dblite-card-ref{display:inline}.dblite-card-peek{position:fixed;z-index:2147483000;box-sizing:border-box;width:300px;max-height:360px;overflow:hidden;padding:8px 10px;border:1px solid var(--dbt-line,#8a9c9f);border-radius:8px;background:var(--dbt-panel,#1e1e24);color:var(--dbt-text,#eee);box-shadow:0 6px 24px rgba(0,0,0,.55);pointer-events:none;font:13px/1.35 Arial,sans-serif}.dblite-card-peek img{float:left;width:72px;height:72px;margin:0 8px 4px 0;border-radius:4px;object-fit:cover}.dblite-card-peek strong{display:block;font-size:14px}.dblite-card-peek small{display:block;opacity:.75;margin:2px 0 4px}.dblite-card-peek p{clear:both;margin:4px 0 0;white-space:pre-wrap}
+    .dblite-card-ref{color:var(--ssp-text);text-decoration:underline dotted;text-underline-offset:2px;cursor:pointer}.dblite-card-ref:hover{color:var(--ssp-text);text-decoration-style:solid}#preview_txt .dblite-card-ref{display:inline}.dblite-card-peek{position:fixed;z-index:2147483000;box-sizing:border-box;width:300px;max-height:360px;overflow:hidden;padding:8px 10px;border:1px solid var(--ssp-line,#8a9c9f);border-radius:8px;background:var(--ssp-panel,#1e1e24);color:var(--ssp-text,#eee);box-shadow:0 6px 24px rgba(0,0,0,.55);pointer-events:none;font:13px/1.35 Arial,sans-serif}.dblite-card-peek img{float:left;width:72px;height:72px;margin:0 8px 4px 0;border-radius:4px;object-fit:cover}.dblite-card-peek strong{display:block;font-size:14px}.dblite-card-peek small{display:block;opacity:.75;margin:2px 0 4px}.dblite-card-peek p{clear:both;margin:4px 0 0;white-space:pre-wrap}
     /* Archetype, Access and Starters stay at the bottom of the text box however long the card text (user, 2026-10-28:
        Access seemed missing on a phone, scrolled below the box). The box's own background keeps the text under it hidden. */
-    #preview_txt .dblite-preview-more{display:block!important;position:sticky!important;bottom:-5px;z-index:1;background:inherit;margin-top:.6em;padding-top:.35em;padding-bottom:5px;border-top:1px solid color-mix(in srgb,var(--dbt-accent) 35%,transparent);white-space:normal;font-style:normal}#preview_txt .dblite-preview-more>span{display:block}
+    #preview_txt .dblite-preview-more{display:block!important;position:sticky!important;bottom:-5px;z-index:1;background:inherit;margin-top:.6em;padding-top:.35em;padding-bottom:5px;border-top:1px solid color-mix(in srgb,var(--ssp-accent) 35%,transparent);white-space:normal;font-style:normal}#preview_txt .dblite-preview-more>span{display:block}
+    /* DBuddy's theme pads the card text's scroll area by 20px at the bottom (and makes it 93% opaque): the footer then
+       stuck 20px above the box's edge with effect text showing under it. Under a DBuddy theme the footer is opaque and
+       the area's bottom padding leaves room only for DuelingBook's hidden 8px scrollbar strip. Two ids, as DBuddy's rule. */
+    html.dblite-dbuddy-theme #preview_txt .dblite-preview-more{background:var(--dbt-surface,var(--ssp-panel))!important}
+    html.dblite-dbuddy-theme :is(#duel,#deck_constructor) #preview_txt>:is(.os_viewport,.os-viewport,[data-overlayscrollbars-viewport]):has(.dblite-preview-more){padding-bottom:13px!important}
     /* The Summon Lab breakdown of a result scrolls with the card text, above the footer. */
     #preview_txt .dblite-preview-lab{position:static!important;z-index:auto}#preview_txt .dblite-preview-lab>span[hidden]{display:none}#preview_txt .dblite-preview-lab>.dblite-lab-way{padding-left:.8em}#preview_txt .dblite-preview-lab>.dblite-lab-slot-head{margin-top:.25em}
     #preview_txt>span,#preview_txt .os-viewport>span,#preview_txt .os_viewport>span,#preview_txt .os-content>span{display:block!important;width:100%;box-sizing:border-box;white-space:pre-wrap;float:none!important}
     #field_stats{pointer-events:none;z-index:1!important}#duel.dblite-opening #field_stats{visibility:hidden!important}
     :is(#field,#duel_content) .card.dblite-card-travelling{z-index:2!important}
-    #dblite-replay-rate{position:fixed;left:12px;bottom:12px;z-index:2147483000;display:flex;gap:8px;align-items:center;background:var(--dbt-panel);border:1px solid var(--dbt-line);border-radius:8px;padding:7px 10px;color:var(--dbt-text);font:12px system-ui}
-    #dblite-replay-rate select{background:var(--dbt-input);color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:5px;padding:4px;font:inherit}#dblite-replay-rate[hidden]{display:none}
-    #duel #dblite-next-game{position:absolute;left:843px;top:407px;width:calc(var(--dblite-history-width,181px) - 9px);height:17px;padding:0 4px;box-sizing:border-box;border:1px solid var(--dbt-line);border-radius:4px;background:var(--dbt-panel);color:var(--dbt-text);font:600 9px/15px 'Segoe UI',sans-serif;cursor:pointer}
+    #dblite-replay-rate{position:fixed;left:12px;bottom:12px;z-index:2147483000;display:flex;gap:8px;align-items:center;background:var(--ssp-panel);border:1px solid var(--ssp-line);border-radius:8px;padding:7px 10px;color:var(--ssp-text);font:12px system-ui}
+    #dblite-replay-rate select{background:var(--ssp-input);color:var(--ssp-text);border:1px solid var(--ssp-line);border-radius:5px;padding:4px;font:inherit}#dblite-replay-rate[hidden]{display:none}
+    #duel #dblite-next-game{position:absolute;left:843px;top:407px;width:calc(var(--dblite-history-width,181px) - 9px);height:17px;padding:0 4px;box-sizing:border-box;border:1px solid var(--ssp-line);border-radius:4px;background:var(--ssp-panel);color:var(--ssp-text);font:600 9px/15px 'Segoe UI',sans-serif;cursor:pointer}
     #duel #dblite-next-game:disabled{opacity:.4;cursor:default}#duel #dblite-next-game[hidden]{display:none!important}
     #duel:has(#dblite-next-game:not([hidden])) #next_game_btn,#duel:has(#dblite-next-game:not([hidden])) #next_game_btn+.button{display:none!important}
     #duel.dblite-opening .lifepoints{visibility:hidden!important}
@@ -3948,50 +4084,57 @@
     #duel.dblite-local-tools #show_hand_btn{left:905px!important}
     #duel .dblite-sort-hand{position:absolute;left:843px;top:612px;width:30px;height:30px;padding:0;background:none;border:0;border-radius:3px;scale:.8;transform-origin:top left;cursor:pointer}
     #duel .dblite-sort-hand svg{position:static;width:30px;height:30px;display:block}
-    #duel .dblite-sort-hand:hover{background:var(--dbt-panel-2);filter:drop-shadow(0 0 3px var(--dbt-accent))}
-    #duel .dblite-sort-hand:focus-visible{outline:2px solid var(--dbt-accent)}
+    #duel .dblite-sort-hand:hover{background:var(--ssp-panel-2);filter:drop-shadow(0 0 3px var(--ssp-accent))}
+    #duel .dblite-sort-hand:focus-visible{outline:2px solid var(--ssp-accent)}
     #duel .dblite-sort-hand:disabled{opacity:.4;cursor:default}
     #duel .dblite-sort-hand[hidden]{display:none!important}
-    #duel.dblite-history-layout.dblite-duel-layout .lifepoints{left:var(--dblite-lp-left,var(--dblite-turn-left))!important;width:116px!important;scale:var(--dblite-lp-scale,.62);transform-origin:top left}
-    #duel.dblite-history-layout.dblite-duel-layout .lifepoints .life_bar{transform:scaleX(.695);transform-origin:left center;left:3px!important;top:3px!important;height:24px!important;overflow:hidden}
-    #duel.dblite-history-layout.dblite-duel-layout .lifepoints .life_border{width:111px!important;box-sizing:border-box;height:30px!important}
-    #duel.dblite-history-layout.dblite-duel-layout .lifepoints .life_txt{left:3px!important;top:0!important;width:108px!important;text-align:center!important;font-size:26px;line-height:30px}
+    /* The LP badges line up with the viewing eyes beside them and end at the right edge of the field status boxes above
+       (user, 2026-11-12). --dblite-lp-w is the unscaled badge width: (status right - badge left) / scale + 5 (the bar's
+       right inset); the tops centre the badge (30px x scale) on the eye row (status tops 248/297 + 26, 13px high).
+       DBuddy's themes nudge the native badges by 3px (translate): not in this layout. */
+    #duel.dblite-history-layout.dblite-duel-layout{--dblite-lp-w:167.5;--dblite-lp-top2:273.3px;--dblite-lp-top1:322.3px}
+    #duel.dblite-history-layout.dblite-layout-links{--dblite-lp-w:128.8;--dblite-lp-top2:274.2px;--dblite-lp-top1:323.2px}
+    #duel.dblite-history-layout.dblite-duel-layout .lifepoints{left:var(--dblite-lp-left,var(--dblite-turn-left))!important;width:calc(var(--dblite-lp-w,116) * 1px)!important;scale:var(--dblite-lp-scale,.62);transform-origin:top left;translate:none!important}
+    #duel.dblite-history-layout.dblite-duel-layout .lifepoints .life_bar{transform:scaleX(calc((var(--dblite-lp-w,116) - 11) / 151));transform-origin:left center;left:3px!important;top:3px!important;height:24px!important;overflow:hidden}
+    #duel.dblite-history-layout.dblite-duel-layout .lifepoints .life_border{width:calc((var(--dblite-lp-w,116) - 5) * 1px)!important;box-sizing:border-box;height:30px!important}
+    #duel.dblite-history-layout.dblite-duel-layout .lifepoints .life_txt{left:3px!important;top:0!important;width:calc((var(--dblite-lp-w,116) - 8) * 1px)!important;text-align:center!important;font-size:26px;line-height:30px}
     #duel.dblite-history-layout.dblite-layout-links .lifepoints .life_txt{font-size:28px}
-    #duel.dblite-history-layout.dblite-duel-layout #lifepoints2{top:275px!important}
-    #duel.dblite-history-layout.dblite-duel-layout #lifepoints1{top:326px!important}
+    #duel.dblite-history-layout.dblite-duel-layout #lifepoints2{top:var(--dblite-lp-top2,275px)!important}
+    #duel.dblite-history-layout.dblite-duel-layout #lifepoints1{top:var(--dblite-lp-top1,326px)!important}
     body>.dblite-duel-tools{position:fixed;left:12px;bottom:72px;width:auto;height:32px;display:flex;gap:5px;pointer-events:auto;z-index:1000}.dblite-duel-tools .dblite-find-card{width:132px;flex:0 0 132px}.dblite-duel-tools .dblite-chat-wheel-button{flex:0 0 auto}
-    .dblite-duel-tools button{position:static;flex:1;min-width:0;white-space:nowrap;padding:5px 8px;border:1px solid var(--dbt-line);border-radius:5px;background:var(--dbt-panel-2);color:var(--dbt-text);font:600 12px/18px 'Segoe UI',sans-serif;cursor:pointer}
+    .dblite-duel-tools button{position:static;flex:1;min-width:0;white-space:nowrap;padding:5px 8px;border:1px solid var(--ssp-line);border-radius:5px;background:var(--ssp-panel-2);color:var(--ssp-text);font:600 12px/18px 'Segoe UI',sans-serif;cursor:pointer}
     .dblite-duel-tools button:disabled{opacity:.4;cursor:default}
     .dblite-duel-tools button[hidden],.dblite-chat-typing[hidden]{display:none!important}
-    .dblite-duel-tools .dblite-position-wheel-toggle{flex:0 0 auto}.dblite-duel-tools .dblite-position-wheel-toggle[aria-pressed="true"]{border-color:var(--dbt-accent)}
+    .dblite-duel-tools .dblite-position-wheel-toggle{flex:0 0 auto}.dblite-duel-tools .dblite-position-wheel-toggle[aria-pressed="true"]{border-color:var(--ssp-accent)}
     html.dbetter-touch .dblite-duel-tools .dblite-position-wheel-toggle{display:none}
     body>.dblite-duel-tools.dblite-tools-column{flex-direction:column;height:auto}.dblite-duel-tools.dblite-tools-column button{flex:0 0 32px;width:auto;height:32px;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis}
     .dblite-duel-tools.dblite-tools-icons button{padding:0;font-size:0}.dblite-duel-tools.dblite-tools-icons button::before{content:attr(data-icon);font-size:16px;line-height:30px}
-    .dblite-quick-note{position:fixed;left:12px;bottom:110px;z-index:2147483000;max-width:min(420px,calc(100vw - 24px));padding:7px 11px;border:1px solid var(--dbt-line);border-radius:8px;background:var(--dbt-panel);color:var(--dbt-text);font:600 12px/1.35 'Segoe UI',sans-serif;box-shadow:0 8px 22px rgba(0,0,0,.4);pointer-events:none}
+    .dblite-quick-note{position:fixed;left:12px;bottom:110px;z-index:2147483000;max-width:min(420px,calc(100vw - 24px));padding:7px 11px;border:1px solid var(--ssp-line);border-radius:8px;background:var(--ssp-panel);color:var(--ssp-text);font:600 12px/1.35 'Segoe UI',sans-serif;box-shadow:0 8px 22px rgba(0,0,0,.4);pointer-events:none}
     replay-scout{translate:0 calc(-1px * var(--dblite-scout-lift,0))}
-    #duel .dblite-chat-typing{position:absolute;left:845px;top:394px;width:calc(var(--dblite-history-width,181px) - 4px);height:11px;font:600 8.5px/11px 'Segoe UI',sans-serif;color:var(--dbt-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
-    .dbetter-night #duel .dblite-chat-typing{color:var(--dbt-text)}
-    .dblite-card-search{position:fixed;z-index:2147483002;display:flex;flex-direction:column;gap:6px;height:330px;resize:both;overflow:hidden;min-width:100px;min-height:200px;padding:8px;box-sizing:border-box;border:1px solid var(--dbt-line);border-radius:10px;background:var(--dbt-panel);color:var(--dbt-text);font:13px/1.4 'Segoe UI',sans-serif;box-shadow:0 12px 38px #0007}
+    #duel .dblite-chat-typing{position:absolute;left:845px;top:391px;width:calc(var(--dblite-history-width,181px) - 4px);height:11px;font:600 8.5px/11px 'Segoe UI',sans-serif;color:var(--ssp-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
+    .dbetter-night #duel .dblite-chat-typing{color:var(--ssp-text)}
+    #duel .dblite-chat-typing.dblite-chat-typing-inside{height:13px;padding:0 3px;box-sizing:border-box;border-radius:3px;background:var(--ssp-panel);line-height:13px;z-index:2;box-shadow:0 1px 3px #0005}
+    .dblite-card-search{position:fixed;z-index:2147483002;display:flex;flex-direction:column;gap:6px;height:330px;resize:both;overflow:hidden;min-width:100px;min-height:200px;padding:8px;box-sizing:border-box;border:1px solid var(--ssp-line);border-radius:10px;background:var(--ssp-panel);color:var(--ssp-text);font:13px/1.4 'Segoe UI',sans-serif;box-shadow:0 12px 38px #0007}
     .dblite-card-search *{position:static;box-sizing:border-box}
     .dblite-card-search header{display:flex;align-items:center;gap:4px;flex-shrink:0;padding:0;margin:0}
     .dblite-card-search header button{flex:0 0 auto;padding:0 4px;font-size:18px;line-height:1;color:inherit;background:transparent;border:0;cursor:pointer}
     .dblite-search-filters{display:flex;flex-wrap:wrap;gap:4px;flex-shrink:0}
-    .dblite-search-fields{display:flex;flex:1 1 auto;gap:2px;flex-shrink:0;padding:2px;border-radius:5px;background:var(--dbt-input)}
-    .dblite-search-fields button{flex:1;padding:2px 3px;border:0;border-radius:3px;color:var(--dbt-text);background:transparent;font:600 10px 'Segoe UI',sans-serif;cursor:pointer}
-    .dblite-search-fields button[aria-pressed="true"]{background:var(--dbt-input);color:var(--dbt-text)}
-    .dblite-search-fields button:focus-visible{outline:2px solid var(--dbt-accent)}
-    .dblite-card-search input{flex:1 1 auto;min-width:0;width:100%;padding:5px 7px;border:1px solid var(--dbt-line);border-radius:5px;background:var(--dbt-input);color:var(--dbt-text);font:inherit}
-    .dblite-card-search .dblite-search-count{margin:0;color:var(--dbt-muted);font-size:10px;line-height:1.2;flex-shrink:0}
+    .dblite-search-fields{display:flex;flex:1 1 auto;gap:2px;flex-shrink:0;padding:2px;border-radius:5px;background:var(--ssp-input)}
+    .dblite-search-fields button{flex:1;padding:2px 3px;border:0;border-radius:3px;color:var(--ssp-text);background:transparent;font:600 10px 'Segoe UI',sans-serif;cursor:pointer}
+    .dblite-search-fields button[aria-pressed="true"]{background:var(--ssp-input);color:var(--ssp-text)}
+    .dblite-search-fields button:focus-visible{outline:2px solid var(--ssp-accent)}
+    .dblite-card-search input{flex:1 1 auto;min-width:0;width:100%;padding:5px 7px;border:1px solid var(--ssp-line);border-radius:5px;background:var(--ssp-input);color:var(--ssp-text);font:inherit}
+    .dblite-card-search .dblite-search-count{margin:0;color:var(--ssp-muted);font-size:10px;line-height:1.2;flex-shrink:0}
     .dblite-search-results{overflow:auto;min-height:0;overscroll-behavior:contain}
-    .dblite-search-result{display:block;width:100%;padding:5px 6px;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--dbt-line);color:inherit;font:600 12px/1.4 'Segoe UI',sans-serif;cursor:pointer}
-    .dblite-search-result:has(.dblite-search-art){display:grid;grid-template-columns:34px 1fr;column-gap:8px;align-items:center}.dblite-search-art{order:-1;grid-row:span 2;width:34px;height:34px;border-radius:4px;object-fit:cover;background:var(--dbt-panel)}
-    .dblite-search-result small{display:block;font-weight:400;font-size:10px;color:var(--dbt-muted)}
-    .dblite-search-result:hover,.dblite-search-result:focus-visible{background:var(--dbt-panel-2);outline:1px solid var(--dbt-accent);outline-offset:-1px}
-    .dblite-hand-insert{position:absolute;width:3px;border-radius:3px;background:var(--dbt-accent);box-shadow:0 0 6px var(--dbt-accent);pointer-events:none}
+    .dblite-search-result{display:block;width:100%;padding:5px 6px;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--ssp-line);color:inherit;font:600 12px/1.4 'Segoe UI',sans-serif;cursor:pointer}
+    .dblite-search-result:has(.dblite-search-art){display:grid;grid-template-columns:34px 1fr;column-gap:8px;align-items:center}.dblite-search-art{order:-1;grid-row:span 2;width:34px;height:34px;border-radius:4px;object-fit:cover;background:var(--ssp-panel)}
+    .dblite-search-result small{display:block;font-weight:400;font-size:10px;color:var(--ssp-muted)}
+    .dblite-search-result:hover,.dblite-search-result:focus-visible{background:var(--ssp-panel-2);outline:1px solid var(--ssp-accent);outline-offset:-1px}
+    .dblite-hand-insert{position:absolute;width:3px;border-radius:3px;background:var(--ssp-accent);box-shadow:0 0 6px var(--ssp-accent);pointer-events:none}
     .dblite-chance-native{visibility:hidden!important}
     .dblite-hide-declaration-chat #duel .cout_txt .dblite-declaration-chat{display:none!important}
     .dblite-hide-screenshot #screenshot_btn{display:none!important}
-    .dblite-chance{position:fixed;z-index:2147483001;width:160px;pointer-events:none;color:var(--dbt-text);font:13px/1.4 system-ui,sans-serif;text-align:center}
+    .dblite-chance{position:fixed;z-index:2147483001;width:160px;pointer-events:none;color:var(--ssp-text);font:13px/1.4 system-ui,sans-serif;text-align:center}
     .dblite-chance *{box-sizing:border-box;pointer-events:none}
     .dblite-chance-stage{position:relative!important;height:116px;perspective:550px;display:grid;place-items:center}
     .dblite-chance-stage:before{content:'';position:absolute;width:80px;height:18px;bottom:5px;left:40px;border-radius:50%;background:radial-gradient(ellipse,#0005,transparent 70%)}
@@ -4009,24 +4152,24 @@
     .dblite-coin-face.heads{transform:translateZ(3px)}
     .dblite-coin-face.tails{transform:rotateY(180deg) translateZ(3px);background:radial-gradient(circle at 30% 25%,#f4edcd,#cebb83 60%,#988049)}
     .dblite-coin-edge{position:absolute!important;inset:1px;border-radius:50%;background:#ad813e;border:1px dashed #e3bd72}
-    .dblite-chance-caption{position:relative!important;padding:7px 14px;background:var(--dbt-panel);border:1px solid var(--dbt-line);border-radius:10px;animation:dblite-chance-result .18s .86s both}
-    .dblite-chance-caption span,.dblite-chance-caption strong{position:static!important;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dblite-chance-caption span{font-size:11px;color:var(--dbt-muted)}.dblite-chance-caption strong{font-size:17px;letter-spacing:.02em}
+    .dblite-chance-caption{position:relative!important;padding:7px 14px;background:var(--ssp-panel);border:1px solid var(--ssp-line);border-radius:10px;animation:dblite-chance-result .18s .86s both}
+    .dblite-chance-caption span,.dblite-chance-caption strong{position:static!important;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dblite-chance-caption span{font-size:11px;color:var(--ssp-muted)}.dblite-chance-caption strong{font-size:17px;letter-spacing:.02em}
     @keyframes dblite-die-tumble{0%{transform:translate(-85px,-60px) rotateX(calc(var(--rx) + 620deg)) rotateY(calc(var(--ry) + 450deg)) rotateZ(-70deg)}45%{transform:translate(12px,-25px) rotateX(calc(var(--rx) + 210deg)) rotateY(calc(var(--ry) + 170deg)) rotateZ(30deg)}76%{transform:translate(-3px,4px) rotateX(calc(var(--rx) + 20deg)) rotateY(calc(var(--ry) + 15deg))}90%{transform:translate(1px,-3px) rotateX(var(--rx)) rotateY(var(--ry))}100%{transform:translate(0,0) rotateX(var(--rx)) rotateY(var(--ry))}}
     @keyframes dblite-coin-toss{0%{transform:translateY(55px) rotateY(calc(var(--ry) - 1260deg)) rotateZ(-20deg)}38%{transform:translateY(-45px) rotateY(calc(var(--ry) - 720deg)) rotateZ(10deg)}69%{transform:translateY(4px) rotateY(var(--ry)) rotateZ(-8deg)}80%{transform:translateY(-8px) rotateY(var(--ry)) rotateZ(5deg)}89%{transform:translateY(1px) rotateY(var(--ry)) rotateZ(-2deg)}100%{transform:translateY(0) rotateY(var(--ry))}}
     @keyframes dblite-chance-result{from{opacity:0;translate:0 4px}to{opacity:1;translate:0 0}}
     @media(prefers-reduced-motion:reduce){.dblite-chance .dblite-chance-object,.dblite-chance-caption{animation:none!important}}
     /* Native Special Summon layers already sit behind the field cards. */
-    #profile_viewer .dblite-return-game{position:absolute;left:210px;top:606px;z-index:10;width:150px;height:30px;border:1px solid var(--dbt-line);border-radius:5px;background:var(--dbt-panel);color:var(--dbt-text);font:600 14px/24px 'Segoe UI',Arial,sans-serif;cursor:pointer}
-    .dblite-profile-picture{cursor:pointer}.dblite-profile-picture:focus-visible{outline:2px solid var(--dbt-accent);outline-offset:2px}
-    .dblite-profile-feedback{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);max-width:500px;padding:12px 18px;background:var(--dbt-panel);color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:6px;z-index:999999;font:14px/1.5 system-ui}
-    #duel .duel_avatar :is(.dblite-profile-button,.dblite-chat-button){position:absolute;left:auto;right:8px;bottom:auto;top:8px;z-index:4;width:68px;height:25px;padding:3px 6px;border:1px solid var(--dbt-line);border-radius:5px;background:var(--dbt-panel-2);color:var(--dbt-text);font:600 11px/17px 'Segoe UI',Arial,sans-serif;cursor:pointer;opacity:0;pointer-events:none}
+    #profile_viewer .dblite-return-game{position:absolute;left:210px;top:606px;z-index:10;width:150px;height:30px;border:1px solid var(--ssp-line);border-radius:5px;background:var(--ssp-panel);color:var(--ssp-text);font:600 14px/24px 'Segoe UI',Arial,sans-serif;cursor:pointer}
+    .dblite-profile-picture{cursor:pointer}.dblite-profile-picture:focus-visible{outline:2px solid var(--ssp-accent);outline-offset:2px}
+    .dblite-profile-feedback{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);max-width:500px;padding:12px 18px;background:var(--ssp-panel);color:var(--ssp-text);border:1px solid var(--ssp-line);border-radius:6px;z-index:999999;font:14px/1.5 system-ui}
+    #duel .duel_avatar :is(.dblite-profile-button,.dblite-chat-button){position:absolute;left:auto;right:8px;bottom:auto;top:8px;z-index:4;width:68px;height:25px;padding:3px 6px;border:1px solid var(--ssp-line);border-radius:5px;background:var(--ssp-panel-2);color:var(--ssp-text);font:600 11px/17px 'Segoe UI',Arial,sans-serif;cursor:pointer;opacity:0;pointer-events:none}
     #duel .duel_avatar .dblite-chat-button{right:81px;width:54px}
     #duel .duel_avatar:hover :is(.dblite-profile-button,.dblite-chat-button),#duel .duel_avatar:focus-within :is(.dblite-profile-button,.dblite-chat-button){opacity:1;pointer-events:auto}
-    #duel :is(.dblite-profile-button,.dblite-chat-button):focus-visible{outline:2px solid var(--dbt-accent);outline-offset:2px;opacity:1;pointer-events:auto}
+    #duel :is(.dblite-profile-button,.dblite-chat-button):focus-visible{outline:2px solid var(--ssp-accent);outline-offset:2px;opacity:1;pointer-events:auto}
     /* Touch screens: a tap on the avatar opens these at full size (avatarMenu); the miniature ones stay hidden. */
     html.dbetter-touch #duel .duel_avatar :is(.dblite-profile-button,.dblite-chat-button){display:none}
-    .dblite-avatar-menu{position:fixed;z-index:2147483600;display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--dbt-line);border-radius:10px;background:var(--dbt-panel);box-shadow:0 8px 28px #000a}
-    .dblite-avatar-menu button{min-width:120px;min-height:40px;padding:0 14px;border:1px solid var(--dbt-line);border-radius:8px;background:var(--dbt-input);color:var(--dbt-text);font:600 15px system-ui,sans-serif;cursor:pointer}
+    .dblite-avatar-menu{position:fixed;z-index:2147483600;display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--ssp-line);border-radius:10px;background:var(--ssp-panel);box-shadow:0 8px 28px #000a}
+    .dblite-avatar-menu button{min-width:120px;min-height:40px;padding:0 14px;border:1px solid var(--ssp-line);border-radius:8px;background:var(--ssp-input);color:var(--ssp-text);font:600 15px system-ui,sans-serif;cursor:pointer}
     html.dblite-hide-spiral :is(#ss_glow,#ss_spiral)>img{visibility:hidden!important}
     .dblite-summon-motion :is(#ss_glow,#ss_spiral){pointer-events:none}
     .dblite-summon-motion :is(#ss_glow,#ss_spiral)>img{visibility:hidden}
@@ -4045,7 +4188,10 @@
     #choose_zones_lbl{opacity:0;pointer-events:none}
     #choose_zones_cb:is(:hover,:focus-visible)~#choose_zones_lbl{opacity:1}
     #choose_zones:has(#choose_zones_cb:is(:hover,:focus-visible)) .background{width:110px!important}
-    :is(#field,#duel_content) .card.dblite-hand-card{translate:0 0;transition:translate var(--dblite-motion-fast,140ms) cubic-bezier(.22,.61,.36,1)}
+    /* will-change keeps each hand card on its own layer (user, 2026-11-11): without it Chrome made a layer for each
+       lift and dropped it after, and redrawing the large card into the new layer left it blank for a frame or two
+       (a screen recording showed a hand card vanish for 2 frames when the pointer crossed it quickly). */
+    :is(#field,#duel_content) .card.dblite-hand-card{translate:0 0;will-change:translate;transition:translate var(--dblite-motion-fast,140ms) cubic-bezier(.22,.61,.36,1)}
     :is(#field,#duel_content) .card.dblite-hand-raised{translate:0 -8px;z-index:1000!important}
     /* Native hand cards live in #duel_content .cards, beside #field. Their
        content is centered with translate(-50%,-50%), so extend that hit area. */
@@ -4054,37 +4200,37 @@
     :is(#field,#duel_content) .card.dblite-pile-card{translate:0 0;transition:translate var(--dblite-motion-fast,140ms) cubic-bezier(.22,.61,.36,1)}
     :is(#field,#duel_content) .card.dblite-pile-raised{translate:0 -5px;filter:brightness(1.05) drop-shadow(0 5px 7px #0006)}
     @media(prefers-reduced-motion:reduce){:is(#field,#duel_content) .card.dblite-pile-card{translate:none!important;transition:none}}
-    #dblite-card-link{position:absolute;z-index:1;transform-origin:bottom left;white-space:nowrap;background:var(--dbt-panel);color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:3px;padding:0 4px;font:600 9px/1.5 system-ui;text-decoration:none;opacity:.85}#dblite-card-link:hover{opacity:1}
-    #dblite-card-link[hidden]{display:none!important}#dblite-card-link:hover{background:var(--dbt-panel-2)}#dblite-card-link:focus-visible{outline:2px solid white}
-    #dblite-replay,#dblite-status{position:fixed;z-index:2147483646;right:16px;bottom:16px;padding:10px 16px;border:1px solid var(--dbt-line);border-radius:8px;background:var(--dbt-panel);color:var(--dbt-text);font:14px/1.4 system-ui,sans-serif;text-decoration:none;box-shadow:0 4px 18px #0005}
+    #dblite-card-link{position:absolute;z-index:1;transform-origin:bottom left;white-space:nowrap;background:var(--ssp-panel);color:var(--ssp-text);border:1px solid var(--ssp-line);border-radius:3px;padding:0 4px;font:600 9px/1.5 system-ui;text-decoration:none;opacity:.85}#dblite-card-link:hover{opacity:1}
+    #dblite-card-link[hidden]{display:none!important}#dblite-card-link:hover{background:var(--ssp-panel-2)}#dblite-card-link:focus-visible{outline:2px solid white}
+    #dblite-replay,#dblite-status{position:fixed;z-index:2147483646;right:16px;bottom:16px;padding:10px 16px;border:1px solid var(--ssp-line);border-radius:8px;background:var(--ssp-panel);color:var(--ssp-text);font:14px/1.4 system-ui,sans-serif;text-decoration:none;box-shadow:0 4px 18px #0005}
     #dblite-status{bottom:66px;max-width:320px;pointer-events:none}
-    .dblite-login-retry{position:fixed;z-index:2147483646;left:50%;top:24px;translate:-50% 0;width:min(420px,calc(100vw - 32px));box-sizing:border-box;padding:14px 16px;border:1px solid var(--dbt-line);border-radius:10px;background:var(--dbt-panel);color:var(--dbt-text);font:14px/1.4 system-ui,sans-serif;box-shadow:0 8px 28px #0007}
-    .dblite-login-retry strong{display:block;font-size:15px;margin-bottom:4px}.dblite-login-retry p{margin:0 0 10px;color:var(--dbt-muted)}
-    .dblite-login-retry div{display:flex;gap:8px}.dblite-login-retry .dblite-login-close{flex:2;background:var(--dbt-accent);color:var(--dbt-on-accent);border-color:var(--dbt-accent);font-weight:600}.dblite-login-retry button:disabled{opacity:.5;cursor:wait}.dblite-login-retry button{flex:1;min-height:36px;border:1px solid var(--dbt-line);border-radius:6px;background:var(--dbt-input);color:var(--dbt-text);font:inherit;cursor:pointer}
-    #dblite-lag-warning{position:fixed;z-index:2147483646;top:16px;right:16px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:10px 14px;border:1px solid var(--dbt-line);border-left:4px solid var(--dbt-line);border-radius:9px;background:var(--dbt-panel);color:var(--dbt-text);box-shadow:0 5px 20px #0005;font:12px/1.4 'Segoe UI',sans-serif;pointer-events:none}
+    .dblite-login-retry{position:fixed;z-index:2147483646;left:50%;top:24px;translate:-50% 0;width:min(420px,calc(100vw - 32px));box-sizing:border-box;padding:14px 16px;border:1px solid var(--ssp-line);border-radius:10px;background:var(--ssp-panel);color:var(--ssp-text);font:14px/1.4 system-ui,sans-serif;box-shadow:0 8px 28px #0007}
+    .dblite-login-retry strong{display:block;font-size:15px;margin-bottom:4px}.dblite-login-retry p{margin:0 0 10px;color:var(--ssp-muted)}
+    .dblite-login-retry div{display:flex;gap:8px}.dblite-login-retry .dblite-login-close{flex:2;background:var(--ssp-accent);color:var(--ssp-on-accent);border-color:var(--ssp-accent);font-weight:600}.dblite-login-retry button:disabled{opacity:.5;cursor:wait}.dblite-login-retry button{flex:1;min-height:36px;border:1px solid var(--ssp-line);border-radius:6px;background:var(--ssp-input);color:var(--ssp-text);font:inherit;cursor:pointer}
+    #dblite-lag-warning{position:fixed;z-index:2147483646;top:16px;right:16px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:10px 14px;border:1px solid var(--ssp-line);border-left:4px solid var(--ssp-line);border-radius:9px;background:var(--ssp-panel);color:var(--ssp-text);box-shadow:0 5px 20px #0005;font:12px/1.4 'Segoe UI',sans-serif;pointer-events:none}
     #dblite-lag-warning[hidden]{display:none!important}
-    #dblite-lag-warning :is(strong,span){position:static;display:block}#dblite-lag-warning strong{font-size:13px}#dblite-lag-warning span{margin-top:2px;color:var(--dbt-text)}
+    #dblite-lag-warning :is(strong,span){position:static;display:block}#dblite-lag-warning strong{font-size:13px}#dblite-lag-warning span{margin-top:2px;color:var(--ssp-text)}
     #dblite-replay[hidden],#dblite-status[hidden],.dblite-drop[hidden]{display:none!important}
-    #dblite-replay:hover{background:var(--dbt-panel-2)}#dblite-replay:focus-visible{outline:3px solid white}
-    #dblite-vfx-volume{position:fixed;display:flex;align-items:center;gap:6px;width:124px;height:24px;z-index:1000;color:var(--dbt-text);font:600 10px/16px 'Segoe UI',sans-serif}
-    #dblite-vfx-volume input{position:static;width:92px;min-width:0;margin:0;accent-color:var(--dbt-accent);cursor:pointer}
+    #dblite-replay:hover{background:var(--ssp-panel-2)}#dblite-replay:focus-visible{outline:3px solid white}
+    #dblite-vfx-volume{position:fixed;display:flex;align-items:center;gap:6px;width:124px;height:24px;z-index:1000;color:var(--ssp-text);font:600 10px/16px 'Segoe UI',sans-serif}
+    #dblite-vfx-volume input{position:static;width:92px;min-width:0;margin:0;accent-color:var(--ssp-accent);cursor:pointer}
     #dblite-vfx-volume[hidden]{display:none!important}
     :is(#field,#duel_content) .card.dblite-field-card{transition:translate 120ms ease-out}
     html:not(.dblite-dragging) :is(#field,#duel_content) .card.dblite-field-card:hover{translate:0 -2px}
     @media(prefers-reduced-motion:reduce){:is(#field,#duel_content) .card.dblite-field-card{transition:none;translate:none!important}}
     #dblite-drag-layer{position:fixed;inset:0;z-index:2147483647;pointer-events:none}
-    .dblite-ring{position:fixed;z-index:2147483646;color:var(--dbt-text);filter:drop-shadow(0 8px 16px #0009);animation:dblite-ring-in 120ms ease-out}
+    .dblite-ring{position:fixed;z-index:2147483646;color:var(--ssp-text);filter:drop-shadow(0 8px 16px #0009);animation:dblite-ring-in 120ms ease-out}
     .dblite-ring svg{display:block;overflow:visible}.dblite-ring *{box-sizing:border-box}
-    .dblite-ring-item{cursor:pointer;outline:none}.dblite-ring-item path{fill:var(--dbt-panel);stroke:var(--dbt-accent);stroke-width:1}
-    .dblite-ring-item:hover path,.dblite-ring-item:focus-visible path{fill:var(--dbt-panel-2);stroke:var(--dbt-accent)}.dblite-ring-item:active path{fill:var(--dbt-input)}
-    .dblite-ring-item text{fill:var(--dbt-text);font:600 14px 'Segoe UI',system-ui,sans-serif;text-anchor:middle;pointer-events:none}.dblite-ring-item .dblite-ring-sub{font-size:10px;font-weight:400;fill:var(--dbt-text)}
-    .dblite-ring-close{position:absolute;padding:0;border:1px solid var(--dbt-line);border-radius:50%;background:var(--dbt-panel);color:var(--dbt-text);font:22px/1 system-ui;cursor:pointer}
+    .dblite-ring-item{cursor:pointer;outline:none}.dblite-ring-item path{fill:var(--ssp-panel);stroke:var(--ssp-accent);stroke-width:1}
+    .dblite-ring-item:hover path,.dblite-ring-item:focus-visible path{fill:var(--ssp-panel-2);stroke:var(--ssp-accent)}.dblite-ring-item:active path{fill:var(--ssp-input)}
+    .dblite-ring-item text{fill:var(--ssp-text);font:600 14px 'Segoe UI',system-ui,sans-serif;text-anchor:middle;pointer-events:none}.dblite-ring-item .dblite-ring-sub{font-size:10px;font-weight:400;fill:var(--ssp-text)}
+    .dblite-ring-close{position:absolute;padding:0;border:1px solid var(--ssp-line);border-radius:50%;background:var(--ssp-panel);color:var(--ssp-text);font:22px/1 system-ui;cursor:pointer}
     @keyframes dblite-ring-in{from{opacity:0;scale:.85}to{opacity:1;scale:1}}
     html.dblite-wheel-open :is(.dblite-fan,.dblite-classic-switch,#view){opacity:0!important;pointer-events:none!important}
     .dblite-token-drag{position:fixed;inset:0;z-index:2147483646;pointer-events:none}
-    .dblite-drop{position:absolute;box-sizing:border-box;border:2px solid var(--dbt-line);background:var(--dbt-panel);color:var(--dbt-text);font:bold 11px/1.2 system-ui;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:5px;text-shadow:0 1px 3px #000;transition:background-color var(--dblite-motion-fast,140ms) ease-out,border-color var(--dblite-motion-fast,140ms) ease-out}
-    .dblite-selected{background:var(--dbt-input);border-color:var(--dbt-line);box-shadow:inset 0 0 0 1px var(--dbt-line)}
-    .dblite-ghost{position:absolute;left:0;top:0;will-change:transform;max-width:130px;background:var(--dbt-panel);color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:6px;padding:5px;font:12px/1.3 system-ui;box-shadow:0 8px 25px #0007}
+    .dblite-drop{position:absolute;box-sizing:border-box;border:2px solid var(--ssp-line);background:var(--ssp-panel);color:var(--ssp-text);font:bold 11px/1.2 system-ui;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:5px;text-shadow:0 1px 3px #000;transition:background-color var(--dblite-motion-fast,140ms) ease-out,border-color var(--dblite-motion-fast,140ms) ease-out}
+    .dblite-selected{background:var(--ssp-input);border-color:var(--ssp-line);box-shadow:inset 0 0 0 1px var(--ssp-line)}
+    .dblite-ghost{position:absolute;left:0;top:0;will-change:transform;max-width:130px;background:var(--ssp-panel);color:var(--ssp-text);border:1px solid var(--ssp-line);border-radius:6px;padding:5px;font:12px/1.3 system-ui;box-shadow:0 8px 25px #0007}
     .dblite-ghost img{width:65px;display:block;margin-bottom:4px}.dblite-ghost span{display:block}
     .dblite-dragging,.dblite-dragging *{user-select:none!important;cursor:grabbing!important}
   `;

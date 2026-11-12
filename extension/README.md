@@ -1,4 +1,4 @@
-# Spellspeed for DuelingBook — 0.9.2-beta
+# Spellspeed for DuelingBook — 0.9.3-beta
 
 An unofficial, fan-made browser extension for [DuelingBook](https://www.duelingbook.com/) that makes it quicker and
 easier on the eyes, without changing how the game works. Every action still goes through DuelingBook's own duel
@@ -40,6 +40,14 @@ folder, then reload DuelingBook.
 ## Privacy
 Spellspeed runs only on duelingbook.com. It stores your settings in your browser, has no server and collects no data.
 See `privacy.html`.
+
+## New in 0.9.3-beta
+- A welcome page on install: pick the features you want and whether card actions use right-click or DuelingBook's hover menu.
+- Works alongside DBuddy: with both installed, Spellspeed follows DBuddy's theme and keeps its foils.
+- Describe understands more: whose card, targeting, Tributes and costs.
+- Deck builder: right-click in the card search always moves the card; closing Access, Starters or Ideas brings back
+  your search; the Summon Lab has a Back to search button and closes with Esc.
+- Duels: the "is typing" line no longer covers the chat, and pile counts stay off your hand.
 
 ## New in 0.9.2-beta
 - Opening odds becomes a deck stability menu (above), and Siding patterns is new, with a PDF of your plans.

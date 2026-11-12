@@ -99,7 +99,7 @@
   // Cooperative wrappers expose their predecessor. Inspect the whole chain:
   // checking only its outer function makes polling extensions wrap one another
   // forever, eventually exhausting the stack and blocking live duel packets.
-  const originalKeys = ['dbliteOriginal', 'dbxSpectatorHistoryOriginal', 'dbxDeckHistoryOriginal', 'dbxDeckFoldersOriginal', 'dbxEnhancerOriginal'];
+  const originalKeys = ['dbliteOriginal', '__dbteOriginal', 'dbxSpectatorHistoryOriginal', 'dbxDeckHistoryOriginal', 'dbxDeckFoldersOriginal', 'dbxEnhancerOriginal'];
   function hasHook(fn, expected) {
     if (!expected) return false;
     const pending = [fn], seen = new Set();
@@ -118,6 +118,7 @@
     // maintenance can also find its existing wrapper through ours.
     for (const key of originalKeys.slice(1)) if (typeof original[key] === 'function')
       Object.defineProperty(wrapped, key, { value: original });
+    if (hasHook(original, '__dbteWrapped')) Object.defineProperty(wrapped, '__dbteWrapped', { value: true });
     return wrapped;
   }
   // Use native menu actions plus the requested direct placement/attachment
@@ -190,6 +191,25 @@
     const w = Math.min(rect.width, width - 16), h = Math.min(rect.height, height - 16);
     return { left: Math.max(8, Math.min(rect.left, width - w - 8)), top: Math.max(8, Math.min(rect.top, height - h - 8)), width: w, height: h };
   }
+  // Anchoring Spellspeed's boxes to DuelingBook's (2026-11-11): a node's box in `parent`'s own pixels, read through the
+  // offset chain. Those are the stage's unscaled pixels, so screen size, zoom and the adaptive scale drop out, and the
+  // theme's padding is included. Null when the node is hidden or not laid out under `parent`: callers keep their
+  // stylesheet spot then.
+  function offsetBox(node, parent) {
+    if (!node || !parent || !(node.offsetWidth > 0) || !(node.offsetHeight > 0)) return null;
+    let left = 0, top = 0, at = node;
+    for (let depth = 0; at && at !== parent && depth < 12; depth++) { left += at.offsetLeft || 0; top += at.offsetTop || 0; at = at.offsetParent; }
+    return at === parent ? { left, top, width: node.offsetWidth, height: node.offsetHeight } : null;
+  }
+  // True when a visible node among `nodes` (laid out under `parent`) overlaps `box`.
+  function boxBlocked(box, nodes, parent, skip) {
+    for (const node of nodes) {
+      if (node === skip) continue;
+      const b = offsetBox(node, parent);
+      if (b && b.left < box.left + box.width && b.left + b.width > box.left && b.top < box.top + box.height && b.top + b.height > box.top) return true;
+    }
+    return false;
+  }
   // A timeout is a loaded-image fallback, never permission to expose a broken face.
   // Network destinations (2026-10-29, for players to verify Spellspeed only talks to DuelingBook): a host that is
   // duelingbook.com or one of its subdomains.
@@ -244,5 +264,70 @@
       if (ready.every(Boolean) || !face.firstChild) commit();
     });
   }
-  root.DBLiteRules = { imageReady, replaceArtwork, defaultChat, chatList, layoutPlan, clampFloating, defaults, defaultKeys, validKey, keyLabel, settings, classicLook, lookPatch, tourIds, tourPatch, quickPatch, pageImage, duelServer, replayUrl, cardUrl, cardPalette, dropAction, hasHook, markHook };
+  // DBuddy, another DuelingBook extension (docs/dbuddy-compat.md). Shared in MAIN and isolated worlds: its markers
+  // (#dbte-root, its theme and rarity styles) and the tools it announced (data-dblite-dbuddy, kept by bootstrap.js).
+  // Cached; an observer of <head>, <body> and that attribute refreshes it. No polling.
+  let dbuddyState = null;
+  const dbuddyListeners = new Set();
+  function dbuddy() {
+    if (dbuddyState) return dbuddyState;
+    const doc = root.document, html = doc?.documentElement;
+    const tools = new Set((html?.dataset.dbliteDbuddy || '').split(' ').filter(name => name && name !== 'on'));
+    const state = { present: !!(root.__dbteBridge || doc?.getElementById('dbte-root') || html?.dataset.dbliteDbuddy),
+      theme: !!doc?.getElementById('dbte-theme-vars'), foils: !!doc?.getElementById('dbte-rarity'), tools,
+      // DBuddy's card hotkeys press items of DuelingBook's own hover menu, and its extra card actions add items to it.
+      cardMenus: tools.has('cardHotkeys') || tools.has('extraActions'),
+      silentPileView: tools.has('silentPileView'), replayTools: tools.has('replayTools') };
+    html?.classList.toggle('dblite-dbuddy', state.present);
+    html?.classList.toggle('dblite-dbuddy-theme', state.theme);
+    return (dbuddyState = state);
+  }
+  function onDbuddy(listener) { dbuddyListeners.add(listener); return () => dbuddyListeners.delete(listener); }
+  function dbuddyChanged() {
+    const before = dbuddyState; dbuddyState = null; const after = dbuddy();
+    if (!before || ['present', 'theme', 'foils', 'cardMenus', 'silentPileView', 'replayTools'].some(key => before[key] !== after[key]))
+      dbuddyListeners.forEach(listener => { try { listener(after); } catch (error) { console.error(error); } });
+  }
+  // Spellspeed's input handlers skip what another extension (DBuddy) already handled: an event already prevented when
+  // it first reached Spellspeed, or one in DBuddy's own panel. A cancel by an earlier Spellspeed handler does not
+  // count: the first document-capture listener (this one, injected before every other Spellspeed script) notes the
+  // state on arrival. DBuddy's own key, pointer and middle-click handlers listen on window capture, so they come first.
+  const preventedOnArrival = new WeakMap();
+  if (typeof root.document?.addEventListener === 'function' && !root.document.dbliteArrival) {
+    root.document.dbliteArrival = true;
+    for (const type of ['keydown', 'keyup', 'keypress', 'mousedown', 'mouseup', 'click', 'dblclick', 'auxclick', 'contextmenu',
+      'pointerdown', 'pointerup', 'pointermove', 'mousemove', 'mouseover', 'mouseout', 'wheel', 'touchstart'])
+      root.document.addEventListener(type, event => preventedOnArrival.set(event, event.defaultPrevented), { capture: true, passive: true });
+  }
+  function skipInput(event) {
+    const prevented = preventedOnArrival.has(event) ? preventedOnArrival.get(event) : event.defaultPrevented;
+    return prevented || (event.composedPath?.() || [event.target]).some(node => node?.id === 'dbte-root');
+  }
+  // DBuddy's own layers (every class dbte-…) go; native elements it marked (e.g. .name_txt with dbte-rarity-plain-name)
+  // stay, without its classes.
+  function cleanFanClone(clone) {
+    for (const face of [clone, ...clone.querySelectorAll('.cardfront_content,.dbte-rarity,[data-dbte-rarity]')]) {
+      face.classList.remove('dbte-rarity'); face.removeAttribute('data-dbte-rarity');
+      for (const layer of [...face.children]) {
+        const classes = [...layer.classList], own = classes.filter(name => name.startsWith('dbte-rarity'));
+        if (layer.localName === 'canvas' || own.length && own.length === classes.length) layer.remove();
+        else if (own.length) layer.classList.remove(...own);
+      }
+    }
+    clone.querySelectorAll('canvas').forEach(node => node.remove());
+    return clone;
+  }
+  if (root.document?.documentElement && root.MutationObserver) {
+    dbuddy();
+    // DBuddy puts its styles in <head> and #dbte-root in <body>: their direct children are enough.
+    const observer = new root.MutationObserver(dbuddyChanged), doc = root.document;
+    const watch = () => {
+      observer.observe(doc.documentElement, { childList: true, attributes: true, attributeFilter: ['data-dblite-dbuddy'] });
+      if (doc.head) observer.observe(doc.head, { childList: true });
+      if (doc.body) observer.observe(doc.body, { childList: true });
+    };
+    watch();
+    if (!doc.body) doc.addEventListener('DOMContentLoaded', () => { watch(); dbuddyChanged(); }, { once: true });
+  }
+  root.DBLiteRules = { dbuddy, onDbuddy, skipInput, cleanFanClone, imageReady, replaceArtwork, defaultChat, chatList, layoutPlan, clampFloating, offsetBox, boxBlocked, defaults, defaultKeys, validKey, keyLabel, settings, classicLook, lookPatch, tourIds, tourPatch, quickPatch, pageImage, duelServer, replayUrl, cardUrl, cardPalette, dropAction, hasHook, markHook };
 })(globalThis);

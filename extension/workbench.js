@@ -483,6 +483,15 @@
       targets.clear();
       hideFan(); if (viewZone() && typeof window.exitViewing === 'function') window.exitViewing();
     }
+    // The right-clicks DBuddy's Silent pile views takes: a Graveyard, banished or Extra Deck pile of either player, or a
+    // card in one, outside DuelingBook's own list view (#view). The same targets as its bridge (silentPileView).
+    function silentPileTarget(target) {
+      if (!target?.closest || target.closest('#view')) return false;
+      if (target.closest('#grave_hidden,#banished_hidden,#extra_hidden,#opp_grave_hidden,#opp_banished_hidden,#opp_extra_hidden')) return true;
+      const node = target.closest('.card'), card = node && window.jQuery?.(node);
+      return !!card?.length && [window.player1, window.player2].some(p => p &&
+        ['grave_arr', 'banished_arr', 'extra_arr'].some(key => api.includes(p[key], card)));
+    }
     function openPile(zone) {
       if (!nativeReady() || sequence || wizard) return;
       if (window.viewing === zone) return;
@@ -603,7 +612,7 @@
       rules.replaceArtwork(face, () => {
       // Preserve the native front/back visibility and composed artwork. Only
       // the copy's positioning is normalized; live cards keep their transforms.
-      const clone = card[0].cloneNode(true); clone.removeAttribute('id');
+      const clone = rules.cleanFanClone(card[0].cloneNode(true)); clone.removeAttribute('id');
       clone.querySelectorAll('.dblite-declare-glow').forEach(node => node.remove());
       clone.querySelectorAll('.dblite-declaring').forEach(node => node.classList.toggle('dblite-declaring', false));
       const content = clone.querySelector(':scope > .content');
@@ -836,7 +845,12 @@
     }
     function refreshViewing(history, p, index) {
       const { fieldStatus, eye, eyeOpp, eyeZone } = history;
-      fieldStatus.hidden = !fieldPlaying();
+      // The centre boxes need the gap Spellspeed's compact duel layout leaves between its phase grid and the board
+      // (anchor audit 2026-11-11). With Compact duel layout off and Action histories on (separate settings), DuelingBook's
+      // own phase row, Turn button and piles fill that row on every board (seen live on a links board: the boxes covered
+      // M2, EP and TURN, and the banished pile is right of EP), so they stay hidden. The signal still shows in the history
+      // box heading, and DuelingBook's own "Viewing …" text stays visible since the eye is off.
+      fieldStatus.hidden = !fieldPlaying() || !document.getElementById('duel')?.classList.contains('dblite-duel-layout');
       const source = document.querySelector('#status' + index + ' .status_txt');
       const status = source?.textContent?.trim() || '';
       const viewing = status.startsWith('Viewing ') ? status.slice(8) : '';
@@ -960,12 +974,17 @@
           spare = Math.min(spare, Math.max(0, (box.left - rect.right - 12) / scale));
         }
       }
-      const profileScale = Math.max(.45, Math.min(1, (spare - 12) / 181));
+      // The adaptive dock moves the chat and both history boxes out of DuelingBook's profile column, so the profiles stay
+      // in it, full size (anchor audit 2026-11-11: shifted right by the history width they landed in the dock, over the
+      // card text, the history boxes and the chat).
+      const docked = !!window.DBLiteLayout?.band;
+      const profileScale = docked ? 1 : Math.max(.45, Math.min(1, (spare - 12) / 181));
       const width = Math.min(181, Math.max(92, 181 + spare - 12 - 181 * profileScale));
+      const shift = docked ? 0 : width + 12;
       // At narrow widths the center profiles share the native sidebar space.
       // Keep its chat and input within the same column as the histories.
       duel.classList.toggle('dblite-history-layout', true); duel.style.setProperty('--dblite-history-width', width + 'px');
-      duel.style.setProperty('--dblite-profile-left', (843 + width + 12) + 'px');
+      duel.style.setProperty('--dblite-profile-left', (843 + shift) + 'px');
       duel.style.setProperty('--dblite-profile-width', (181 * profileScale) + 'px');
       duel.style.setProperty('--dblite-profile-bottom', (334 + 154 * profileScale) + 'px');
       duel.style.setProperty('--dblite-life-scale', String(Math.min(.72, (181 * profileScale - 4) / 155)));
@@ -980,7 +999,7 @@
         // Written only on change: per-update rewrites restyled the page every frame (WebView flashes).
         if (node.getAttribute('aria-label') !== label + ' action history') node.setAttribute('aria-label', label + ' action history');
         if (history.list.getAttribute('aria-label') !== label + ' recent actions') history.list.setAttribute('aria-label', label + ' recent actions');
-        const targetColor = index === 1 ? 'var(--dbt-you)' : 'var(--dbt-opponent)';
+        const targetColor = index === 1 ? 'var(--ssp-you)' : 'var(--ssp-opponent)';
         if (node.style.getPropertyValue('--dblite-target-color') !== targetColor) node.style.setProperty('--dblite-target-color', targetColor);
         const avatar = document.getElementById('avatar' + index);
         if (history.avatar !== avatar) { history.avatar?.classList.toggle('dblite-history-profile', false); history.avatar = avatar; }
@@ -1001,7 +1020,7 @@
           const dx = profile === avatar ? 0 : (parseFloat(css.left) || 843) - 843;
           const dy = profile === avatar ? 0 : (parseFloat(css.top) || 0) - nativeTop;
           profileNodes.add(profile);
-          profile.style.setProperty('--dblite-profile-shift', (width + 12 + dx * (profileScale - 1)) + 'px');
+          profile.style.setProperty('--dblite-profile-shift', (shift + dx * (profileScale - 1)) + 'px');
           profile.style.setProperty('--dblite-profile-y', (profileTop - nativeTop + dy * (profileScale - 1)) + 'px');
           profile.style.setProperty('--dblite-profile-scale', String(profileScale));
           profile.classList.toggle('dblite-history-profile', true);
@@ -1014,7 +1033,7 @@
         if (profileVersus.parentElement !== first.parentElement) first.parentElement.append(profileVersus);
         // Only one VS: a replay on the phone showed a second, stale copy over an avatar (2026-10-29).
         for (const copy of document.querySelectorAll('.dblite-profile-versus')) if (copy !== profileVersus) copy.remove();
-        Object.assign(profileVersus.style, { left: (843 + width + 12) + 'px', top: (middle - halfGap) + 'px', width: (181 * profileScale) + 'px', height: (halfGap * 2) + 'px' });
+        Object.assign(profileVersus.style, { left: (843 + shift) + 'px', top: (middle - halfGap) + 'px', width: (181 * profileScale) + 'px', height: (halfGap * 2) + 'px' });
       } else { profileVersus?.remove(); profileVersus = null; }
       for (const [p, history] of histories) refreshViewing(history, p, p === player() ? 1 : 2);
       if (fieldPlaying() && displayedTurn() > 0) for (const history of histories.values()) ensureTurnGroup(history, displayedTurn());
@@ -1128,8 +1147,8 @@
       return cards.find(card => id(card) === data?.id && !card.data('fake_card'));
     }
     function actorColor(data) {
-      return data?.username === (window.Player1?.() || player())?.username ? 'var(--dbt-you)' :
-        data?.username === (window.Player2?.() || window.player2)?.username ? 'var(--dbt-opponent)' : 'var(--dbt-accent)';
+      return data?.username === (window.Player1?.() || player())?.username ? 'var(--ssp-you)' :
+        data?.username === (window.Player2?.() || window.player2)?.username ? 'var(--ssp-opponent)' : 'var(--ssp-accent)';
     }
     function showNotice(data, color, verb = 'targeted', snapshot) {
       if (!historyAccepts(snapshot || viewContext()) || data?.id == null || typeof data.username !== 'string') return;
@@ -1820,6 +1839,15 @@
       job.pending = { node: next[0], action, name: name(next) || 'a card', deadline: Date.now() + 8000 };
       window.cardMenuClicked(next, action);
     }
+    // A small eye on each hand card Keep hand revealed keeps revealed (user, 2026-11-11): a reminder that the hand is
+    // shown, on your own screen only. Cards revealed some other way are not marked.
+    const keptMarks = new Set();
+    function markKeptRevealed() {
+      const job = handRevealOwn() ? handReveal : null, hand = player()?.hand_arr || [];
+      const marked = new Set(job ? hand.filter(card => job.ours.has(card[0]) && card.data('face_up')).map(card => card[0]) : []);
+      for (const node of keptMarks) if (!marked.has(node)) { node.classList.toggle('dblite-kept-revealed', false); keptMarks.delete(node); }
+      for (const node of marked) if (!keptMarks.has(node)) { node.classList.toggle('dblite-kept-revealed', true); keptMarks.add(node); }
+    }
     // DuelingBook's Show hand button (user, 2026-11-06) offers both: its own Show hand, once (showHandE: its
     // confirmation, then the opponent sees the hand in a viewer; nothing in Solo), or Keep revealed.
     function openHandRevealChoice(anchor) {
@@ -1840,13 +1868,28 @@
       menu.style.top = `${Math.max(8, box.top - rect.height - 6 >= 8 ? box.top - rect.height - 6 : Math.min(box.bottom + 6, innerHeight - rect.height - 8))}px`;
       menu.querySelector('button')?.focus({ preventScroll: true });
     }
-    document.addEventListener('click', event => {
+    document.addEventListener('click', event => { if (rules.skipInput(event)) return;
       const showHand = event.target.closest?.('#show_hand_btn');
       if (!showHand || !(handRevealReady() || handRevealOn()) || !nativeReady() || sequence || wizard) return;
       event.preventDefault(); event.stopImmediatePropagation(); openHandRevealChoice(showHand);
     }, true);
     let soloPractice, soloSession, soloSessionControls, nativeSameHand;
     const soloSessionValid = () => soloSession && soloSession.player === player() && soloSession.duel === window.duelId && window.solo && window.duelist && !window.replay && !window.automatic && !window.tag_duel;
+    // A reload keeps the Solo duel (DuelingBook reconnects to it) but not this page's memory: the session (its deck and
+    // dealing plan) is kept for the tab in sessionStorage, so Reset deck and Back to deck come back (user, 2026-11-12).
+    const SOLO_KEY = 'dblite-solo-session';
+    function saveSoloSession() {
+      try {
+        const { deckId, deckName, ids, settings, mainSize, duel } = soloSession || {};
+        if (soloSession) sessionStorage.setItem(SOLO_KEY, JSON.stringify({ deckId, deckName, ids, settings, mainSize, duel }));
+      } catch { /* Storage may be unavailable. */ }
+    }
+    function restoreSoloSession() {
+      if (soloSession || !window.solo || !window.duelist || window.replay || window.automatic || window.tag_duel || !window.duelId || !player()) return;
+      let saved = null;
+      try { saved = JSON.parse(sessionStorage.getItem(SOLO_KEY) || 'null'); } catch { /* Storage may be unavailable. */ }
+      if (saved && saved.duel === window.duelId && saved.deckId != null) soloSession = { ...saved, ...context() };
+    }
     function startSoloPractice(plan, reset = false) {
       // Accept an in-flight plan from the previous constructor script too.
       const settings = plan.settings || { handCount: 5, stackCount: plan.ids?.length ? 1 : 0, ordered: !!plan.ids?.length };
@@ -1888,6 +1931,7 @@
       startSoloPractice({ ...(soloSessionValid() ? soloSession : {}), ids: [...hand, ...stack], settings: { handCount: hand.length, stackCount: stack.length, ordered: true }, sameHand: true }, true);
     }
     function updateSoloControls() {
+      restoreSoloSession();
       const duel = document.getElementById('duel');
       // A Solo without DBETTER's controls (started elsewhere, or after a reload): ↺ beside DuelingBook's Reset Deck.
       const native = !soloSessionValid() && duel && sameHandOffered() && api.visible(document.getElementById('reset_btn'));
@@ -1897,6 +1941,15 @@
       }
       if (native) {
         if (nativeSameHand.parentElement !== duel) duel.append(nativeSameHand);
+        // Beside the native button wherever it is (stylesheet: 179/565, its native spot plus the narrowed width; anchor
+        // audit 2026-11-11). DuelingBook draws a proxy over the input; the one reaching further right counts.
+        const reset = document.getElementById('reset_btn'), proxy = reset?.nextElementSibling?.matches?.('.button.proxy') ? reset.nextElementSibling : null;
+        const box = [reset, proxy].map(node => rules.offsetBox(node, nativeSameHand.offsetParent)).filter(Boolean).sort((a, b) => b.left + b.width - a.left - a.width)[0];
+        const spot = box ? `${box.left + box.width + 3}|${box.top}` : '';
+        if (nativeSameHand.dataset.at !== spot) {
+          nativeSameHand.dataset.at = spot; const [left, top] = spot.split('|');
+          Object.assign(nativeSameHand.style, spot ? { left: `${left}px`, top: `${top}px` } : { left: '', top: '' });
+        }
         const disabled = !nativeReady() || !!soloPractice || !!sequence || !!wizard || !!window.resetting;
         if (nativeSameHand.disabled !== disabled) nativeSameHand.disabled = disabled;
       } else { nativeSameHand?.remove(); nativeSameHand = null; }
@@ -1983,7 +2036,7 @@
     function updateSoloPractice() {
       if (!soloPractice && nativeReady()) {
         const plan = window.DBETTERConstructor?.takePractice();
-        if (plan) { soloSession = { ...plan, ...context() }; startSoloPractice(plan); }
+        if (plan) { soloSession = { ...plan, ...context() }; saveSoloSession(); startSoloPractice(plan); }
       }
       watchSoloOpening(); updateSoloControls();
       // The server only deals from a viewed Deck; keep that view off screen.
@@ -2459,7 +2512,7 @@
       clearTileMotions();
       hookViewLifecycle(); hookPileMoveOrigins(); hookReceipts(); refreshFan(); refreshTargets(); refreshNotices(); refreshReplayHands(); flushHistory(); refreshDeclarations(); updateToolbar(); updateWizard(); updateOpponentRequest();
       if (sequence) advance();
-      refreshHandReveal();
+      refreshHandReveal(); markKeptRevealed();
       const showHand = document.getElementById('show_hand_btn');
       if (showHand && showHand.classList.contains('dblite-hand-kept') !== handRevealOn()) {
         showHand.classList.toggle('dblite-hand-kept', handRevealOn());
@@ -2473,7 +2526,7 @@
       if (menu && (!nativeReady() || !handChoice && (!api.config().contextMenu && !hoverMenuOpen() || api.config().contextMenu && hoverMenuOpen()))) closeMenu();
       viewerDuringZonePick();
     }
-    document.addEventListener('contextmenu', event => {
+    document.addEventListener('contextmenu', event => { if (rules.skipInput(event)) return;
       // The duel log and the action history sit beside the viewer (in replays it covers the board): there, a
       // right-click closes an open viewer like any other space away from its cards, and otherwise keeps theirs.
       if (event.target.closest?.('#duel_log,.dblite-action-history') && !event.target.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"]') &&
@@ -2506,6 +2559,9 @@
       }
       if (event.target.closest?.('.dblite-fan-header,.dblite-classic-switch')) { event.preventDefault(); return; }
       if (!api.config().contextMenu || !nativeReady() || sequence || wizard) return;
+      // DBuddy's Silent pile views own right-clicks on a Graveyard, banished pile or Extra Deck (either side), whichever
+      // listener runs first: Spellspeed leaves them alone while that DBuddy switch is on (docs/dbuddy-compat.md).
+      if (rules.dbuddy().silentPileView && silentPileTarget(event.target)) return;
       const pile = event.target.closest?.('#deck_hidden,#extra_hidden,#grave_hidden,#banished_hidden');
       if (pile) {
         event.preventDefault(); event.stopImmediatePropagation();
@@ -2517,13 +2573,13 @@
     }, true);
     // Native handlers can remain bound from the previous turn. Enable phase hit
     // testing for chat, while retaining the native restriction on left clicks.
-    document.addEventListener('click', event => {
+    document.addEventListener('click', event => { if (rules.skipInput(event)) return;
       if (event.target.closest?.('#duel .phase') && phaseChatReady() && (window.automatic || window.turn_player.username !== window.username)) {
         event.preventDefault(); event.stopImmediatePropagation();
       }
     }, true);
     const wizardChat = target => !!wizard && !!target.closest?.('#duel .cin_txt,#chats');
-    document.addEventListener('mousedown', event => {
+    document.addEventListener('mousedown', event => { if (rules.skipInput(event)) return;
       if (!event.target.closest?.('.dblite-deck-wheel,.dblite-wheel-toggle')) closeWheel();
       if (!event.target.closest?.('.dblite-view-settings,.dblite-settings-toggle')) closeSettings();
       if (!event.target.closest?.('.dblite-menu')) closeMenu();
@@ -2541,7 +2597,7 @@
         fan.querySelector('.dblite-move').focus({ preventScroll: true });
       }
     }, true);
-    document.addEventListener('mousemove', event => {
+    document.addEventListener('mousemove', event => { if (rules.skipInput(event)) return;
       if (!moving || !fan) return;
       if (!(event.buttons & 1)) { finishMoving(true); return; }
       event.preventDefault(); event.stopImmediatePropagation();
@@ -2550,16 +2606,16 @@
       moving.changed = true;
       moving.position = positionFan({ left: moving.start.left + dx, top: moving.start.top + dy });
     }, true);
-    document.addEventListener('mouseup', event => {
+    document.addEventListener('mouseup', event => { if (rules.skipInput(event)) return;
       if (event.button !== 0 || !moving) return;
       event.preventDefault(); event.stopImmediatePropagation(); finishMoving(true);
     }, true);
-    document.addEventListener('click', event => {
+    document.addEventListener('click', event => { if (rules.skipInput(event)) return;
       if ((sequence || wizard || soloPractice) && !wizardChat(event.target) && !event.target.closest?.('.dblite-panel,.dblite-solo-session') && wizard?.stage !== 'summon') {
         event.preventDefault(); event.stopImmediatePropagation();
       }
     }, true);
-    document.addEventListener('keydown', event => {
+    document.addEventListener('keydown', event => { if (rules.skipInput(event)) return;
       if (event.target.closest?.('.dblite-action-history,.dblite-card-search,.dblite-deck-wheel')) return;
       if (api.config().shortcuts && api.config().sortKey && event.key.toLowerCase() === api.config().keys.sort && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey &&
           !event.isComposing && !event.defaultPrevented && sortAvailable() &&
@@ -2581,7 +2637,7 @@
         event.preventDefault(); event.stopImmediatePropagation();
       }
     }, true);
-    document.addEventListener('keyup', event => {
+    document.addEventListener('keyup', event => { if (rules.skipInput(event)) return;
       if (event.key.toLowerCase() === api.config().keys.sort && sortCaptured) {
         event.preventDefault(); event.stopImmediatePropagation(); sortCaptured = false; return;
       }
@@ -2674,37 +2730,37 @@
     .dblite-smooth-motion :is(.dblite-menu,.dblite-panel,.dblite-view-settings,.dblite-fan-header,.dblite-classic-switch,#dblite-status){animation:dblite-surface-in var(--dblite-motion-fast) var(--dblite-motion-ease)}
     @keyframes dblite-surface-in{from{opacity:0;translate:0 6px}to{opacity:1;translate:0 0}}
     .dblite-native-view,.dblite-macro-view{visibility:hidden!important;pointer-events:none!important}
-    .dblite-fan,.dblite-menu,.dblite-panel,.dblite-tools,.dblite-classic-switch{box-sizing:border-box;color:var(--dbt-text);font:13px/1.4 system-ui,sans-serif;color-scheme:inherit}
+    .dblite-fan,.dblite-menu,.dblite-panel,.dblite-tools,.dblite-classic-switch{box-sizing:border-box;color:var(--ssp-text);font:13px/1.4 system-ui,sans-serif;color-scheme:inherit}
     .dblite-fan *,.dblite-menu *,.dblite-panel *,.dblite-tools *{box-sizing:border-box}
-    .dblite-fan button,.dblite-menu button,.dblite-panel button,.dblite-tools button{font:inherit;cursor:pointer;color:inherit;border:1px solid var(--dbt-line);border-radius:8px;background:var(--dbt-panel-2);padding:7px 11px;transition:transform 100ms ease-out,opacity 100ms ease-out}
-    .dblite-fan button:hover,.dblite-menu button:hover,.dblite-panel button:hover,.dblite-tools button:hover{background:var(--dbt-panel-2);border-color:var(--dbt-line)}
-    .dblite-fan :focus-visible,.dblite-menu :focus-visible,.dblite-panel :focus-visible,.dblite-tools :focus-visible{outline:2px solid var(--dbt-accent);outline-offset:3px}
-    .dblite-view-modes{display:flex;gap:3px}.dblite-view-modes button{font:inherit;cursor:pointer;color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:7px;background:var(--dbt-panel-2);padding:7px 9px}.dblite-view-modes button:hover{background:var(--dbt-panel-2)}.dblite-view-modes button[aria-pressed="true"]{background:var(--dbt-panel-2);color:var(--dbt-text);border-color:var(--dbt-line)}.dblite-view-modes :focus-visible{outline:2px solid var(--dbt-accent);outline-offset:3px}
-    .dblite-classic-switch{position:fixed;z-index:2147483001;display:flex;align-items:center;gap:6px;padding:5px;background:var(--dbt-panel);border:1px solid var(--dbt-line);border-radius:10px;box-shadow:0 5px 16px #0005}
+    .dblite-fan button,.dblite-menu button,.dblite-panel button,.dblite-tools button{font:inherit;cursor:pointer;color:inherit;border:1px solid var(--ssp-line);border-radius:8px;background:var(--ssp-panel-2);padding:7px 11px;transition:transform 100ms ease-out,opacity 100ms ease-out}
+    .dblite-fan button:hover,.dblite-menu button:hover,.dblite-panel button:hover,.dblite-tools button:hover{background:var(--ssp-panel-2);border-color:var(--ssp-line)}
+    .dblite-fan :focus-visible,.dblite-menu :focus-visible,.dblite-panel :focus-visible,.dblite-tools :focus-visible{outline:2px solid var(--ssp-accent);outline-offset:3px}
+    .dblite-view-modes{display:flex;gap:3px}.dblite-view-modes button{font:inherit;cursor:pointer;color:var(--ssp-text);border:1px solid var(--ssp-line);border-radius:7px;background:var(--ssp-panel-2);padding:7px 9px}.dblite-view-modes button:hover{background:var(--ssp-panel-2)}.dblite-view-modes button[aria-pressed="true"]{background:var(--ssp-panel-2);color:var(--ssp-text);border-color:var(--ssp-line)}.dblite-view-modes :focus-visible{outline:2px solid var(--ssp-accent);outline-offset:3px}
+    .dblite-classic-switch{position:fixed;z-index:2147483001;display:flex;align-items:center;gap:6px;padding:5px;background:var(--ssp-panel);border:1px solid var(--ssp-line);border-radius:10px;box-shadow:0 5px 16px #0005}
     .dblite-classic-sized{scale:var(--dblite-view-scale);translate:var(--dblite-view-x) var(--dblite-view-y);transform-origin:top left!important}
-    .dblite-settings-toggle{font:16px/1 system-ui!important;cursor:pointer;color:var(--dbt-text);border:1px solid var(--dbt-line);border-radius:8px;background:var(--dbt-panel);padding:7px 9px!important}
-    .dblite-view-settings{position:fixed;z-index:2147483646;width:300px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;box-sizing:border-box;color:var(--dbt-text);color-scheme:inherit;font:13px/1.4 system-ui;background:var(--dbt-panel);border:1px solid var(--dbt-line);border-radius:12px;padding:16px;box-shadow:0 12px 40px #0009}
+    .dblite-settings-toggle{font:16px/1 system-ui!important;cursor:pointer;color:var(--ssp-text);border:1px solid var(--ssp-line);border-radius:8px;background:var(--ssp-panel);padding:7px 9px!important}
+    .dblite-view-settings{position:fixed;z-index:2147483646;width:300px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;box-sizing:border-box;color:var(--ssp-text);color-scheme:inherit;font:13px/1.4 system-ui;background:var(--ssp-panel);border:1px solid var(--ssp-line);border-radius:12px;padding:16px;box-shadow:0 12px 40px #0009}
     .dblite-view-settings header,.dblite-setting-caption,.dblite-setting-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}
-    .dblite-view-settings button{font:inherit;cursor:pointer;color:inherit;border:1px solid var(--dbt-line);border-radius:7px;background:var(--dbt-panel-2);padding:6px 10px}.dblite-view-settings button:hover{background:var(--dbt-panel-2)}.dblite-view-settings button[aria-pressed="true"]{background:var(--dbt-panel-2);color:var(--dbt-text)}
-    .dblite-view-settings label{display:block;margin-top:18px}.dblite-view-settings output{color:var(--dbt-text);font-variant-numeric:tabular-nums}.dblite-view-settings input[type="range"]{display:block;box-sizing:border-box;width:100%;margin:12px 0 0;accent-color:var(--dbt-accent);cursor:pointer}.dblite-view-settings p{color:var(--dbt-text);font-size:12px;margin:16px 0}.dblite-view-settings :focus-visible,.dblite-settings-toggle:focus-visible{outline:2px solid var(--dbt-accent);outline-offset:3px}
-    .dblite-view-settings .dblite-helper-setting{display:flex;align-items:center;gap:9px;cursor:pointer}.dblite-helper-setting input[type="checkbox"]{width:16px;height:16px;margin:0;accent-color:var(--dbt-accent);cursor:pointer}
-    .dblite-fan input,.dblite-panel input,.dblite-panel select{font:inherit;min-width:0;border:1px solid var(--dbt-line);border-radius:7px;background:var(--dbt-input);color:var(--dbt-text);padding:8px}
-    .dblite-fan{position:fixed;z-index:2147483001;display:flex;flex-direction:column;max-height:calc(100vh - 32px);width:min(760px,calc(100vw - 32px));transform-origin:top left;pointer-events:none;border:1px solid var(--dbt-line);border-radius:16px;background:color-mix(in srgb,var(--dbt-panel) calc(var(--dblite-window-opacity,.68) * 100%),transparent);box-shadow:0 14px 35px #0006;filter:drop-shadow(0 15px 28px #0009);transition:opacity var(--dblite-motion-fast) ease-out}
+    .dblite-view-settings button{font:inherit;cursor:pointer;color:inherit;border:1px solid var(--ssp-line);border-radius:7px;background:var(--ssp-panel-2);padding:6px 10px}.dblite-view-settings button:hover{background:var(--ssp-panel-2)}.dblite-view-settings button[aria-pressed="true"]{background:var(--ssp-panel-2);color:var(--ssp-text)}
+    .dblite-view-settings label{display:block;margin-top:18px}.dblite-view-settings output{color:var(--ssp-text);font-variant-numeric:tabular-nums}.dblite-view-settings input[type="range"]{display:block;box-sizing:border-box;width:100%;margin:12px 0 0;accent-color:var(--ssp-accent);cursor:pointer}.dblite-view-settings p{color:var(--ssp-text);font-size:12px;margin:16px 0}.dblite-view-settings :focus-visible,.dblite-settings-toggle:focus-visible{outline:2px solid var(--ssp-accent);outline-offset:3px}
+    .dblite-view-settings .dblite-helper-setting{display:flex;align-items:center;gap:9px;cursor:pointer}.dblite-helper-setting input[type="checkbox"]{width:16px;height:16px;margin:0;accent-color:var(--ssp-accent);cursor:pointer}
+    .dblite-fan input,.dblite-panel input,.dblite-panel select{font:inherit;min-width:0;border:1px solid var(--ssp-line);border-radius:7px;background:var(--ssp-input);color:var(--ssp-text);padding:8px}
+    .dblite-fan{position:fixed;z-index:2147483001;display:flex;flex-direction:column;max-height:calc(100vh - 32px);width:min(760px,calc(100vw - 32px));transform-origin:top left;pointer-events:none;border:1px solid var(--ssp-line);border-radius:16px;background:color-mix(in srgb,var(--ssp-panel) calc(var(--dblite-window-opacity,.68) * 100%),transparent);box-shadow:0 14px 35px #0006;filter:drop-shadow(0 15px 28px #0009);transition:opacity var(--dblite-motion-fast) ease-out}
     .dblite-fan.dblite-view-peek{background:transparent;border-color:transparent;box-shadow:none}
-    .dblite-fan-header{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px;margin:0 auto 14px;padding:9px 12px;width:fit-content;max-width:100%;flex-shrink:0;background:var(--dbt-panel);border:1px solid var(--dbt-line);border-radius:12px;pointer-events:auto;box-shadow:0 5px 16px #0005;cursor:grab;user-select:none}
+    .dblite-fan-header{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px;margin:0 auto 14px;padding:9px 12px;width:fit-content;max-width:100%;flex-shrink:0;background:var(--ssp-panel);border:1px solid var(--ssp-line);border-radius:12px;pointer-events:auto;box-shadow:0 5px 16px #0005;cursor:grab;user-select:none}
     .dblite-fan .dblite-move{cursor:grab;padding:5px 7px;font-size:18px;line-height:1}.dblite-view-moving,.dblite-view-moving .dblite-fan-header,.dblite-view-moving .dblite-move{cursor:grabbing}
-    .dblite-fan-header strong{white-space:nowrap}.dblite-count{font-size:11px;color:var(--dbt-muted);white-space:nowrap}.dblite-fan-header input{width:190px;flex:1 1 0;min-width:90px;max-width:190px}
+    .dblite-fan-header strong{white-space:nowrap}.dblite-count{font-size:11px;color:var(--ssp-muted);white-space:nowrap}.dblite-fan-header input{width:190px;flex:1 1 0;min-width:90px;max-width:190px}
     .dblite-fan-resize{position:absolute;z-index:4;pointer-events:auto;touch-action:none}
     html.dblite-native-menu-open :is(.dblite-classic-switch,.dblite-tools,.dblite-deck-wheel){opacity:0!important;pointer-events:none!important}
     html.dblite-zone-pick :is(.dblite-fan,.dblite-classic-switch,#view){opacity:0!important;pointer-events:none!important}
     .dblite-fan-resize[data-edge=e]{top:18px;bottom:18px;right:0;width:6px;cursor:ew-resize}
     .dblite-fan-resize[data-edge=s]{left:18px;right:18px;bottom:0;height:6px;cursor:ns-resize}
-    .dblite-fan-resize[data-edge=se]{right:0;bottom:0;width:14px;height:14px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--dbt-panel) 56%,var(--dbt-panel) 64%,transparent 65%,transparent 75%,var(--dbt-panel) 76%,var(--dbt-panel) 84%,transparent 85%);border-bottom-right-radius:14px}
+    .dblite-fan-resize[data-edge=se]{right:0;bottom:0;width:14px;height:14px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--ssp-panel) 56%,var(--ssp-panel) 64%,transparent 65%,transparent 75%,var(--ssp-panel) 76%,var(--ssp-panel) 84%,transparent 85%);border-bottom-right-radius:14px}
     .dblite-fan.dblite-fan-sized .dblite-fan-cards{max-height:none;flex:1 1 auto}
-    .dblite-fan-cards{min-height:0;max-height:55vh;overflow-y:auto;overflow-x:hidden;padding:22px 18px 30px;pointer-events:auto;scrollbar-width:thin;scrollbar-color:var(--dbt-line) var(--dbt-line)}
+    .dblite-fan-cards{min-height:0;max-height:55vh;overflow-y:auto;overflow-x:hidden;padding:22px 18px 30px;pointer-events:auto;scrollbar-width:thin;scrollbar-color:var(--ssp-line) var(--ssp-line)}
     .dblite-fan-row{display:flex;justify-content:center;align-items:flex-start;padding:4px 10px 0;position:relative;height:194px;min-height:194px;box-sizing:border-box}
     .dblite-sorted{max-height:none;padding-top:18px;padding-bottom:16px}
-    .dblite-grid-sorted .dblite-fan-row.dblite-group-start{margin-top:8px;padding-top:8px;border-top:1px solid var(--dbt-line)}
+    .dblite-grid-sorted .dblite-fan-row.dblite-group-start{margin-top:8px;padding-top:8px;border-top:1px solid var(--ssp-line)}
     .dblite-sorted .dblite-fan-row{padding-top:0;z-index:var(--row-index)}
     .dblite-sorted .dblite-fan-row{height:178px;min-height:178px}
     .dblite-sorted .dblite-category-start{margin-left:calc(124px - var(--card-step))}
@@ -2714,17 +2770,17 @@
     .dblite-sorted .dblite-fan-card{margin-right:calc(var(--card-step) - 100px);transition:none}
     .dblite-fan-row[style*="--fan-step"]>.dblite-fan-card{margin-right:calc(var(--fan-step) - 100px)}
     .dblite-sorted .dblite-fan-card:last-child{margin-right:0}
-    .dblite-view-settings select{display:block;width:100%;margin-top:8px;padding:7px 9px;border:1px solid var(--dbt-line);border-radius:7px;background:var(--dbt-input);color:var(--dbt-text);font:inherit}
+    .dblite-view-settings select{display:block;width:100%;margin-top:8px;padding:7px 9px;border:1px solid var(--ssp-line);border-radius:7px;background:var(--ssp-input);color:var(--ssp-text);font:inherit}
     .dblite-view-settings .dblite-layout-help{margin:8px 0 0}
-    .dblite-fan .dblite-sort[aria-pressed="true"]{background:var(--dbt-accent);color:var(--dbt-on-accent);border-color:var(--dbt-accent)}.dblite-fan .dblite-sort[hidden]{display:none}
+    .dblite-fan .dblite-sort[aria-pressed="true"]{background:var(--ssp-accent);color:var(--ssp-on-accent);border-color:var(--ssp-accent)}.dblite-fan .dblite-sort[hidden]{display:none}
     .dblite-fan-card{position:relative;flex:0 1 100px;min-width:0;width:100px;margin-right:-48px;transform:translateY(var(--arc)) rotate(var(--angle));transform-origin:50% 100%;z-index:var(--index);cursor:grab;outline-offset:5px;transition:transform 100ms ease-out,opacity 100ms ease-out}
     .dblite-observer .dblite-fan-card{cursor:default}
     .dblite-fan-card:last-child{margin-right:0}.dblite-fan-card:hover,.dblite-fan-card:focus-visible{z-index:99!important;transform:translateY(-12px) rotate(0) scale(1.06);filter:drop-shadow(0 6px 10px #0008)}
     .dblite-fan-card.dblite-targeted{z-index:100!important}
-    .dblite-target-ring{position:absolute;left:-5px;top:-5px;width:112px;height:157px;box-sizing:border-box;border:3px solid var(--dblite-target-color);border-radius:9px;box-shadow:0 0 0 2px var(--dbt-line),0 0 14px var(--dblite-target-color);pointer-events:none;animation:dblite-target-pulse .6s ease-in-out 2}
-    .dblite-target-label{position:absolute;left:50%;top:-24px;transform:translateX(-50%);padding:3px 7px;border-radius:5px;background:var(--dbt-panel);color:var(--dblite-target-color);font:bold 11px/1.2 system-ui;white-space:nowrap}
+    .dblite-target-ring{position:absolute;left:-5px;top:-5px;width:112px;height:157px;box-sizing:border-box;border:3px solid var(--dblite-target-color);border-radius:9px;box-shadow:0 0 0 2px var(--ssp-line),0 0 14px var(--dblite-target-color);pointer-events:none;animation:dblite-target-pulse .6s ease-in-out 2}
+    .dblite-target-label{position:absolute;left:50%;top:-24px;transform:translateX(-50%);padding:3px 7px;border-radius:5px;background:var(--ssp-panel);color:var(--dblite-target-color);font:bold 11px/1.2 system-ui;white-space:nowrap}
     @keyframes dblite-target-pulse{0%,100%{opacity:1}50%{opacity:.7}}
-    .dblite-fan-face{width:100px;height:145px;position:relative;background:var(--dbt-panel);border:1px solid var(--dbt-line);border-radius:5px;overflow:hidden;pointer-events:none}
+    .dblite-fan-face{width:100px;height:145px;position:relative;background:var(--ssp-panel);border:1px solid var(--ssp-line);border-radius:5px;overflow:hidden;pointer-events:none}
     .dblite-fan-face:empty{visibility:hidden}
     .dblite-fan-face>.card{display:block!important;position:absolute!important;width:400px!important;height:580px!important;left:0!important;top:0!important;transform:scale(.25)!important;transform-origin:top left!important;opacity:1!important;visibility:visible!important;pointer-events:none!important}
     /* Native absolute positioning is scoped to #content. The fan lives on the
@@ -2733,41 +2789,42 @@
     .dblite-fan-face>.card>.content{left:0!important;top:0!important;width:400px!important;height:580px!important;transform:none!important;transform-origin:top left!important}
     .dblite-fan-face>.card>.content>.white{display:none!important}
     .dblite-fan-face>.card.face_down .cardfront{clip-path:polygon(0% 100%,0% 0%,100% 0%,100% 0%);display:block!important}
-    .dblite-fan-face *{pointer-events:none!important}.dblite-fan-name{display:none;position:absolute;left:0;right:0;top:148px;background:var(--dbt-panel);border:1px solid var(--dbt-line);border-radius:5px;padding:4px;font-size:10px;text-align:center;max-height:32px;overflow:hidden;pointer-events:none}
+    .dblite-fan-face *{pointer-events:none!important}.dblite-fan-name{display:none;position:absolute;left:0;right:0;top:148px;background:var(--ssp-panel);border:1px solid var(--ssp-line);border-radius:5px;padding:4px;font-size:10px;text-align:center;max-height:32px;overflow:hidden;pointer-events:none}
     .dblite-fan-card:hover .dblite-fan-name,.dblite-fan-card:focus-visible .dblite-fan-name{display:block}
     .dblite-grid .dblite-fan-row{gap:10px;padding-bottom:16px;min-height:178px}.dblite-grid .dblite-fan-card{flex:0 0 100px;margin:0}.dblite-grid .dblite-fan-name{display:block}
-    .dblite-fan footer{margin:0 auto;width:fit-content;flex-shrink:0;border-radius:8px;background:var(--dbt-panel);padding:6px 12px;font-size:11px;color:var(--dbt-text);text-align:center}
+    .dblite-fan footer{margin:0 auto;width:fit-content;flex-shrink:0;border-radius:8px;background:var(--ssp-panel);padding:6px 12px;font-size:11px;color:var(--ssp-text);text-align:center}
     .dblite-fan footer[hidden]{display:none!important}
     .dblite-peek-toggle{display:inline-flex;align-items:center;justify-content:center;padding:4px 6px}.dblite-peek-toggle svg{width:18px;height:18px}
-    #show_hand_btn.dblite-hand-kept{outline:2px solid var(--dbt-accent,#58c4dc);outline-offset:1px}
+    #show_hand_btn.dblite-hand-kept{outline:2px solid var(--ssp-accent,#58c4dc);outline-offset:1px}
+    .card.dblite-kept-revealed>.content::before{content:"";position:absolute;left:30px;top:96px;z-index:5;width:72px;height:46px;pointer-events:none;opacity:.8;border-radius:23px;background:#000a url("data:image/svg+xml,%3Csvg xmlns='http%3A//www.w3.org/2000/svg' viewBox='0 0 24 16'%3E%3Cpath d='M1 8s4-6.5 11-6.5S23 8 23 8s-4 6.5-11 6.5S1 8 1 8z' fill='none' stroke='%23fff' stroke-width='1.8'/%3E%3Ccircle cx='12' cy='8' r='3.2' fill='%23fff'/%3E%3C/svg%3E") center/62% no-repeat}
     .dblite-view-peek{opacity:.08!important;pointer-events:none!important;filter:none!important}.dblite-view-peek *{pointer-events:none!important}
         /* Touch screens: the viewer covers most of a phone, so it gets out of the way entirely while a card is dragged out. */
     html.dbetter-touch .dblite-fan-dragging{opacity:0}
     .dblite-fan-dragging{opacity:.18;pointer-events:none!important}.dblite-fan-dragging *{pointer-events:none!important}
-    .dblite-empty{padding:24px;text-align:center;background:var(--dbt-panel);border-radius:10px}
-    .dblite-menu{position:fixed;z-index:2147483645;width:238px;max-height:75vh;overflow:auto;background:var(--dbt-panel);border:1px solid var(--dbt-line);box-shadow:0 12px 40px #0009;border-radius:12px;padding:8px}
+    .dblite-empty{padding:24px;text-align:center;background:var(--ssp-panel);border-radius:10px}
+    .dblite-menu{position:fixed;z-index:2147483645;width:238px;max-height:75vh;overflow:auto;background:var(--ssp-panel);border:1px solid var(--ssp-line);box-shadow:0 12px 40px #0009;border-radius:12px;padding:8px}
     .dblite-menu strong{display:block;padding:7px 8px 12px;font-size:12px}.dblite-menu button{display:block;width:100%;text-align:left;border-color:transparent;background:transparent;margin:1px 0;padding:6px 9px}
-    .dblite-menu button.dblite-position-action{background:var(--dbt-panel-2);color:var(--dbt-text);border-color:var(--dbt-line);font-weight:600}
-    .dblite-menu button.dblite-card-effect{background:var(--dbt-panel-2);color:var(--dbt-text);border-left:3px solid var(--dbt-line)}
-    .dblite-menu button.dblite-position-action:hover,.dblite-menu button.dblite-position-action:focus-visible{background:var(--dbt-panel-2);border-color:var(--dbt-line)}
-    .dblite-menu button.dblite-card-effect:hover,.dblite-menu button.dblite-card-effect:focus-visible{background:var(--dbt-panel-2);border-color:var(--dbt-line)}
+    .dblite-menu button.dblite-position-action{background:var(--ssp-panel-2);color:var(--ssp-text);border-color:var(--ssp-line);font-weight:600}
+    .dblite-menu button.dblite-card-effect{background:var(--ssp-panel-2);color:var(--ssp-text);border-left:3px solid var(--ssp-line)}
+    .dblite-menu button.dblite-position-action:hover,.dblite-menu button.dblite-position-action:focus-visible{background:var(--ssp-panel-2);border-color:var(--ssp-line)}
+    .dblite-menu button.dblite-card-effect:hover,.dblite-menu button.dblite-card-effect:focus-visible{background:var(--ssp-panel-2);border-color:var(--ssp-line)}
     .dblite-tools{position:fixed;z-index:2147483000;width:102px;height:60px;display:flex;align-items:center;gap:8px;transform-origin:center}
     .dblite-tools *{position:static}
     .dblite-tools[hidden],.dblite-deck-wheel[hidden]{display:none!important}
-    .dblite-tools .dblite-draw{display:flex;align-items:center;justify-content:center;flex:0 0 60px;width:60px;height:60px;padding:0;border-radius:10px;font-size:16px;line-height:20px;background:var(--dbt-panel);color:var(--dbt-text);border-color:var(--dbt-line);font-weight:700;box-shadow:0 3px 9px #0004}
-    .dblite-tools .dblite-draw:hover{background:var(--dbt-panel-2);border-color:var(--dbt-line)}
+    .dblite-tools .dblite-draw{display:flex;align-items:center;justify-content:center;flex:0 0 60px;width:60px;height:60px;padding:0;border-radius:10px;font-size:16px;line-height:20px;background:var(--ssp-panel);color:var(--ssp-text);border-color:var(--ssp-line);font-weight:700;box-shadow:0 3px 9px #0004}
+    .dblite-tools .dblite-draw:hover{background:var(--ssp-panel-2);border-color:var(--ssp-line)}
     .dblite-tools button:disabled,.dblite-deck-wheel button:disabled{opacity:.45;cursor:default}
-    .dblite-tools .dblite-wheel-toggle{flex:0 0 34px;width:34px;height:34px;padding:5px;border-radius:50%;background:var(--dbt-panel);box-shadow:0 2px 7px #0005}
-    .dblite-wheel-toggle svg{display:block;width:22px;height:22px;fill:none;stroke:var(--dbt-accent);stroke-width:2;stroke-linecap:round}
-    .dblite-wheel-toggle[aria-expanded="true"]{outline:2px solid var(--dbt-accent);outline-offset:2px}
-    .dblite-deck-wheel{position:fixed;z-index:2147483003;width:188px;height:188px;box-sizing:border-box;color:var(--dbt-text);color-scheme:inherit;font:13px/1.3 system-ui,sans-serif;filter:drop-shadow(0 8px 16px #0007);animation:dblite-wheel-in var(--dblite-motion-fast,140ms) ease-out}
+    .dblite-tools .dblite-wheel-toggle{flex:0 0 34px;width:34px;height:34px;padding:5px;border-radius:50%;background:var(--ssp-panel);box-shadow:0 2px 7px #0005}
+    .dblite-wheel-toggle svg{display:block;width:22px;height:22px;fill:none;stroke:var(--ssp-accent);stroke-width:2;stroke-linecap:round}
+    .dblite-wheel-toggle[aria-expanded="true"]{outline:2px solid var(--ssp-accent);outline-offset:2px}
+    .dblite-deck-wheel{position:fixed;z-index:2147483003;width:188px;height:188px;box-sizing:border-box;color:var(--ssp-text);color-scheme:inherit;font:13px/1.3 system-ui,sans-serif;filter:drop-shadow(0 8px 16px #0007);animation:dblite-wheel-in var(--dblite-motion-fast,140ms) ease-out}
     .dblite-deck-wheel *{box-sizing:border-box;position:static}
     .dblite-tools-items{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
-    .dblite-tools-items button{display:flex;flex-direction:column;align-items:center;justify-content:center;width:92px;height:92px;padding:0 6px;border:1px solid var(--dbt-line);background:var(--dbt-panel-2);color:inherit;font:600 12px/17px system-ui,sans-serif;cursor:pointer}
+    .dblite-tools-items button{display:flex;flex-direction:column;align-items:center;justify-content:center;width:92px;height:92px;padding:0 6px;border:1px solid var(--ssp-line);background:var(--ssp-panel-2);color:inherit;font:600 12px/17px system-ui,sans-serif;cursor:pointer}
     .dblite-tools-items button:nth-child(1){border-radius:92px 8px 12px 8px;padding:14px 0 0 12px}.dblite-tools-items button:nth-child(2){border-radius:8px 92px 8px 12px;padding:14px 12px 0 0}.dblite-tools-items button:nth-child(3){border-radius:8px 12px 8px 92px;padding:0 0 14px 12px}.dblite-tools-items button:nth-child(4){border-radius:12px 8px 92px 8px;padding:0 12px 14px 0}
-    .dblite-deck-wheel .dblite-wheel-close{position:absolute;left:76px;top:76px;width:36px;height:36px;padding:0;border:1px solid var(--dbt-line);border-radius:50%;background:var(--dbt-panel);color:var(--dbt-text);font:22px/34px system-ui;cursor:pointer}
-    .dblite-deck-wheel button:hover{background:var(--dbt-panel-2);border-color:var(--dbt-line)}
-    .dblite-deck-wheel button:focus-visible{outline:2px solid var(--dbt-accent);outline-offset:-4px}
+    .dblite-deck-wheel .dblite-wheel-close{position:absolute;left:76px;top:76px;width:36px;height:36px;padding:0;border:1px solid var(--ssp-line);border-radius:50%;background:var(--ssp-panel);color:var(--ssp-text);font:22px/34px system-ui;cursor:pointer}
+    .dblite-deck-wheel button:hover{background:var(--ssp-panel-2);border-color:var(--ssp-line)}
+    .dblite-deck-wheel button:focus-visible{outline:2px solid var(--ssp-accent);outline-offset:-4px}
     @keyframes dblite-wheel-in{from{opacity:0;scale:.85}to{opacity:1;scale:1}}
     @media(prefers-reduced-motion:reduce){.dblite-deck-wheel{animation:none}}
     /* Three native control groups occupy the gaps between the card zones.
@@ -2776,23 +2833,34 @@
     #duel.dblite-layout-links{--dblite-phase-left:282px;--dblite-phase-right:328px;--dblite-notice-left:662px;--dblite-notice-width:100px;--dblite-turn-left:282px;--dblite-lp-left:710px;--dblite-lp-scale:.42}
     #duel.dblite-layout-observer{--dblite-phase-left:477px;--dblite-phase-right:522px;--dblite-notice-left:344px;--dblite-notice-width:125px;--dblite-turn-left:477px}
     #duel.dblite-layout-links.dblite-layout-observer{--dblite-notice-left:282px;--dblite-notice-width:92px}
-    #duel.dblite-duel-layout .phase{width:42px!important;height:20px!important;scale:1;transform-origin:50% 50%!important;border-radius:5px;background:var(--dbt-panel);box-shadow:inset 0 0 0 1px var(--dbt-line)}
+    #duel.dblite-duel-layout .phase{width:42px!important;height:20px!important;scale:1;transform-origin:50% 50%!important}
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout .phase{border-radius:5px;background:var(--ssp-panel);box-shadow:inset 0 0 0 1px var(--ssp-line)}
     #duel.dblite-duel-layout :is(#dp,#m1,#m2){left:var(--dblite-phase-left)!important}
     #duel.dblite-duel-layout :is(#sp,#bp,#ep){left:var(--dblite-phase-right)!important}
     #duel.dblite-duel-layout :is(#dp,#sp){top:248px!important}
     #duel.dblite-duel-layout :is(#m1,#bp){top:272px!important}
     #duel.dblite-duel-layout :is(#m2,#ep){top:296px!important}
     #duel.dblite-duel-layout .phase .background{display:none}
-    #duel.dblite-duel-layout .phase .phase_inner{inset:1px;width:auto;height:auto;border-radius:4px;pointer-events:none}
-    #duel.dblite-duel-layout .phase .phase_inner.red{background:var(--dbt-panel)}
-    #duel.dblite-duel-layout .phase .phase_inner.blue{background:var(--dbt-panel)}
-    #duel.dblite-duel-layout .phase.active{box-shadow:0 0 0 2px var(--dbt-line),0 0 10px var(--dbt-line)}
-    #duel.dblite-duel-layout .phase.active .phase_inner.red{background:var(--dbt-panel)}
-    #duel.dblite-duel-layout .phase.active .phase_inner.blue{background:var(--dbt-panel)}
-    #duel.dblite-duel-layout .phase span{left:0;top:0;width:100%;height:20px;padding:0;color:var(--dbt-text);font:600 11px/20px 'Segoe UI',Arial,sans-serif;pointer-events:none;text-shadow:none}
-    #duel.dblite-duel-layout .phase.active .phase_txt{color:var(--dbt-text);font-weight:800;text-decoration:underline;text-underline-offset:3px}
-    #duel.dblite-duel-layout .phase:hover{outline:1px solid var(--dbt-accent);outline-offset:1px}
-    #duel.dblite-duel-layout :is(#die_btn,#coin_btn,.token_btn,#counter_btn){width:34px!important;height:27px!important;border-radius:5px;background:var(--dbt-panel);box-shadow:inset 0 0 0 1px var(--dbt-line)}
+    #duel.dblite-duel-layout .phase .phase_inner{inset:1px;width:auto;height:auto;pointer-events:none}
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout .phase .phase_inner{border-radius:4px}
+
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout .phase .phase_inner.red{background:var(--ssp-panel)}
+
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout .phase .phase_inner.blue{background:var(--ssp-panel)}
+
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout .phase.active{box-shadow:0 0 0 2px var(--ssp-line),0 0 10px var(--ssp-line)}
+
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout .phase.active .phase_inner.red{background:var(--ssp-panel)}
+
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout .phase.active .phase_inner.blue{background:var(--ssp-panel)}
+    #duel.dblite-duel-layout .phase span{left:0;top:0;width:100%;height:20px;padding:0;font:600 11px/20px 'Segoe UI',Arial,sans-serif;pointer-events:none}
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout .phase span{color:var(--ssp-text);text-shadow:none}
+    #duel.dblite-duel-layout .phase.active .phase_txt{font-weight:800;text-decoration:underline;text-underline-offset:3px}
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout .phase.active .phase_txt{color:var(--ssp-text)}
+
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout .phase:hover{outline:1px solid var(--ssp-accent);outline-offset:1px}
+    #duel.dblite-duel-layout :is(#die_btn,#coin_btn,.token_btn,#counter_btn){width:34px!important;height:27px!important}
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout :is(#die_btn,#coin_btn,.token_btn,#counter_btn){border-radius:5px;background:var(--ssp-panel);box-shadow:inset 0 0 0 1px var(--ssp-line)}
     #duel.dblite-duel-layout :is(#die_btn,.token_btn){left:480px!important}
     #duel.dblite-duel-layout :is(#coin_btn,#counter_btn){left:526px!important}
     #duel.dblite-duel-layout :is(#die_btn,#coin_btn){top:248px!important}
@@ -2804,37 +2872,46 @@
     #duel.dblite-duel-layout :is(#life_txt,#life_txt+.textinput){left:497px!important;top:313px!important;width:39px!important;height:21px!important;box-sizing:border-box;font-size:12px}
     #duel.dblite-duel-layout :is(#plus_btn,#minus_btn){left:541px!important;top:313px!important;width:21px!important;height:21px!important;transform:none!important}
     #duel.dblite-duel-layout #minus_bg{left:538px!important;top:310px!important;width:27px;height:27px}
-    #duel.dblite-duel-layout :is(#turn,#start_turn,#end_turn){left:var(--dblite-turn-left)!important;top:322px!important;width:88px;height:16px;border-radius:5px;background:var(--dbt-panel);box-shadow:inset 0 0 0 1px var(--dbt-line)}
-    #duel.dblite-duel-layout :is(#turn,#start_turn,#end_turn)>div{left:1px;top:1px;width:86px;height:14px;border-radius:4px}
+    /* DBuddy's theme nudges the native counter button (translate) for its own spot; Spellspeed's layout places all four.
+       Its LP box and − button keep the theme's accent as outline, easier to see on the dark field (user, 2026-11-12). */
+    #duel.dblite-duel-layout :is(#die_btn,#coin_btn,.token_btn,#counter_btn){translate:none!important}
+    html.dblite-dbuddy-theme #duel.dblite-duel-layout :is(#life_txt,#life_txt+.textinput){border-color:var(--dbt-accent,var(--ssp-accent))!important}
+    html.dblite-dbuddy-theme #duel.dblite-duel-layout #minus_bg{border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--dbt-accent,var(--ssp-accent))}
+    html.dblite-dbuddy-theme #duel.dblite-duel-layout :is(#die_btn,#coin_btn,.token_btn,#counter_btn){border-radius:5px;background:var(--ssp-panel);box-shadow:inset 0 0 0 1.5px var(--dbt-accent,var(--ssp-accent))}
+    #duel.dblite-duel-layout :is(#turn,#start_turn,#end_turn){left:var(--dblite-turn-left)!important;top:322px!important;width:88px;height:16px}
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout :is(#turn,#start_turn,#end_turn){border-radius:5px;background:var(--ssp-panel);box-shadow:inset 0 0 0 1px var(--ssp-line)}
+    #duel.dblite-duel-layout :is(#turn,#start_turn,#end_turn)>div{left:1px;top:1px;width:86px;height:14px}
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout :is(#turn,#start_turn,#end_turn)>div{border-radius:4px}
     #duel.dblite-duel-layout :is(#turn,#start_turn,#end_turn) :is(.background,.white_glow){display:none!important}
-    #duel.dblite-duel-layout :is(#turn,#start_turn,#end_turn)>span{left:0;top:0;width:100%;height:16px;font:600 9px/16px 'Segoe UI',Arial,sans-serif;pointer-events:none;text-shadow:0 1px 2px #0008}
-    .dblite-action-history{position:absolute;z-index:3;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;border:1px solid color-mix(in srgb,var(--dblite-target-color) 54%,var(--dbt-line));border-top:3px solid var(--dblite-target-color);border-radius:9px;background:var(--dbt-panel);color:var(--dbt-text);font:12px/1.35 'Segoe UI',Arial,sans-serif;pointer-events:auto;text-align:left;box-shadow:0 3px 12px #0002}
+    #duel.dblite-duel-layout :is(#turn,#start_turn,#end_turn)>span{left:0;top:0;width:100%;height:16px;font:600 9px/16px 'Segoe UI',Arial,sans-serif;pointer-events:none}
+    html:where(:not(.dblite-dbuddy-theme)) #duel.dblite-duel-layout :is(#turn,#start_turn,#end_turn)>span{text-shadow:0 1px 2px #0008}
+    .dblite-action-history{position:absolute;z-index:3;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;border:1px solid color-mix(in srgb,var(--dblite-target-color) 54%,var(--ssp-line));border-top:3px solid var(--dblite-target-color);border-radius:9px;background:var(--ssp-panel);color:var(--ssp-text);font:12px/1.35 'Segoe UI',Arial,sans-serif;pointer-events:auto;text-align:left;box-shadow:0 3px 12px #0002}
     .dblite-action-history[hidden],.dblite-history-latest[hidden]{display:none!important}
     .dblite-action-history *{box-sizing:border-box;position:static!important;white-space:normal}
-    .dblite-history-heading{display:flex;align-items:center;justify-content:space-between;gap:5px;flex:0 0 23px;padding:2px 7px;color:var(--dblite-target-color);font-size:9px;line-height:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--dbt-line)}
-    .dblite-action-history[data-player="2"] .dblite-history-heading{order:2;border-bottom:0;border-top:1px solid var(--dbt-line)}
-    .dblite-history-signal{display:flex;align-items:center;justify-content:center;gap:5px;min-width:0;width:100%;font:600 11px/17px 'Segoe UI',Arial,sans-serif;text-transform:none;letter-spacing:0;color:var(--dbt-text);pointer-events:none}
-    .dblite-history-signal[data-kind="okay"]{color:var(--dbt-text)}
+    .dblite-history-heading{display:flex;align-items:center;justify-content:space-between;gap:5px;flex:0 0 23px;padding:2px 7px;color:var(--dblite-target-color);font-size:9px;line-height:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--ssp-line)}
+    .dblite-action-history[data-player="2"] .dblite-history-heading{order:2;border-bottom:0;border-top:1px solid var(--ssp-line)}
+    .dblite-history-signal{display:flex;align-items:center;justify-content:center;gap:5px;min-width:0;width:100%;font:600 11px/17px 'Segoe UI',Arial,sans-serif;text-transform:none;letter-spacing:0;color:var(--ssp-text);pointer-events:none}
+    .dblite-history-signal[data-kind="okay"]{color:var(--ssp-text)}
     .dblite-history-signal img{flex:0 0 18px;width:18px!important;height:17px!important;object-fit:contain}
     .dblite-history-signal>span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .dblite-history-signal[hidden],.dblite-history-signal img[hidden],.dblite-history-heading:has(.dblite-history-signal:not([hidden])) .dblite-history-caption{display:none!important}
     #duel .dblite-history-signal-source,#duel .dblite-history-signal-source *{visibility:hidden!important;pointer-events:none!important}
     .dblite-history-list{flex:1;min-height:0;width:100%;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--dblite-target-color) transparent;outline-offset:-2px}
     .dblite-history-list:focus-visible{outline:1px solid var(--dblite-target-color)}
-    .dblite-target-notice{display:block;padding:2px 6px;border-bottom:1px solid var(--dbt-line)}
+    .dblite-target-notice{display:block;padding:2px 6px;border-bottom:1px solid var(--ssp-line)}
     .dblite-action-heading,.dblite-action-details{display:flex;align-items:baseline;gap:4px;min-width:0}
     .dblite-action-heading{height:13px;line-height:13px}.dblite-action-details{height:10px;line-height:10px}
     .dblite-action-history :is(.dblite-action-verb,.dblite-target-name,.dblite-target-zone){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .dblite-action-verb{flex:0 1 auto;max-width:58%;color:var(--dblite-target-color);font-size:9px;font-weight:600}
-    .dblite-action-history .dblite-target-name{display:block;flex:1;border:0;border-radius:2px;background:none;padding:0;margin:0;font:600 10px/13px 'Segoe UI',Arial,sans-serif;color:var(--dbt-text);text-align:left;box-shadow:none;text-shadow:none}
+    .dblite-action-history .dblite-target-name{display:block;flex:1;border:0;border-radius:2px;background:none;padding:0;margin:0;font:600 10px/13px 'Segoe UI',Arial,sans-serif;color:var(--ssp-text);text-align:left;box-shadow:none;text-shadow:none}
     .dblite-action-history button.dblite-target-name{cursor:help}
-    .dblite-action-history button.dblite-target-name:is(:hover,:focus-visible){color:var(--dbt-text);text-decoration:underline;text-decoration-color:var(--dblite-target-color);text-underline-offset:2px}
+    .dblite-action-history button.dblite-target-name:is(:hover,:focus-visible){color:var(--ssp-text);text-decoration:underline;text-decoration-color:var(--dblite-target-color);text-underline-offset:2px}
     .dblite-action-history button.dblite-target-name:focus-visible{outline:1px solid var(--dblite-target-color);outline-offset:-1px}
-    .dblite-target-zone{flex:1;font-size:6.5px;color:var(--dbt-muted)}
-    .dblite-action-history .dblite-action-time{flex:0 0 auto;margin-left:auto;color:var(--dbt-muted);font-size:8px;line-height:10px;font-variant-numeric:tabular-nums;white-space:nowrap}
-    .dblite-history-latest{flex:0 0 auto;width:100%;border:0;border-top:1px solid var(--dbt-line);border-radius:0;padding:2px;background:var(--dbt-panel);color:var(--dblite-target-color);font:600 9px 'Segoe UI',Arial,sans-serif;cursor:pointer}
+    .dblite-target-zone{flex:1;font-size:6.5px;color:var(--ssp-muted)}
+    .dblite-action-history .dblite-action-time{flex:0 0 auto;margin-left:auto;color:var(--ssp-muted);font-size:8px;line-height:10px;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .dblite-history-latest{flex:0 0 auto;width:100%;border:0;border-top:1px solid var(--ssp-line);border-radius:0;padding:2px;background:var(--ssp-panel);color:var(--dblite-target-color);font:600 9px 'Segoe UI',Arial,sans-serif;cursor:pointer}
     #duel .dblite-history-profile{translate:var(--dblite-profile-shift) var(--dblite-profile-y,0px);scale:var(--dblite-profile-scale);transform-origin:top left!important}
-    #duel.dblite-history-layout>.cout_txt{top:212px!important;height:181px!important;max-width:calc(var(--dblite-history-width) - 9px)!important;font-size:11px;line-height:1.15}
+    #duel.dblite-history-layout>.cout_txt{top:212px!important;height:168px!important;max-width:calc(var(--dblite-history-width) - 9px)!important;font-size:11px;line-height:1.15}
     #duel.dblite-history-layout :is(.cin_txt,.cin_txt+.textinput){top:406px!important;max-width:calc(var(--dblite-history-width) - 20px)!important;box-sizing:border-box}
     #duel.dblite-history-layout .refresh_btn{top:214px!important;left:calc(843px + var(--dblite-history-width) - 16px)!important}
     #duel.dblite-history-layout .html_cb{top:408px!important;left:calc(843px + var(--dblite-history-width) - 21px)!important}
@@ -2842,24 +2919,24 @@
     #duel.dblite-layout-links .dblite-field-status{left:662px;width:100px}
     #duel .dblite-field-status[data-player="1"]{top:297px}
     #duel .dblite-field-status[hidden]{display:none!important}
-    #duel .dblite-field-signal{position:relative;font-size:9px;line-height:10px;height:25px;gap:3px;padding:2px;border:1px solid color-mix(in srgb,var(--dblite-target-color) 40%,transparent);border-radius:4px;background:var(--dbt-panel);box-sizing:border-box}
+    #duel .dblite-field-signal{position:relative;font-size:9px;line-height:10px;height:25px;gap:3px;padding:2px;border:1px solid color-mix(in srgb,var(--dblite-target-color) 40%,transparent);border-radius:4px;background:var(--ssp-panel);box-sizing:border-box}
     #duel .dblite-field-signal>*{position:static}
     #duel .dblite-field-signal>span{flex:1;white-space:normal;overflow-wrap:anywhere;max-height:19px;overflow:hidden;line-height:1.1;text-align:center}
     #duel .dblite-field-signal>span>.dblite-field-card-name,#duel .dblite-field-signal>span>.dblite-field-zone{position:static;display:block;white-space:normal;overflow-wrap:anywhere}
-    #duel .dblite-field-signal>span>.dblite-field-zone{font-size:.65em;line-height:1.05;color:var(--dbt-muted)}
+    #duel .dblite-field-signal>span>.dblite-field-zone{font-size:.65em;line-height:1.05;color:var(--ssp-muted)}
     #duel .dblite-field-signal .dblite-field-separator{display:none}
-    #duel .dblite-field-signal[data-kind="declared"]{color:var(--dbt-text);font-size:8px;line-height:9px;border-color:var(--dblite-target-color)}
-    #duel .dblite-field-signal[data-kind="idle"]{color:var(--dbt-text)}
+    #duel .dblite-field-signal[data-kind="declared"]{color:var(--ssp-text);font-size:8px;line-height:9px;border-color:var(--dblite-target-color)}
+    #duel .dblite-field-signal[data-kind="idle"]{color:var(--ssp-text)}
     #duel .dblite-field-signal>.dblite-field-action-glow{position:absolute;inset:-1px;display:block;box-sizing:border-box;pointer-events:none;border:1px solid var(--dblite-action-color);border-radius:inherit;box-shadow:0 0 8px color-mix(in srgb,var(--dblite-action-color) 60%,transparent),inset 0 0 5px color-mix(in srgb,var(--dblite-action-color) 20%,transparent);animation:dblite-field-action-glow 1.2s ease-out both}
     #duel .dblite-field-action-glow::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(110deg,transparent 25%,color-mix(in srgb,var(--dblite-action-color) 28%,transparent) 49%,transparent 73%);background-size:300% 100%;animation:dblite-field-action-sweep .8s ease-out both}
     @keyframes dblite-field-action-glow{0%{opacity:0}15%,45%{opacity:1}100%{opacity:0}}
     @keyframes dblite-field-action-sweep{0%{background-position:130% 0;opacity:0}20%{opacity:1}100%{background-position:-30% 0;opacity:0}}
     @media(prefers-reduced-motion:reduce){#duel .dblite-field-signal>.dblite-field-action-glow{display:none}}
-    .dblite-action-history .dblite-turn-divider{position:sticky!important;top:0;z-index:1;background:var(--dbt-panel);color:var(--dbt-text);border-top:2px solid var(--dblite-target-color);border-bottom:1px solid var(--dbt-line);padding:3px 5px;font:700 9px/12px 'Segoe UI',sans-serif}
+    .dblite-action-history .dblite-turn-divider{position:sticky!important;top:0;z-index:1;background:var(--ssp-panel);color:var(--ssp-text);border-top:2px solid var(--dblite-target-color);border-bottom:1px solid var(--ssp-line);padding:3px 5px;font:700 9px/12px 'Segoe UI',sans-serif}
     .dblite-history-turn{display:block}
 
     #duel .dblite-field-signal img{width:16px!important;height:16px!important;flex-basis:16px}
-    #duel .dblite-viewing-eye{position:absolute;left:0;top:26px;width:46px;height:13px;box-sizing:border-box;display:flex;align-items:center;gap:2px;padding:0 2px;border:1px solid color-mix(in srgb,var(--dblite-target-color) 35%,transparent);border-radius:4px;background:var(--dbt-panel);color:var(--dblite-target-color);opacity:.35;pointer-events:auto}
+    #duel .dblite-viewing-eye{position:absolute;left:0;top:26px;width:46px;height:13px;box-sizing:border-box;display:flex;align-items:center;gap:2px;padding:0 2px;border:1px solid color-mix(in srgb,var(--dblite-target-color) 35%,transparent);border-radius:4px;background:var(--ssp-panel);color:var(--dblite-target-color);opacity:.35;pointer-events:auto}
     #duel .dblite-viewing-eye svg{position:static;flex:0 0 13px;width:13px;height:11px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
     #duel .dblite-viewing-eye .pupil{fill:currentColor;stroke:none}
     #duel .dblite-viewing-eye.is-viewing{opacity:1;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--dblite-target-color) 55%,transparent))}
@@ -2870,9 +2947,9 @@
     #duel .dblite-viewing-source{visibility:hidden!important}
     .dblite-card-target{position:absolute;left:50%;top:50%;translate:-50% -50%;z-index:2147483645;display:block;width:35%;aspect-ratio:1;background:transparent;border:0;color:var(--dblite-target-color);pointer-events:none;filter:drop-shadow(0 1px 1px #000) drop-shadow(0 0 1px #fff9)}
     .dblite-card-target>svg{position:static;display:block;width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round}
-    .dblite-profile-versus{position:absolute;z-index:3;display:flex;align-items:center;justify-content:center;gap:7px;pointer-events:none;color:var(--dbt-text);font:700 11px/1 'Segoe UI',Arial,sans-serif;letter-spacing:.12em;text-shadow:0 1px 3px #0008}
-    .dblite-profile-versus::before,.dblite-profile-versus::after{content:'';width:16px;height:1px;background:var(--dbt-panel)}
-    #duel .dblite-declare-banner{position:absolute;left:265px;top:32px;width:310px;z-index:100001;pointer-events:none;padding:10px 15px;border:2px solid var(--declare-actor);border-radius:9px;background:var(--dbt-panel);color:var(--dbt-text);box-shadow:0 0 24px color-mix(in srgb,var(--declare-actor) 45%,transparent);text-align:center;animation:dblite-declare-banner .22s ease-out both}
+    .dblite-profile-versus{position:absolute;z-index:3;display:flex;align-items:center;justify-content:center;gap:7px;pointer-events:none;color:var(--ssp-text);font:700 11px/1 'Segoe UI',Arial,sans-serif;letter-spacing:.12em;text-shadow:0 1px 3px #0008}
+    .dblite-profile-versus::before,.dblite-profile-versus::after{content:'';width:16px;height:1px;background:var(--ssp-panel)}
+    #duel .dblite-declare-banner{position:absolute;left:265px;top:32px;width:310px;z-index:100001;pointer-events:none;padding:10px 15px;border:2px solid var(--declare-actor);border-radius:9px;background:var(--ssp-panel);color:var(--ssp-text);box-shadow:0 0 24px color-mix(in srgb,var(--declare-actor) 45%,transparent);text-align:center;animation:dblite-declare-banner .22s ease-out both}
     #duel .dblite-declare-banner>*{position:static;display:block}#duel .dblite-declare-banner small{font:800 11px/16px 'Segoe UI',sans-serif;color:var(--declare-actor);letter-spacing:.1em}#duel .dblite-declare-banner strong{font:700 17px/22px 'Segoe UI',sans-serif}
     @keyframes dblite-declare-banner{from{opacity:0;translate:0 6px}to{opacity:1;translate:0 0}}
     @media(prefers-reduced-motion:reduce){#duel .dblite-declare-banner{animation:none}}
@@ -2890,7 +2967,7 @@
     @keyframes dblite-notice-out{from{opacity:1}to{opacity:0}}
     #duel.dblite-constructor-solo :is(#reset_btn,#reset_btn+.button.proxy){display:none!important}
     #duel .dblite-solo-session{position:absolute;left:105px;top:565px;width:98px;display:flex;flex-direction:column;gap:3px;z-index:2}
-    #duel .dblite-solo-session button{position:static;width:98px;height:22px;box-sizing:border-box;padding:0;border:1px solid var(--dbt-line);border-radius:4px;background:var(--dbt-panel-2);color:var(--dbt-text);font:11px system-ui;cursor:pointer}
+    #duel .dblite-solo-session button{position:static;width:98px;height:22px;box-sizing:border-box;padding:0;border:1px solid var(--ssp-line);border-radius:4px;background:var(--ssp-panel-2);color:var(--ssp-text);font:11px system-ui;cursor:pointer}
     #duel .dblite-solo-session button:disabled{opacity:.45;cursor:wait}
     /* DuelingBook positions every div in #duel absolutely: the row stays in the column's flow. */
     #duel .dblite-solo-session .dblite-solo-reset-row{position:static!important;display:flex;gap:3px;width:98px;height:22px}
@@ -2899,13 +2976,13 @@
     #duel .dblite-solo-session [hidden]{display:none}
     #duel.dblite-same-hand-native #reset_btn{width:71px!important}
     #duel.dblite-same-hand-native #reset_btn+.button.proxy{width:69px!important;overflow:hidden;white-space:nowrap}
-    #duel .dblite-solo-same-native{position:absolute;left:179px;top:565px;width:24px;height:22px;box-sizing:border-box;padding:0;border:1px solid var(--dbt-line);border-radius:4px;background:var(--dbt-panel-2);color:var(--dbt-text);font:14px/20px system-ui;cursor:pointer;z-index:2}
+    #duel .dblite-solo-same-native{position:absolute;left:179px;top:565px;width:24px;height:22px;box-sizing:border-box;padding:0;border:1px solid var(--ssp-line);border-radius:4px;background:var(--ssp-panel-2);color:var(--ssp-text);font:14px/20px system-ui;cursor:pointer;z-index:2}
     #duel .dblite-solo-same-native:disabled{opacity:.45;cursor:wait}
-    .dblite-panel{color:var(--dbt-text);position:fixed;z-index:2147483644;right:20px;top:24px;width:min(420px,calc(100vw - 40px));max-height:calc(100vh - 48px);overflow:auto;background:var(--dbt-panel);border:1px solid var(--dbt-line);border-radius:14px;padding:20px;box-shadow:0 20px 80px #000a}
+    .dblite-panel{color:var(--ssp-text);position:fixed;z-index:2147483644;right:20px;top:24px;width:min(420px,calc(100vw - 40px));max-height:calc(100vh - 48px);overflow:auto;background:var(--ssp-panel);border:1px solid var(--ssp-line);border-radius:14px;padding:20px;box-shadow:0 20px 80px #000a}
     .dblite-panel.dblite-batch-panel{left:50%;top:50%;right:auto;transform:translate(-50%,-50%);width:min(380px,calc(100vw - 32px));max-height:calc(100vh - 32px)}
-    .dblite-batch-panel .dblite-amount{width:100%;font-size:26px;text-align:center;padding:9px}.dblite-amount-presets{display:flex;gap:6px;margin:10px 0}.dblite-amount-presets button{flex:1;margin:0;padding:7px 5px}.dblite-amount-presets button[aria-pressed="true"]{background:var(--dbt-accent);color:var(--dbt-on-accent);border-color:var(--dbt-accent)}.dblite-amount-hint{font-size:12px;color:var(--dbt-muted);margin:10px 0}
-    .dblite-panel header{display:flex;gap:12px;align-items:center;justify-content:space-between;font-size:17px}.dblite-panel .dblite-close{padding:2px 8px}.dblite-help{color:var(--dbt-muted);font-size:13px;margin:14px 0 18px}.dblite-panel button{margin:4px 5px 4px 0}.dblite-panel .dblite-primary{background:var(--dbt-accent);color:var(--dbt-on-accent);border-color:var(--dbt-accent);font-weight:650}.dblite-panel label{display:block;margin:10px 0}.dblite-panel select{display:block;width:100%;margin-top:5px}.dblite-error{color:var(--dbt-text);font-size:12px}.dblite-progress{font-size:12px;color:var(--dbt-text)}.dblite-choice{border-top:1px solid var(--dbt-line);padding:12px 0}.dblite-choice span{display:block}.dblite-tools button:disabled,.dblite-panel button:disabled{opacity:.45;cursor:default}
-    .dblite-opponent-choice>strong{font-size:17px}.dblite-opponent-choice[hidden]{display:none!important}.dblite-opponent-choice>.dblite-primary{min-width:54px;white-space:normal;text-align:left}.dblite-manual-choice{border-top:1px solid var(--dbt-line);padding-top:12px}.dblite-manual-choice summary{cursor:pointer;color:var(--dbt-text)}.dblite-manual-choice .dblite-help{font-size:12px}
+    .dblite-batch-panel .dblite-amount{width:100%;font-size:26px;text-align:center;padding:9px}.dblite-amount-presets{display:flex;gap:6px;margin:10px 0}.dblite-amount-presets button{flex:1;margin:0;padding:7px 5px}.dblite-amount-presets button[aria-pressed="true"]{background:var(--ssp-accent);color:var(--ssp-on-accent);border-color:var(--ssp-accent)}.dblite-amount-hint{font-size:12px;color:var(--ssp-muted);margin:10px 0}
+    .dblite-panel header{display:flex;gap:12px;align-items:center;justify-content:space-between;font-size:17px}.dblite-panel .dblite-close{padding:2px 8px}.dblite-help{color:var(--ssp-muted);font-size:13px;margin:14px 0 18px}.dblite-panel button{margin:4px 5px 4px 0}.dblite-panel .dblite-primary{background:var(--ssp-accent);color:var(--ssp-on-accent);border-color:var(--ssp-accent);font-weight:650}.dblite-panel label{display:block;margin:10px 0}.dblite-panel select{display:block;width:100%;margin-top:5px}.dblite-error{color:var(--ssp-text);font-size:12px}.dblite-progress{font-size:12px;color:var(--ssp-text)}.dblite-choice{border-top:1px solid var(--ssp-line);padding:12px 0}.dblite-choice span{display:block}.dblite-tools button:disabled,.dblite-panel button:disabled{opacity:.45;cursor:default}
+    .dblite-opponent-choice>strong{font-size:17px}.dblite-opponent-choice[hidden]{display:none!important}.dblite-opponent-choice>.dblite-primary{min-width:54px;white-space:normal;text-align:left}.dblite-manual-choice{border-top:1px solid var(--ssp-line);padding-top:12px}.dblite-manual-choice summary{cursor:pointer;color:var(--ssp-text)}.dblite-manual-choice .dblite-help{font-size:12px}
     .dblite-motion-off :is(.dblite-target-ring,.dblite-target-notice){animation:none}
     .dblite-declare-off .dblite-declare-glow{display:none}
     @media(prefers-reduced-motion:reduce){

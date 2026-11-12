@@ -26,4 +26,17 @@
     if (area === 'local' && changes.settings) theme(changes.settings.newValue);
   });
   document.documentElement.classList.add('dblite-profile-layout', 'dblite-constructor-layout');
+  // DBuddy (another DuelingBook extension) tells its page bridge which of its tools are on with window messages
+  // ({source:'dbte-ext', type, value}). Spellspeed only listens, from document_start so none is missed, and keeps the
+  // tools that decide who owns an input in data-dblite-dbuddy, read by every Spellspeed script (rules.dbuddy()).
+  const dbuddyTools = new Set();
+  const dbuddyOn = { cardHotkeys: v => v === true, extraActions: v => Array.isArray(v) && v.length > 0, pileWheel: v => v === true,
+    silentPileView: v => v === true, replayTools: v => v === true, deckTools: v => !!v && typeof v === 'object', rpsAuto: v => !!v,
+    siteVolume: v => typeof v === 'number' && v !== 1, setTimeScale: v => typeof v === 'number' && v !== 1 };
+  addEventListener('message', event => {
+    const data = event.data;
+    if (event.source !== window || data?.source !== 'dbte-ext' || !Object.hasOwn(dbuddyOn, data.type)) return;
+    if (dbuddyOn[data.type](data.value)) dbuddyTools.add(data.type); else dbuddyTools.delete(data.type);
+    document.documentElement.dataset.dbliteDbuddy = [...dbuddyTools].sort().join(' ') || 'on';
+  });
 })();

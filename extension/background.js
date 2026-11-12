@@ -27,4 +27,11 @@
     route(message.username, sender.tab?.id).then(respond, () => respond({ opened: false, error: 'Could not open the player profile. Reload your DuelingBook tabs and try again.' }));
     return true;
   });
+  // Welcome page (user, 2026-11-12): a fresh install opens it in its own tab. An update opens nothing; the popup offers
+  // What's new once instead. Reloading an unpacked copy is an update to the same version and changes nothing.
+  api.runtime.onInstalled?.addListener(details => {
+    const version = api.runtime.getManifest().version;
+    if (details?.reason === 'install') Promise.resolve(api.tabs.create({ url: api.runtime.getURL('welcome.html') })).catch(() => {});
+    else if (details?.reason === 'update' && details.previousVersion && details.previousVersion !== version) Promise.resolve(api.storage.local.set({ whatsNew: version })).catch(() => {});
+  });
 })();
