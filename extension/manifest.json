@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Spellspeed for DuelingBook",
   "short_name": "Spellspeed",
-  "version": "0.9.3",
-  "version_name": "0.9.3-beta",
+  "version": "0.9.4",
+  "version_name": "0.9.4-beta",
   "description": "Faster, cleaner DuelingBook: drag-and-drop plays, card fans, shortcut keys, replay rewind, themes and a smarter deck builder.",
   "permissions": [
     "storage"
@@ -59,6 +59,7 @@
     {
       "resources": [
         "rules.js",
+        "line.js",
         "workbench.js",
         "constructor.js",
         "sounds.js",
@@ -66,6 +67,7 @@
         "touch.js",
         "recorder.js",
         "tour.js",
+        "guide.js",
         "rewind.js",
         "rewind-ui.js",
         "sfx-*.wav"

@@ -2,6 +2,15 @@
 (() => {
   'use strict';
   const api = globalThis.browser || chrome;
+  let guideReady = false;
+  const guideCommand = data => ({ type: 'DBLITE_GUIDE_OPEN', tour: data?.tour === true,
+    ...(globalThis.DBLiteRules?.guideIds.includes(data?.item) ? { item: data.item } : {}) });
+  api.runtime?.onMessage?.addListener((message, sender, respond) => {
+    if (message?.type === 'DBETTER_GUIDE_PROBE') { respond({ ready: guideReady }); return; }
+    if (message?.type !== 'DBETTER_GUIDE_SHOW') return;
+    if (guideReady) window.postMessage(guideCommand(message), location.origin);
+    respond({ opened: guideReady });
+  });
   const profileRequests = new Map();
   api.runtime?.onMessage?.addListener((message, sender, respond) => {
     if (!['DBETTER_PROFILE_PROBE', 'DBETTER_PROFILE_OPEN'].includes(message?.type)) return;
@@ -34,6 +43,9 @@
     });
   }
   async function start() {
+    const request = (await api.storage.local.get('guideRequest')).guideRequest;
+    const freshRequest = Number.isFinite(request?.at) && Date.now() - request.at >= 0 && Date.now() - request.at <= 600000;
+    if (freshRequest) await api.storage.local.remove('guideRequest');
     const saved = await api.storage.local.get('settings');
     let currentSettings = saved.settings || {};
     const theme = settings => {
@@ -71,6 +83,11 @@
       const data = event.data;
       update(latest => globalThis.DBLiteRules?.quickPatch(latest, data));
     });
+    // The ? key sheet's All settings button: only the background page may open the options page.
+    window.addEventListener('message', event => {
+      if (event.source !== window || event.origin !== location.origin || event.data?.type !== 'DBLITE_OPEN_OPTIONS') return;
+      Promise.resolve(api.runtime.sendMessage({ type: 'DBETTER_OPEN_OPTIONS' })).catch(() => {});
+    });
     // Onboarding: seen tips, Skip and the look chosen on the welcome card (validated by DBLiteRules.tourPatch).
     window.addEventListener('message', event => {
       if (event.source !== window || event.origin !== location.origin || event.data?.type !== 'DBLITE_TOUR') return;
@@ -87,6 +104,7 @@
       }
     });
     await inject('rules.js');
+    await inject('line.js');
     await inject('workbench.js');
     await inject('constructor.js');
     await inject('sounds.js');
@@ -99,6 +117,8 @@
     await inject('touch.js', currentSettings).catch(error => console.warn('Spellspeed:', error.message));
     await inject('recorder.js', currentSettings).catch(error => console.warn('Spellspeed:', error.message));
     await inject('tour.js', currentSettings).catch(error => console.warn('Spellspeed:', error.message));
+    await inject('guide.js', currentSettings).then(() => { guideReady = true; }).catch(error => console.warn('Spellspeed:', error.message));
+    if (freshRequest && guideReady) window.postMessage(guideCommand(request), location.origin);
     window.postMessage({ type: 'DBLITE_SETTINGS', settings: currentSettings }, location.origin);
   }
   start().catch(error => {

@@ -23,7 +23,8 @@
     };
     wrapped.dbliteFocusBlock = true; wrapped.dbliteOriginal = original; proto.focus = wrapped;
   }
-  const sounds = window.DBLiteSounds?.create(() => ({ ...config, sounds: config.sounds && config.refinedSounds }));
+  // Mellow sounds (DuelingBook's own, softened) take the place of the refined set while on.
+  const sounds = window.DBLiteSounds?.create(() => ({ ...config, sounds: config.sounds && (config.refinedSounds || config.mellowSounds), mellow: config.sounds && config.mellowSounds }));
   let speedOwner = null, oldSpeed = null, speedApplied = false;
   const motionSpeed = 1.6, motionHooks = new Map();
   let summonContext = null;
@@ -1060,6 +1061,7 @@
       onField: field.some(item => same(item, card)),
       inMonsterZone: [...Array.from({ length: 5 }, (_, i) => p[`m${i + 1}`]), window.linkLeft, window.linkRight].some(item => same(item, card)),
       link: front?.data('monster_color') === 'Link',
+      xyz: front?.data('monster_color') === 'Xyz',
       trap: front?.data('card_type') === 'Trap',
       fieldSpell: front?.data('type') === 'Field',
       extra: includes(p.extra_arr, card),
@@ -1067,6 +1069,7 @@
       viewedExtra: includes(p.extra_arr, card) && window.viewing === 'Extra Deck',
       faceUpExtraPendulum: includes(p.extra_arr, card) && faceUpPendulum(card),
       viewedDeck: includes(p.main_arr, card) && window.viewing === 'Deck',
+      faceUpBanished: includes(p.banished_arr, card) && !card.data('face_down'),
       monster: front?.data('card_type') === 'Monster',
       pendulum: !!front?.data('pendulum'),
       name: front?.data('name') || 'Card'
@@ -1183,7 +1186,8 @@
         if (window.DBETTERRebuilding) return original.call(this, card, ...args);
         // DBuddy's card hotkeys and extra card actions work through DuelingBook's own hover menu: while one is on,
         // the hover menu stays (Spellspeed's right-click menu still opens on right-click).
-        if (!rules.dbuddy().cardMenus && replaceHoverMenu(card)) { window.menu_reason = 'Use the right-click card menu'; return; }
+        // DBuddy's pile wheel clicks "View deck" / "View ED" in DuelingBook's own pile menu: that one menu shows too.
+        if (!rules.dbuddy().cardMenus && !rules.dbuddyPileAction?.() && replaceHoverMenu(card)) { window.menu_reason = 'Use the right-click card menu'; return; }
         const result = original.call(this, card, ...args);
         // DuelingBook lifts a hand card itself when its menu opens; a second lift covers the bottom entries.
         if (window.menu_card) { if (same(window.menu_card, $(raisedHand))) lowerHand(); document.documentElement.classList.toggle('dblite-native-menu-open', true); }
@@ -1199,7 +1203,7 @@
       rules.markHook(wrapped, remove); wrappers.set('removeCardMenu', wrapped); window.removeCardMenu = wrapped;
     }
     if (!window.menu_card) document.documentElement.classList.toggle('dblite-native-menu-open', false);
-    if (!rules.dbuddy().cardMenus && window.menu_card && replaceHoverMenu(window.menu_card)) window.removeCardMenu?.('DBETTER right-click actions');
+    if (!rules.dbuddy().cardMenus && !rules.dbuddyPileAction?.() && window.menu_card && replaceHoverMenu(window.menu_card)) window.removeCardMenu?.('DBETTER right-click actions');
   }
   // Collect every native entry, including card-specific labels and command IDs.
   // Temporary capture bypasses only rendering and is restored even on failure.
@@ -1313,17 +1317,104 @@
   const dbuddyKeys = new Set();
   const keyActionNames = { ok: 'OK', think: 'Thinking', extra: 'Extra Deck', deck: 'Deck', grave: 'Graveyard', banished: 'Banished', hand: 'Hand',
     declare: 'Declare', target: 'Target', sort: 'Sort', peek: 'Peek', wheel: 'Position wheel' };
+  // DBuddy 2.2.3's default duel hotkeys, to name the clash and to pick a key that is free in both for the one-click fix.
+  const dbuddyDefaultKeys = { a: 'OK', s: 'Shuffle', t: 'Thinking', d: 'Draw', m: 'Mill', r: 'Random discard', h: 'Halve LP', n: 'Nibiru',
+    g: 'Chat 1', 1: 'Draw Phase', 2: 'Standby Phase', 3: 'Main Phase 1', 4: 'Battle Phase', 5: 'Main Phase 2', 6: 'End Phase' };
+  const spareKeys = ['f', 'b', 'j', 'k', 'l', 'u', 'i', 'o', 'p', 'y', 'x', 'v'];
+  function spareKey() {
+    const used = new Set(Object.values(config.keys));
+    return spareKeys.find(key => !used.has(key) && !Object.hasOwn(dbuddyDefaultKeys, key) && !dbuddyKeys.has(key)) || null;
+  }
+  let keyClash = null, keyClashTimer = 0;
+  function closeKeyClash() { clearTimeout(keyClashTimer); keyClash?.remove(); keyClash = null; }
   function dbuddyTookKey(event) {
     const key = event.key?.toLowerCase(), action = Object.keys(config.keys).find(action => config.keys[action] === key);
     if (!action || !config.shortcuts || dbuddyKeys.has(key) || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey ||
         !rules.dbuddy().present || event.composedPath().some(typingAt) || !shortcutReady()) return;
     dbuddyKeys.add(key);
-    // User, 2026-11-12: Spellspeed keeps its keys; a clash is the user's to settle, by rebinding or turning one off.
-    announce(`Hotkey conflict with DBuddy: ${rules.keyLabel(key)} is Spellspeed’s ${keyActionNames[action] || action} key and also a DBuddy duel hotkey, ` +
-      'and DBuddy acted first. Rebind it in Spellspeed’s settings, or turn off DBuddy’s Duel hotkeys (Duel › Hotkeys and mouse).', 12000);
+    // User, 2026-11-12: Spellspeed keeps its keys; a clash is the user's to settle, by rebinding or turning one off, with a
+    // one-click fix: Spellspeed's key moves to one that is free in both. DBuddy's own settings are never changed.
+    const name = keyActionNames[action] || action, theirs = dbuddyDefaultKeys[key], spare = spareKey();
+    closeKeyClash();
+    const note = keyClash = document.createElement('div'); note.className = 'dblite-key-clash'; note.setAttribute('role', 'status');
+    const close = document.createElement('button'); close.type = 'button'; close.className = 'dblite-key-clash-close';
+    close.textContent = '×'; close.setAttribute('aria-label', 'Close'); close.addEventListener('click', closeKeyClash);
+    const text = document.createElement('p');
+    text.textContent = `Hotkey clash: ${rules.keyLabel(key)} is Spellspeed’s ${name} key and DBuddy’s ${theirs ? `${theirs} hotkey` : 'duel hotkey'}, and DBuddy acted first.`;
+    const other = document.createElement('p'); other.className = 'dblite-key-clash-other';
+    other.textContent = 'Or turn off DBuddy’s Duel hotkeys (DBuddy › Duel › Hotkeys and mouse).';
+    note.append(close, text);
+    if (spare) {
+      const fix = document.createElement('button'); fix.type = 'button'; fix.className = 'dblite-key-clash-fix';
+      fix.textContent = `Use ${rules.keyLabel(spare)} for Spellspeed’s ${name}`;
+      fix.addEventListener('click', () => {
+        window.postMessage({ type: 'DBLITE_QUICK', key: { action, value: spare } }, location.origin);
+        text.textContent = `Spellspeed’s ${name} key is now ${rules.keyLabel(spare)}. You can change it in Spellspeed’s settings.`;
+        fix.remove(); other.remove(); clearTimeout(keyClashTimer); keyClashTimer = setTimeout(closeKeyClash, 5000);
+      });
+      note.append(fix);
+    }
+    note.append(other); document.body.append(note);
+    keyClashTimer = setTimeout(closeKeyClash, 20000);
+  }
+  // Playtest F7 (2026-11-04): nothing in a duel said which keys Spellspeed uses, which modifier does what on a drop, or
+  // where its settings are. ? (any layout's ?, Shift included) lists what is switched on, with a link to All settings.
+  let keySheet = null;
+  const keySheetReady = () => config.shortcuts && !!window.duel_active && !!window.duelist && !window.replay && !document.hidden;
+  function closeKeySheet() { keySheet?.remove(); keySheet = null; }
+  function keySheetRows() {
+    const k = action => rules.keyLabel(config.keys[action] || ''), keys = [], drops = [];
+    if (config.signalKeys) keys.push([k('ok'), 'OK · hold: keep going'], [k('think'), 'Thinking · hold: big think']);
+    if (config.zoneKeys) keys.push([['extra', 'deck', 'grave', 'banished'].map(k).join(' '),
+      'Open the Extra Deck, Deck, GY or banished' + (config.zoneKeysSend ? ' · over your card: send it there' : '')]);
+    if (config.zoneKeys && config.zoneKeysSend) keys.push([k('hand'), 'Over your card: send it to the hand']);
+    if (config.cardKeys) keys.push([k('declare'), 'Declare the card under the pointer'], [k('target'), 'Target the card under the pointer']);
+    if (config.sortKey) keys.push([k('sort'), 'Sort the open pile viewer']);
+    if (config.peekKey) keys.push([k('peek'), 'See through the open pile viewer']);
+    if (config.drag) keys.push([k('wheel'), 'Position wheel on / off (◎ Wheel / ⌨ Direct)']);
+    if (config.drag) {
+      drops.push(['Drop', config.dropWheel ? 'On an empty zone, the wheel asks how to play the card'
+        : 'Monster: Special Summon in Attack · Spell: activate · Trap: Set']);
+      if (config.dragDefense) drops.push(['Shift + drop', 'Defense · Set a Spell · Trap face-up · bottom of Deck · banish face-down']);
+      if (config.normalSummon) drops.push(['Ctrl + drop', 'Normal Summon from the hand']);
+      if (config.dragSet) drops.push(['Alt + drop', 'Set a monster from the hand']);
+    }
+    drops.push([config.contextMenu ? 'Right-click' : 'Hover', 'A card’s actions' + (config.contextMenu ? ' (DuelingBook’s hover menu is off: All settings › Right-click actions)' : '')]);
+    return { keys, drops };
+  }
+  function toggleKeySheet() {
+    if (keySheet) { closeKeySheet(); return; }
+    const sheet = keySheet = document.createElement('div'); sheet.className = 'dblite-key-sheet';
+    sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-label', 'Spellspeed keys');
+    const head = document.createElement('header'), title = document.createElement('strong'), close = document.createElement('button');
+    title.textContent = 'Spellspeed keys'; close.type = 'button'; close.textContent = '×'; close.title = 'Close (? or Esc)';
+    close.setAttribute('aria-label', 'Close'); close.addEventListener('click', closeKeySheet); head.append(title, close);
+    const { keys, drops } = keySheetRows(), table = (caption, rows) => {
+      if (!rows.length) return [];
+      const h = document.createElement('h3'), list = document.createElement('dl'); h.textContent = caption;
+      for (const [key, what] of rows) {
+        const dt = document.createElement('dt'), dd = document.createElement('dd');
+        dt.textContent = key; dd.textContent = what; list.append(dt, dd);
+      }
+      return [h, list];
+    };
+    const foot = document.createElement('footer'), open = document.createElement('button'), hint = document.createElement('span');
+    open.type = 'button'; open.textContent = 'All settings'; open.title = 'Change the keys and switch features on or off';
+    open.addEventListener('click', () => { window.postMessage({ type: 'DBLITE_OPEN_OPTIONS' }, location.origin); closeKeySheet(); });
+    hint.textContent = 'Also from Spellspeed’s toolbar button. ? or Esc closes.';
+    foot.append(open, hint);
+    sheet.append(head, ...table('Keys', keys), ...table('Mouse', drops), foot);
+    document.body.append(sheet); close.focus({ preventScroll: true });
   }
   document.addEventListener('keydown', event => { if (rules.skipInput(event)) { dbuddyTookKey(event); return; }
     const key = event.key.toLowerCase();
+    if (event.key === 'Escape' && keySheet) closeKeySheet();
+    if (event.key === '?' && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing &&
+        (keySheet || keySheetReady()) && !event.composedPath().some(typingAt)) {
+      event.preventDefault(); event.stopImmediatePropagation(); cancelShortcuts();
+      if (!event.repeat) toggleKeySheet();
+      return;
+    }
     if (event.key === 'Escape' || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.isComposing) { cancelShortcuts(); return; }
     const action = Object.keys(config.keys).find(action => config.keys[action] === key);
     const enabled = ['ok', 'think'].includes(action) ? config.signalKeys : ['declare', 'target'].includes(action) ? config.cardKeys : action === 'wheel' ? config.drag : ['extra', 'deck', 'grave', 'banished', 'hand'].includes(action) && config.zoneKeys;
@@ -1491,6 +1582,9 @@
   function targets(card) {
     const p = window.player1, result = [], info = cardInfo(card);
     const count = window.duel_links || window.speed || window.rush ? 3 : 5;
+    // DuelingBook offers Attach only while you control an Xyz Monster; the dropped card itself does not count.
+    const anyXyz = [...Array.from({ length: 5 }, (_, i) => p[`m${i + 1}`]), window.linkLeft, window.linkRight]
+      .some(item => item && item.data?.('controller') === p && !same(item, card) && item.data('cardfront')?.data('monster_color') === 'Xyz');
     function add(id, kind, occupant, zone = false) {
       const node = document.getElementById(id), rect = dropRect(node, kind);
       const front = occupant?.data?.('cardfront');
@@ -1498,7 +1592,7 @@
         occupant.data?.('controller') === p && !occupant.data('face_down') &&
         !occupant.data('fake_card') && !!front && front.data('monster_color') !== 'Token';
       if (rect) result.push({ node, rect, kind, occupant, occupied: !!occupant, zone,
-        overlayEligible, xyz: front?.data('monster_color') === 'Xyz' });
+        overlayEligible, anyXyz, xyz: front?.data('monster_color') === 'Xyz' });
     }
     for (let i = 1; i <= count; i++) {
       add(`m${i}_select`, 'monster', p[`m${i}`], true);
@@ -1558,11 +1652,11 @@
     const action = rules.dropAction(cardInfo(g.card), target, shift, g.actions, config.normalSummon && ctrl, alt);
     // Banish returns a card to its owner. Do not strand a borrowed card in the
     // opponent's pile, or improvise a move that the native menu doesn't offer.
-    if (action === 'Attach' && needsBanish(g.source) &&
-        (!g.actions.includes('Banish') || g.card.data('owner') !== window.player1)) return null;
+    if (action === 'Attach' && !attachAllowed(g)) return null;
     return action;
   }
-  function needsBanish(source) { return ['field', 'hand_arr', 'main_arr'].includes(source); }
+  function needsBanish(source) { return ['field', 'hand_arr', 'main_arr', 'extra_arr'].includes(source); }
+  function attachAllowed(g) { return !needsBanish(g.source) || g.actions.includes('Banish') && g.card.data('owner') === window.player1; }
   function drawTargets(g, shift, ctrl, alt) {
     g.shift = !!shift; g.ctrl = !!ctrl; g.alt = !!alt;
     for (const target of g.targets) {
@@ -1572,10 +1666,10 @@
       target.marker.textContent = ({ 'Set ST': 'Set face-down', 'To ST': 'Place face-up',
         'Activate ST': 'Activate', 'To ED FU': 'Extra Deck face-up', 'Set monster': 'Set face-down',
         'To T Deck': 'Top of Deck', 'To B Deck': 'Bottom of Deck', 'Draw card': 'Draw 1',
-        'Detach': 'Detach to GY', 'Reveal': 'Reveal to opponent', 'Attack': 'Declare attack', 'Attack directly': 'Direct attack' })[action] || action || '';
+        'Detach': 'Detach to GY', 'OL ATK': 'Xyz Summon', 'OL DEF': 'Xyz Summon · DEF', 'Overlay': 'Overlay on top', 'Reveal': 'Reveal to opponent', 'Attack': 'Declare attack', 'Attack directly': 'Direct attack' })[action] || action || '';
       if (action && target.kind === 'opponentZone') target.marker.textContent = /^SS /.test(action) ? `Opponent’s field${action === 'SS DEF' ? ' · DEF' : ''}` : 'Change control';
       if (action === 'Attach' && needsBanish(g.source)) target.marker.textContent = 'Attach via banish';
-      if (action && choices.length > 1) target.marker.textContent = ['spell', 'field'].includes(target.kind) ? 'Place…' : 'Summon…';
+      if (action && choices.length > 1) target.marker.textContent = target.occupied ? 'Attach or Overlay…' : ['spell', 'field'].includes(target.kind) ? 'Place…' : 'Summon…';
       target.marker.dataset.label = target.marker.textContent;
       const label = document.createElement('span'); label.className = 'dblite-drop-label'; label.textContent = target.marker.textContent;
       target.marker.replaceChildren(label);
@@ -1584,20 +1678,30 @@
   // User, 2026-10-29: the position wheel suits laid-back mouse play; off, a drop plays at once and Shift, Ctrl and Alt
   // choose (keyboard play). A button beside Find a card and a key (W) switch between the two, saved like the settings.
   let wheelNote = null;
+  // Playtest W1: "Shift, Ctrl, Alt choose" did not say which key does what. Only the switched-on modifiers are named.
+  function directNote() {
+    const keys = [config.dragDefense && 'Shift: Defense', config.normalSummon && 'Ctrl: Normal Summon', config.dragSet && 'Alt: Set'].filter(Boolean);
+    return `Direct: a drop Special Summons in Attack${keys.length ? ` · ${keys.join(' · ')}` : ''}`;
+  }
   function toggleWheel() {
     const on = !config.dropWheel;
     config = { ...config, dropWheel: on };
     window.postMessage({ type: 'DBLITE_QUICK', dropWheel: on }, location.origin);
     wheelNote?.remove();
     const note = wheelNote = document.createElement('div'); note.className = 'dblite-quick-note'; note.setAttribute('role', 'status');
-    note.textContent = on ? 'Position wheel on: a drop on an empty zone asks how to play the card' : 'Position wheel off: drops play at once (Shift, Ctrl, Alt choose)';
+    note.textContent = on ? 'Position wheel on: a drop on an empty zone asks how to play the card' : directNote();
     document.body.append(note); setTimeout(() => { if (wheelNote === note) { note.remove(); wheelNote = null; } }, 1800);
   }
   // Touch has no Shift / Ctrl / Alt, so a drop on an empty monster zone asks for the position.
   // The position wheel's choices for a drop on an empty zone: always for touch (no Shift / Ctrl / Alt), and with a
   // mouse when the Position wheel setting is on and no modifier key (keys: the drop's) picks the move directly.
   function summonChoices(g, target, keys) {
-    if (target.occupied || !(g.touch || config.dropWheel && !keys?.shift && !keys?.ctrl && !keys?.alt)) return [];
+    // A drop on an Xyz Monster asks Attach or Overlay (user, 2026-11-13), with the wheel on or off;
+    // Shift (when switched on) still picks directly: Attach for a field card, Overlay in DEF from the Extra Deck.
+    // A choice made on the wheel stays valid while it is still possible (all), even if the other way went.
+    if (target.occupied) return keys?.shift && config.dragDefense ? [] :
+      rules.hostChoices(cardInfo(g.card), target, g.actions, !keys).filter(([action]) => action !== 'Attach' || attachAllowed(g));
+    if (!(g.touch || config.dropWheel && !keys?.shift && !keys?.ctrl && !keys?.alt)) return [];
     const info = cardInfo(g.card), offered = ([action]) => g.actions.includes(action);
     if (info.onField) return [];
     if (['monster', 'opponentZone'].includes(target.kind)) {
@@ -1606,8 +1710,8 @@
       return [['SS ATK', 'SS Attack'], ['Normal Summon', 'Normal'], ['SS DEF', 'SS Defense'], ['Set monster', 'Set']].filter(([action]) =>
         offered([action]) && !(action === 'SS DEF' && info.link) && (info.hand && target.kind === 'monster' || !['Normal Summon', 'Set monster'].includes(action)));
     }
-    // Spells and Traps: activate, Set or place face-up (a Pendulum monster from the Extra Deck only goes face-up).
-    if (target.kind === 'spell' && !((info.viewedExtra || info.faceUpExtraPendulum) && info.monster))
+    // Spells and Traps: activate, Set or place face-up (a monster from the Extra Deck, the Deck or banished only goes face-up).
+    if (target.kind === 'spell' && !((info.viewedExtra || info.faceUpExtraPendulum || info.viewedDeck || info.faceUpBanished) && info.monster))
       return (info.trap ? [['Set ST', 'Set'], ['Activate ST', 'Activate'], ['To ST', 'Face-up']] : [['Activate ST', 'Activate'], ['Set ST', 'Set'], ['To ST', 'Face-up']]).filter(offered);
     if (target.kind === 'field' && info.fieldSpell) return [['Activate Field Spell', 'Activate'], ['Set Field Spell', 'Set']].filter(offered);
     return [];
@@ -1670,10 +1774,10 @@
     const r = target.rect;
     // The card viewer steps aside while the position is chosen (it covers the field).
     document.documentElement.classList.toggle('dblite-wheel-open', true);
-    const wheel = ringWheel({ className: 'dblite-position-wheel', label: ['spell', 'field'].includes(target.kind) ? 'How to place it' : 'Summon position', x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2,
+    const wheel = ringWheel({ className: 'dblite-position-wheel', label: target.occupied ? 'Attach or Overlay' : ['spell', 'field'].includes(target.kind) ? 'How to place it' : 'Summon position', x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2,
       outer: choices.length > 2 ? 92 : 78, inner: 30,
       onClose: () => { document.documentElement.classList.toggle('dblite-wheel-open', false); if (positionWheel?.close === wheel.close) positionWheel = null; },
-      items: choices.map(([action, label]) => ({ label, action, title: label, run: () => {
+      items: choices.map(([action, label, sub]) => ({ label, sub, action, title: sub ? `${label} (${sub})` : label, run: () => {
         // A card taken from a viewer: the viewer closes once the summon is sent.
         const fromViewer = !!g.focusTarget?.closest?.('.dblite-fan,#view');
         try { dropWhenIdle(g, () => { executeDrop(g, target, false, false, false, pointerX, action); if (fromViewer) setTimeout(() => workbench?.closeViewer?.(), 0); }); }
@@ -1788,7 +1892,7 @@
       const occupant = job.player[job.targetNode.id.replace('_select', '')] || (job.targetNode.id === 'link_left_select' ? window.linkLeft : window.linkRight);
       const front = occupant?.data('cardfront');
       const target = job.targetNode.isConnected && { occupant, xyz: front?.data('monster_color') === 'Xyz', overlayEligible: !!occupant && occupant.data('controller') === job.player && !occupant.data('face_down') && !occupant.data('fake_card') && !!front && front.data('monster_color') !== 'Token' };
-      if (!target?.overlayEligible || !target.xyz || !same(target.occupant, job.host) ||
+      if (!target?.overlayEligible || target.xyz !== job.xyz || !same(target.occupant, job.host) ||
           job.host.data('id') !== job.hostId) { cancelAttach(); return; }
       const source = dragSource(job.card);
       if (source !== 'banished_arr') {
@@ -1813,7 +1917,7 @@
   function banishThenAttach(g, target) {
     if (typeof window.cardMenuClicked !== 'function') return;
     pendingAttach = { card: g.card, cardId: g.card.data('id'), source: g.source,
-      host: target.occupant, hostId: target.occupant.data('id'), targetNode: target.node,
+      host: target.occupant, hostId: target.occupant.data('id'), targetNode: target.node, xyz: !!target.xyz,
       duelId: g.duelId, player: window.player1, deadline: Date.now() + 10000 };
     announce('Banishing, then attaching… Escape cancels.');
     try {
@@ -2852,6 +2956,7 @@
   // measurable dimensions or its font has loaded. Refit the complete title
   // when visible, using the same horizontal compression as native setText.
   const cardNameFits = new WeakMap();
+  const NAME_MIN_SQUEEZE = 0.55;
   let cardNameFrame = null;
   const observedNames = new Set();
   const nameResize = window.ResizeObserver ? new ResizeObserver(entries => { for (const entry of entries) dirtyNames.add(entry.target); queueCardNames(); }) : null;
@@ -2861,11 +2966,24 @@
       if (!observedNames.has(name)) { observedNames.add(name); nameResize?.observe(name); }
       if (!name.textContent || !name.clientWidth || !visible(name)) continue;
       name.style.whiteSpace = 'nowrap';
-      const width = name.clientWidth, fullWidth = name.scrollWidth;
+      const width = name.clientWidth;
+      let fullWidth = name.scrollWidth;
       if (!fullWidth) continue;
       const key = `${name.textContent}:${width}:${fullWidth}:${name.style.transform}`;
       if (cardNameFits.get(name) === key) continue;
-      const transform = `scaleX(${Math.min(1, width / fullWidth)})`;
+      // Very long names (e.g. "Calamity of the Sacred Beasts - Hamon, Lord of Striking Thunder", 30 %)
+      // turn into an unreadable smear on small cards: squeeze at most to NAME_MIN_SQUEEZE and make up
+      // the rest with a smaller font. The big preview keeps DuelingBook's own fit.
+      if (name.dataset.dbliteNameFont) { name.style.fontSize = ''; delete name.dataset.dbliteNameFont; fullWidth = name.scrollWidth || fullWidth; }
+      let ratio = Math.min(1, width / fullWidth);
+      const size = ratio < NAME_MIN_SQUEEZE && !name.closest('#preview') ? parseFloat(getComputedStyle(name).fontSize) : 0;
+      if (size > 0) {
+        name.style.fontSize = `${Math.round(size * ratio / NAME_MIN_SQUEEZE * 100) / 100}px`;
+        name.dataset.dbliteNameFont = '1';
+        fullWidth = name.scrollWidth || fullWidth;
+        ratio = Math.min(1, width / fullWidth);
+      }
+      const transform = `scaleX(${ratio})`;
       if (name.style.transform !== transform) name.style.transform = transform;
       name.style.transformOrigin = 'top left';
       cardNameFits.set(name, `${name.textContent}:${width}:${fullWidth}:${name.style.transform}`);
@@ -3166,8 +3284,10 @@
         const needs = [how.idea.starter && `it needs: ${how.idea.starter}`, how.idea.step && `the step needs: ${how.idea.step}`].filter(Boolean);
         const note = needs.length ? needs.join('; ') : how.idea.generic ? 'the step finds any card of that kind' : 'its timing or limits do not fit a one-card line';
         const tail = `${how.chance ? `, by chance: ${how.chance}` : ''} — ${note}`;
-        if (step) line().append(`⤺ Idea: ${how.move === 'destroy' ? 'destroys' : 'gets'} “`, cardRef(step), `”, which ${does(how.action)}${tail}`);
-        else line().append(`⤺ Idea: ${does(how.action)}${tail}`);
+        // Situational (0.9.4): it waits on the opponent, a battle, damage or counters, so it comes after every plan.
+        const label = how.idea.situational ? '⤺ Idea, situational' : '⤺ Idea';
+        if (step) line().append(`${label}: ${how.move === 'destroy' ? 'destroys' : 'gets'} “`, cardRef(step), `”, which ${does(how.action)}${tail}`);
+        else line().append(`${label}: ${does(how.action)}${tail}`);
       } else if (how?.move === 'direct') {
         // A one-card starter gets the card with its own effect (user, 2026-10-30).
         line().append(`⤺ On its own: ${does(how.action)}${how.chance ? `, by chance: ${how.chance}` : ''}`);
@@ -3834,7 +3954,8 @@
       if (wheelButton.textContent !== wheelText) {
         wheelButton.textContent = wheelText; wheelButton.dataset.icon = wheelText[0]; wheelButton.setAttribute('aria-pressed', String(wheelOn));
         wheelButton.setAttribute('aria-label', `Position wheel ${wheelOn ? 'on' : 'off'}`);
-        wheelButton.title = `${wheelOn ? 'Position wheel on: a drop on an empty zone asks how to play the card.' : 'Position wheel off: a drop plays at once; Shift, Ctrl and Alt choose.'} Click or press ${rules.keyLabel(config.keys.wheel)} to switch.`;
+        // Playtest W1: the label is the current mode; the title says so and names the other one.
+        wheelButton.title = `Drops now: ${wheelOn ? 'Wheel. A drop on an empty zone asks how to play the card.' : directNote().replace(/^Direct: a/, 'Direct. A') + '.'} Click or press ${rules.keyLabel(config.keys.wheel)} to switch to ${wheelOn ? 'Direct' : 'Wheel'}. ? lists every key.`;
       }
       // Only in your own games (Solo or a duel you play); not while watching or in a replay (user, 2026-10-29).
       const noWheel = !config.drag || !window.duelist || !!window.replay;
@@ -4004,6 +4125,97 @@
     for (const name of buttonLook) html.style.setProperty(`--dblite-button-${name}`, style.getPropertyValue(name));
   }
   rules.onDbuddy?.(() => syncButtonLook(true));
+  // Elo in Rated duels (user, 2026-11-13: players asked where the Elo is; only the profile showed it). DuelingBook
+  // already sends every player's rating with the duel (initPlayers(data): playerN.rating/experience, the text its
+  // hover tip on the avatar shows) and the new ratings when the duel ends (duelOver(data)); startDuel sets the global
+  // rated. Spellspeed reads those, sends nothing, and shows nothing in unrated duels, Solo or replays. At the start
+  // of a Rated duel a short card shows both ratings (once per duel, with Animations on); then each avatar keeps a badge.
+  const ELO_INTRO_MS = 2800;
+  let eloHooks = { initPlayers: null, duelOver: null }, eloIntroduced = '', eloIntro = null, eloIntroTimer = 0;
+  function eloRated() { return !!window.rated && !window.replay && !window.solo && !conflict(); }
+  // Streaming mode: DuelingBook censors the names on the avatars; the badge and the card do the same.
+  function eloName(name) { name = String(name ?? ''); return window.streaming && typeof window.censor === 'function' ? window.censor(name) : name; }
+  function eloValue(player) { const value = Number(player?.rating); return player && player.rating !== '' && player.rating != null && Number.isFinite(value) ? Math.round(value) : null; }
+  function eloBadges(data, ended = false) {
+    for (const slot of [1, 2, 3, 4]) {
+      const avatar = document.getElementById('avatar' + slot); if (!avatar) continue;
+      const player = data?.['player' + slot], value = eloRated() ? eloValue(player) : null;
+      let badge = avatar.querySelector('.dblite-elo');
+      if (value == null) { badge?.remove(); continue; }
+      if (!badge) {
+        badge = document.createElement('span'); badge.className = 'dblite-elo';
+        badge.innerHTML = '<span class="dblite-elo-label">Elo</span><b class="dblite-elo-value"></b><span class="dblite-elo-change" hidden></span>';
+        avatar.append(badge);
+      }
+      const shown = badge.querySelector('.dblite-elo-value'), change = badge.querySelector('.dblite-elo-change');
+      const before = Number(badge.dataset.elo), delta = ended && Number.isFinite(before) ? value - before : 0;
+      badge.dataset.elo = String(value); badge.dataset.username = String(player.username ?? '');
+      shown.textContent = String(value);
+      change.hidden = !delta; change.textContent = delta ? (delta > 0 ? '+' : '−') + Math.abs(delta) : '';
+      change.classList.toggle('dblite-elo-up', delta > 0); change.classList.toggle('dblite-elo-down', delta < 0);
+      if (!ended) change.hidden = true;
+      badge.title = (player.username ? eloName(player.username) + ': ' : '') + 'rating ' + value + (delta ? ' (' + change.textContent + ' this duel)' : '') + ' — from DuelingBook';
+    }
+  }
+  function closeEloIntro() { clearTimeout(eloIntroTimer); eloIntroTimer = 0; eloIntro?.remove(); eloIntro = null; }
+  function showEloIntro(data) {
+    closeEloIntro();
+    const duel = document.getElementById('duel'), me = window.duelist ? data?.player1 : null;
+    // Duelists see their opponent first; spectators see the top player, then the bottom one, as on the field.
+    const top = eloValue(data?.player2), bottom = eloValue(data?.player1);
+    if (!duel || top == null || window.tag_duel) return;
+    const card = (who, value, side) => {
+      const box = document.createElement('div'); box.className = 'dblite-elo-side dblite-elo-' + side;
+      const name = document.createElement('span'); name.className = 'dblite-elo-name'; name.textContent = who;
+      const number = document.createElement('b'); number.className = 'dblite-elo-number'; number.textContent = String(value); number.dataset.elo = String(value);
+      box.append(name, number); return box;
+    };
+    eloIntro = document.createElement('div'); eloIntro.className = 'dblite-elo-intro'; eloIntro.setAttribute('role', 'status');
+    const title = document.createElement('div'); title.className = 'dblite-elo-title'; title.textContent = 'Rated duel';
+    const row = document.createElement('div'); row.className = 'dblite-elo-row';
+    row.append(card(eloName(data.player2?.username ?? 'Opponent'), top, 'them'));
+    if (bottom != null) { const vs = document.createElement('span'); vs.className = 'dblite-elo-vs'; vs.textContent = 'vs'; row.append(vs, card(me ? 'You' : eloName(data.player1?.username), bottom, 'you')); }
+    eloIntro.append(title, row); duel.append(eloIntro);
+    // The numbers count up to the ratings (skipped with reduced motion).
+    if (!reducedMotion?.matches && typeof window.requestAnimationFrame === 'function') {
+      const start = performance.now(), numbers = [...eloIntro.querySelectorAll('.dblite-elo-number')], intro = eloIntro;
+      const step = now => {
+        if (eloIntro !== intro) return;
+        const t = Math.min(1, (now - start - 250) / 700), eased = t <= 0 ? 0 : 1 - (1 - t) ** 3;
+        for (const number of numbers) number.textContent = String(Math.round(Number(number.dataset.elo) * eased));
+        if (t < 1) window.requestAnimationFrame(step);
+      };
+      window.requestAnimationFrame(step);
+    }
+    eloIntroTimer = setTimeout(closeEloIntro, ELO_INTRO_MS);
+  }
+  function hookRatedElo() {
+    const wrap = (name, make) => {
+      const original = window[name];
+      if (typeof original !== 'function' || rules.hasHook(original, eloHooks[name])) return;
+      eloHooks[name] = make(original); rules.markHook(eloHooks[name], original); window[name] = eloHooks[name];
+    };
+    wrap('initPlayers', original => function (data, ...rest) {
+      const result = original.call(this, data, ...rest);
+      try {
+        eloBadges(data);
+        const key = String(window.duelId ?? data?.id ?? '');
+        if (!eloRated()) closeEloIntro();
+        else if (key && key !== eloIntroduced) { eloIntroduced = key; if (config.animations) showEloIntro(data); }
+      } catch (error) { console.warn('Spellspeed Elo:', error); }
+      return result;
+    });
+    wrap('duelOver', original => function (data, ...rest) {
+      const result = original.call(this, data, ...rest);
+      try { closeEloIntro(); if (document.querySelector('#duel .dblite-elo')) eloBadges(data, true); } catch (error) { console.warn('Spellspeed Elo:', error); }
+      return result;
+    });
+  }
+  // Out of a Rated duel (a replay, Solo, an unrated duel opened another way): no badge, no card.
+  function ratedEloTick() {
+    if (eloRated() || !document.querySelector('#duel .dblite-elo,.dblite-elo-intro')) return;
+    closeEloIntro(); for (const badge of document.querySelectorAll('#duel .dblite-elo')) badge.remove();
+  }
   let presentationSafety = 0, profileState = "";
   let profileCensor, profileChat, profileLoader, profileLeave;
   let profilesDirty = true;
@@ -4016,7 +4228,7 @@
     adaptiveLayout();
     fieldLayers(); replaySpeed(); footerColours();
     scoutSpacing();
-    skipSiteIntro(); hookLoginError(); watchLoginRetry(); watchDeadEnd(); hookRestack();
+    skipSiteIntro(); hookLoginError(); watchLoginRetry(); watchDeadEnd(); hookRestack(); hookRatedElo(); ratedEloTick();
     sounds?.update();
     document.documentElement.dataset.dbetterTheme = config.theme;
     document.documentElement.classList.toggle('dbetter-night', config.theme !== 'classic');
@@ -4109,6 +4321,13 @@
     html.dbetter-touch .dblite-duel-tools .dblite-position-wheel-toggle{display:none}
     body>.dblite-duel-tools.dblite-tools-column{flex-direction:column;height:auto}.dblite-duel-tools.dblite-tools-column button{flex:0 0 32px;width:auto;height:32px;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis}
     .dblite-duel-tools.dblite-tools-icons button{padding:0;font-size:0}.dblite-duel-tools.dblite-tools-icons button::before{content:attr(data-icon);font-size:16px;line-height:30px}
+    .dblite-key-sheet{position:fixed;left:50%;top:50%;translate:-50% -50%;z-index:2147483003;width:min(460px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;box-sizing:border-box;padding:10px 14px 12px;border:1px solid var(--ssp-line);border-radius:10px;background:var(--ssp-panel);color:var(--ssp-text);font:12px/1.35 'Segoe UI',sans-serif;box-shadow:0 12px 32px rgba(0,0,0,.5)}
+    .dblite-key-sheet header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}.dblite-key-sheet header strong{font-size:14px}
+    .dblite-key-sheet header button{width:24px;height:24px;padding:0;border:1px solid var(--ssp-line);border-radius:5px;background:var(--ssp-panel-2);color:var(--ssp-text);font:16px/20px 'Segoe UI',sans-serif;cursor:pointer}
+    .dblite-key-sheet h3{margin:8px 0 3px;font:700 11px/1.2 'Segoe UI',sans-serif;text-transform:uppercase;letter-spacing:.04em;color:var(--ssp-accent)}
+    .dblite-key-sheet dl{display:grid;grid-template-columns:max-content 1fr;gap:3px 10px;margin:0}.dblite-key-sheet dt{font-weight:700;white-space:nowrap}.dblite-key-sheet dd{margin:0}
+    .dblite-key-sheet footer{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}.dblite-key-sheet footer span{opacity:.75}
+    .dblite-key-sheet footer button{padding:4px 10px;border:1px solid var(--ssp-accent);border-radius:5px;background:var(--ssp-panel-2);color:var(--ssp-text);font:600 12px/18px 'Segoe UI',sans-serif;cursor:pointer}
     .dblite-quick-note{position:fixed;left:12px;bottom:110px;z-index:2147483000;max-width:min(420px,calc(100vw - 24px));padding:7px 11px;border:1px solid var(--ssp-line);border-radius:8px;background:var(--ssp-panel);color:var(--ssp-text);font:600 12px/1.35 'Segoe UI',sans-serif;box-shadow:0 8px 22px rgba(0,0,0,.4);pointer-events:none}
     replay-scout{translate:0 calc(-1px * var(--dblite-scout-lift,0))}
     #duel .dblite-chat-typing{position:absolute;left:845px;top:391px;width:calc(var(--dblite-history-width,181px) - 4px);height:11px;font:600 8.5px/11px 'Segoe UI',sans-serif;color:var(--ssp-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
@@ -4164,6 +4383,26 @@
     .dblite-profile-feedback{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);max-width:500px;padding:12px 18px;background:var(--ssp-panel);color:var(--ssp-text);border:1px solid var(--ssp-line);border-radius:6px;z-index:999999;font:14px/1.5 system-ui}
     #duel .duel_avatar :is(.dblite-profile-button,.dblite-chat-button){position:absolute;left:auto;right:8px;bottom:auto;top:8px;z-index:4;width:68px;height:25px;padding:3px 6px;border:1px solid var(--ssp-line);border-radius:5px;background:var(--ssp-panel-2);color:var(--ssp-text);font:600 11px/17px 'Segoe UI',Arial,sans-serif;cursor:pointer;opacity:0;pointer-events:none}
     #duel .duel_avatar .dblite-chat-button{right:81px;width:54px}
+    /* Elo in Rated duels: a badge on each avatar, right of DuelingBook's 36 px username strip and under the hover buttons; the opening card. */
+    #duel .duel_avatar .dblite-elo{position:absolute;left:42px;top:8px;z-index:3;display:inline-flex;align-items:baseline;gap:4px;padding:2px 7px 3px;border:1px solid var(--ssp-accent);border-radius:999px;background:var(--ssp-panel);color:var(--ssp-text);font:700 13px/16px 'Segoe UI',Arial,sans-serif;white-space:nowrap;box-shadow:0 1px 4px #0008;pointer-events:auto;cursor:default}
+    /* DuelingBook places every span and div inside #duel absolutely: the badge and the card lay out their own parts. */
+    #duel :is(.dblite-elo,.dblite-elo-intro) *{position:static!important;left:auto!important;top:auto!important;margin:0}
+    #duel .duel_avatar .dblite-elo-label{color:var(--ssp-accent);font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    #duel .duel_avatar .dblite-elo-change{font-size:11px;font-weight:700}
+    #duel .duel_avatar .dblite-elo-change[hidden]{display:none}
+    .dblite-elo-up{color:#5fd08a}.dblite-elo-down{color:#ef7a6c}
+    #duel .dblite-elo-intro{position:absolute;left:50%;top:38%;z-index:60;transform:translate(-50%,-50%);min-width:300px;padding:14px 22px 16px;border:1px solid var(--ssp-accent);border-radius:12px;background:var(--ssp-panel);color:var(--ssp-text);font:14px/1.3 'Segoe UI',Arial,sans-serif;text-align:center;box-shadow:0 10px 36px #000b,0 0 0 1px #0006;pointer-events:none;animation:dblite-elo-intro 2.8s ease both}
+    #duel .dblite-elo-title{margin-bottom:10px;color:var(--ssp-accent);font-size:11px;font-weight:800;letter-spacing:.22em;text-transform:uppercase}
+    #duel .dblite-elo-row{display:flex;align-items:center;justify-content:center;gap:18px}
+    #duel .dblite-elo-side{display:flex;flex-direction:column;align-items:center;min-width:100px;animation:dblite-elo-side .45s .1s ease-out both}
+    #duel .dblite-elo-you{animation-name:dblite-elo-side-right}
+    #duel .dblite-elo-name{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;opacity:.85}
+    #duel .dblite-elo-number{font-size:32px;line-height:38px;font-weight:800;font-variant-numeric:tabular-nums}
+    #duel .dblite-elo-vs{color:var(--ssp-accent);font-size:12px;font-weight:800;text-transform:uppercase;opacity:.8}
+    @keyframes dblite-elo-intro{0%{opacity:0;transform:translate(-50%,-50%) scale(.92)}9%{opacity:1;transform:translate(-50%,-50%) scale(1)}84%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-56%) scale(.98)}}
+    @keyframes dblite-elo-side{from{opacity:0;translate:-18px 0}to{opacity:1;translate:0 0}}
+    @keyframes dblite-elo-side-right{from{opacity:0;translate:18px 0}to{opacity:1;translate:0 0}}
+    @media(prefers-reduced-motion:reduce){#duel .dblite-elo-intro,#duel .dblite-elo-side{animation:none!important}}
     #duel .duel_avatar:hover :is(.dblite-profile-button,.dblite-chat-button),#duel .duel_avatar:focus-within :is(.dblite-profile-button,.dblite-chat-button){opacity:1;pointer-events:auto}
     #duel :is(.dblite-profile-button,.dblite-chat-button):focus-visible{outline:2px solid var(--ssp-accent);outline-offset:2px;opacity:1;pointer-events:auto}
     /* Touch screens: a tap on the avatar opens these at full size (avatarMenu); the miniature ones stay hidden. */
@@ -4204,6 +4443,12 @@
     #dblite-card-link[hidden]{display:none!important}#dblite-card-link:hover{background:var(--ssp-panel-2)}#dblite-card-link:focus-visible{outline:2px solid white}
     #dblite-replay,#dblite-status{position:fixed;z-index:2147483646;right:16px;bottom:16px;padding:10px 16px;border:1px solid var(--ssp-line);border-radius:8px;background:var(--ssp-panel);color:var(--ssp-text);font:14px/1.4 system-ui,sans-serif;text-decoration:none;box-shadow:0 4px 18px #0005}
     #dblite-status{bottom:66px;max-width:320px;pointer-events:none}
+    .dblite-key-clash{position:fixed;z-index:2147483646;right:16px;bottom:66px;width:min(340px,calc(100vw - 32px));box-sizing:border-box;padding:10px 34px 12px 14px;border:1px solid var(--ssp-line);border-radius:8px;background:var(--ssp-panel);color:var(--ssp-text);font:14px/1.4 system-ui,sans-serif;box-shadow:0 4px 18px #0005}
+    html.dblite-dbuddy .dblite-key-clash{bottom:78px;z-index:2147482646}
+    .dblite-key-clash p{margin:0 0 8px}.dblite-key-clash .dblite-key-clash-other{margin:8px 0 0;color:var(--ssp-muted);font-size:12.5px}
+    .dblite-key-clash-fix{display:block;width:100%;padding:6px 10px;border:0;border-radius:6px;background:var(--ssp-accent);color:var(--ssp-on-accent);font:600 13.5px/1.3 system-ui,sans-serif;cursor:pointer}
+    .dblite-key-clash-fix:hover{filter:brightness(1.08)}.dblite-key-clash-fix:focus-visible,.dblite-key-clash-close:focus-visible{outline:2px solid var(--ssp-text);outline-offset:2px}
+    .dblite-key-clash-close{position:absolute;right:6px;top:4px;width:24px;height:24px;padding:0;border:0;background:none;color:var(--ssp-muted);font:18px/1 system-ui,sans-serif;cursor:pointer}.dblite-key-clash-close:hover{color:var(--ssp-text)}
     .dblite-login-retry{position:fixed;z-index:2147483646;left:50%;top:24px;translate:-50% 0;width:min(420px,calc(100vw - 32px));box-sizing:border-box;padding:14px 16px;border:1px solid var(--ssp-line);border-radius:10px;background:var(--ssp-panel);color:var(--ssp-text);font:14px/1.4 system-ui,sans-serif;box-shadow:0 8px 28px #0007}
     .dblite-login-retry strong{display:block;font-size:15px;margin-bottom:4px}.dblite-login-retry p{margin:0 0 10px;color:var(--ssp-muted)}
     .dblite-login-retry div{display:flex;gap:8px}.dblite-login-retry .dblite-login-close{flex:2;background:var(--ssp-accent);color:var(--ssp-on-accent);border-color:var(--ssp-accent);font-weight:600}.dblite-login-retry button:disabled{opacity:.5;cursor:wait}.dblite-login-retry button{flex:1;min-height:36px;border:1px solid var(--ssp-line);border-radius:6px;background:var(--ssp-input);color:var(--ssp-text);font:inherit;cursor:pointer}

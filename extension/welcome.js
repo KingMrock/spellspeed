@@ -48,6 +48,12 @@
   const normal = value => ({ done: value?.done === true });
   // What's new, newest first: the entry for this version (or the latest before it) is shown.
   const news = Object.freeze([
+    ['0.9.4', ['Deck builder Guide: a checklist of the tools that ticks itself as you use them, with Show me for each one and a full tour.',
+      'Side plans between games: play a saved siding pattern from DuelingBook\'s siding screen in one click.',
+      'Combo lines in Solo: go back to any step, play the line again, save it per deck and share it as a code.',
+      'Deck history: every version of a deck with what changed, and its Rated record.',
+      'Duels: Elo in Rated duels, Attach or Overlay when you drop a card on a monster, a ? key sheet, and optional Mellow sound effects.',
+      'Deck builder: Summon Lab from your Main Deck, sharper Ideas and hand traps; better with DBuddy; fixes for scripted cards and long card names.']],
     ['0.9.3', ['Works alongside DBuddy: with both installed, Spellspeed follows DBuddy\'s theme and keeps its foils.',
       'Describe understands more: whose card, targeting, Tributes and costs ("pops your own card, non target").',
       'Summon Lab: a clear Back to search button, and Esc closes it.',
@@ -71,7 +77,7 @@
       const patch = { ...result.patch }, seen = rules.settings({ ...current, ...patch }).tourSeen;
       if (!seen.includes('welcome')) patch.tourSeen = rules.tourIds.filter(id => id === 'welcome' || seen.includes(id));
       const settings = rules.settings({ ...current, ...patch });
-      await api.storage.local.set({ settings, welcome: result.state });
+      await api.storage.local.set({ settings, welcome: result.state, ...result.extra });
       config = settings; state = result.state; render();
       status('Saved. Open DuelingBook tabs use it at once.');
     }).catch(() => status('Could not save. Reload this page and try again.'));
@@ -137,12 +143,19 @@
     node.append(sample, document.createTextNode(name[0].toUpperCase() + name.slice(1)));
     node.addEventListener('click', () => commit(keep({ theme: name }))); $('themes').append(node); themeButtons.set(name, node);
   }
-  $('open').addEventListener('click', event => {
+  for (const id of ['open', 'open-only']) $(id).addEventListener('click', event => {
     // Saved before leaving, so the first DuelingBook page already has the choices.
     event.preventDefault();
-    const href = $('open').href;
-    commit((current, saved) => ({ patch: {}, state: { ...saved, done: true } })).then(() => { location.href = href; });
+    const href = $(id).href;
+    commit((current, saved) => ({ patch: { tourSeen: rules.tourIds.filter(tip => tip === 'welcome' || tip === 'guide' || rules.settings(current).tourSeen.includes(tip)) },
+      state: { ...saved, done: true }, extra: id === 'open' ? { guideRequest: { tour: true, at: Date.now() } } : {} })).then(async () => {
+      if (id === 'open-only') await api.storage.local.remove('guideRequest');
+      location.href = href;
+    });
   });
+  if (rules.guideVideos.tour) {
+    const link = element('a', '', 'Watch the video'); link.href = rules.guideVideos.tour; link.target = '_blank'; link.rel = 'noopener'; $('guide-video').append(link);
+  }
 
   function render() {
     document.documentElement.dataset.dbetterTheme = config.theme;

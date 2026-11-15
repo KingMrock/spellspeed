@@ -27,6 +27,32 @@
     route(message.username, sender.tab?.id).then(respond, () => respond({ opened: false, error: 'Could not open the player profile. Reload your DuelingBook tabs and try again.' }));
     return true;
   });
+  async function openGuide(data) {
+    const command = { tour: data.tour === true };
+    if (['search', 'describe', 'recent', 'links', 'access', 'starters', 'ideas', 'lab', 'labMain', 'odds', 'lines', 'siding', 'sidePlan', 'history', 'chat'].includes(data.item)) command.item = data.item;
+    const tabs = (await api.tabs.query({})).filter(tab => !tab.discarded);
+    const ready = await Promise.all(tabs.map(async tab => {
+      try { return (await message(tab.id, { type: 'DBETTER_GUIDE_PROBE' }))?.ready ? tab : null; } catch { return null; }
+    }));
+    for (const tab of ready.filter(Boolean).sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))) {
+      try {
+        if (!(await message(tab.id, { type: 'DBETTER_GUIDE_SHOW', ...command }))?.opened) continue;
+        try { await api.tabs.update(tab.id, { active: true }); if (Number.isInteger(tab.windowId)) await api.windows.update(tab.windowId, { focused: true }); } catch { /* The guide is open even if focus failed. */ }
+        return { opened: true };
+      } catch { /* A tab can close after the probe. */ }
+    }
+    await api.storage.local.set({ guideRequest: { ...command, at: Date.now() } });
+    await api.tabs.create({ url: 'https://www.duelingbook.com/' }); return { opened: true };
+  }
+  api.runtime.onMessage.addListener((message, sender, respond) => {
+    if (message?.type !== 'DBETTER_GUIDE_OPEN' || sender.id !== api.runtime.id || isDB(sender.url) || isDB(sender.tab?.url)) return;
+    openGuide(message).then(respond, () => respond({ opened: false })); return true;
+  });
+  // The in-duel key sheet's All settings button (content scripts cannot open the options page themselves).
+  api.runtime.onMessage.addListener((message, sender) => {
+    if (message?.type !== 'DBETTER_OPEN_OPTIONS' || sender.id !== api.runtime.id || !isDB(sender.url)) return;
+    Promise.resolve(api.runtime.openOptionsPage()).catch(() => {});
+  });
   // Welcome page (user, 2026-11-12): a fresh install opens it in its own tab. An update opens nothing; the popup offers
   // What's new once instead. Reloading an unpacked copy is an update to the same version and changes nothing.
   api.runtime.onInstalled?.addListener(details => {

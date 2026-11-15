@@ -11,10 +11,12 @@
   // timeline (user, 2026-10-29: the video played DuelingBook's old way, not at the timeline's speed).
   let recordingHere = false;
   const recording = () => !recordingHere && (document.documentElement.classList.contains('dblite-recording') || !!window.DBETTERRecorder?.recording());
-  // DBuddy (another extension) has its own replay tools, off by default: a Prev button and a timeline. When its user
-  // switched them on, they own the replay and Spellspeed's bar steps aside with a note (user, 2026-11-11). DBuddy says
-  // so in a window message (rules.dbuddy().replayTools) and its Prev button exists only while they are on.
-  const dbuddyReplay = () => !!rules.dbuddy?.().replayTools || !!document.getElementById('dbte-prev-btn');
+  // DBuddy (another extension) has its own replay tools, off by default: a Prev button and a timeline. Spellspeed's
+  // timeline runs replays even when they are on (user, 2026-11-12): bootstrap.js holds DBuddy's replay module back on
+  // replay pages and marks html[data-dblite-dbuddy-replay-held]. Only if DBuddy's module runs anyway (its Prev button
+  // exists: Spellspeed's timeline was off when the page loaded, or a DBuddy change) does Spellspeed's bar step aside.
+  const dbuddyHeld = () => document.documentElement.hasAttribute('data-dblite-dbuddy-replay-held');
+  const dbuddyReplay = () => !!document.getElementById('dbte-prev-btn');
   const enhancer = () => dbuddyReplay() || !!window.DBXPreviousState || !!document.querySelector('#prev_btn,#previous_btn,#dbx-prev-btn,#dbx-previous-state') ||
     [...document.querySelectorAll('#duel button,#duel input[type="button"],#duel input[type="submit"]')].some(n => /^(?:Prev|Previous)(?: Play| State)?$/i.test(n.value || n.textContent.trim()));
   // Replays of Solo duels too (user, 2026-10-28): DuelingBook flags them solo; a live Solo duel is never a replay.
@@ -548,27 +550,37 @@
   function markNativeButtons() {
     for (const id of ['play_btn', 'pause_replay_btn', 'next_btn', 'fast_btn']) window.jQuery?.('#' + id).data('proxy')?.[0]?.classList.add('dblite-native-replay-btn');
   }
-  // The note shown while DBuddy's replay tools have the replay: once per page, from when the duel is on screen, until
-  // closed or for 20 s.
+  // The DBuddy note, from when the duel is on screen, until closed or timed out. 'held': Spellspeed's timeline runs the
+  // replay and DBuddy's replay tools are held back (once per browser session, 10 s). 'running': DBuddy's replay module
+  // runs anyway and Spellspeed's bar stepped aside (once per page, 20 s).
+  const dbuddyNotes = {
+    held: 'Spellspeed’s timeline runs replays, so DBuddy’s replay tools stay off here. To use DBuddy’s instead, turn off Replay rewind in Spellspeed’s settings.',
+    running: 'DBuddy’s replay tools are running on this replay, so Spellspeed’s replay bar is off: only one can control a replay. Reload the page to get Spellspeed’s back.'
+  };
+  const heldSeen = () => { try { return sessionStorage.getItem('dblite-dbuddy-replay-held') === '1'; } catch { return false; } };
   let dbuddyNoteState = 'unseen';
-  function dbuddyNote(show) {
+  function dbuddyNote(kind) {
     let note = document.getElementById('dblite-dbuddy-replay-note');
-    if (!show || dbuddyNoteState === 'closed' || recording()) { if (note) note.hidden = true; return; }
+    if (!kind || dbuddyNoteState === 'closed' || recording() || (kind === 'held' && dbuddyNoteState === 'unseen' && heldSeen())) { if (note) note.hidden = true; return; }
     if (!note) {
       note = element('div', 'dblite-dbuddy-note'); note.id = 'dblite-dbuddy-replay-note'; note.setAttribute('role', 'status');
       const close = element('button', 'dblite-dbuddy-note-close', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close');
       close.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); dbuddyNoteState = 'closed'; note.hidden = true; });
-      // User, 2026-11-12: only one of the two can control a replay; Spellspeed's is the recommended one.
-      note.append(element('span', '', 'DBuddy’s replay tools are on, so Spellspeed’s replay bar is off on this replay: only one can control a replay. ' +
-        'We recommend Spellspeed’s: turn off Replay tools in DBuddy (Duel › Duel tools).'), close);
+      note.append(element('span', 'dblite-dbuddy-note-text', ''), close);
       for (const type of ['mousedown', 'click', 'dblclick', 'contextmenu', 'keydown']) note.addEventListener(type, event => event.stopPropagation());
       document.body.append(note);
     }
+    note.querySelector('.dblite-dbuddy-note-text').textContent = dbuddyNotes[kind];
     note.hidden = false;
-    if (dbuddyNoteState === 'unseen') { dbuddyNoteState = 'shown'; setTimeout(() => { dbuddyNoteState = 'closed'; note.hidden = true; }, 20000); }
+    if (dbuddyNoteState === 'unseen') {
+      dbuddyNoteState = 'shown';
+      if (kind === 'held') try { sessionStorage.setItem('dblite-dbuddy-replay-held', '1'); } catch { /* Shown again next time. */ }
+      setTimeout(() => { dbuddyNoteState = 'closed'; note.hidden = true; }, kind === 'held' ? 10000 : 20000);
+    }
   }
   function render() {
-    dbuddyNote(config.replay && config.replayRewind && captured && !!window.player1?.all_cards_arr?.length && dbuddyReplay());
+    const onScreen = config.replay && config.replayRewind && captured && !!window.player1?.all_cards_arr?.length;
+    dbuddyNote(onScreen && (dbuddyReplay() ? 'running' : dbuddyHeld() ? 'held' : null));
     const on = enabled() && !recording();
     document.documentElement.classList.toggle('dblite-timeline-on', on);
     if (!on) { if (ui.root) ui.root.hidden = true; if (playing || scan) { playing = false; scan = 0; clearTimeout(playTimer); } return; }

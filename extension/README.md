@@ -1,4 +1,4 @@
-# Spellspeed for DuelingBook — 0.9.3-beta
+# Spellspeed for DuelingBook — 0.9.4-beta
 
 An unofficial, fan-made browser extension for [DuelingBook](https://www.duelingbook.com/) that makes it quicker and
 easier on the eyes, without changing how the game works. Every action still goes through DuelingBook's own duel
@@ -23,6 +23,7 @@ folder, then reload DuelingBook.
 - Find a card: look up any card by name or by words from its text, during a duel.
 
 ## Build decks better
+- The Guide (🧭): a checklist of the deck builder's tools, with Show me for each and a whole tour.
 - Real-time search with more results at once, keyword search with ✱, several categories at once and exclusions,
   Genesis points, search history and undo.
 - Card text links: click a description in a card's text to search exactly that; hover a named card to preview it.
@@ -31,8 +32,11 @@ folder, then reload DuelingBook.
 - Describe (beta): search cards in plain words ("revive fire monster", "level 4 or lower tuner").
 - Opening odds: how stable the deck is, going first and second. Mark each card's role (Starter, Non-engine, Brick,
   Normal Summon), two-card starters, your own conditions, and what one copy more or fewer changes.
-- Siding patterns: for each matchup, the cards you side in and out; side in with one click and back to game 1.
-- Solo practice with a chosen opening hand.
+- Siding patterns: for each matchup, the cards you side in and out; side in with one click and back to game 1, or
+  play the plan from DuelingBook's siding screen between games.
+- Deck history (🕘): every saved version of a deck, what changed, and its Rated record.
+- Solo practice with a chosen opening hand, and combo lines: go back to any step, play the line again, save it and
+  share it as a code.
 
 ## Make it yours
 - Themes (Night, Abyss, Ember…) or DuelingBook's own Classic look; animations and sounds with their own volume.
@@ -40,6 +44,19 @@ folder, then reload DuelingBook.
 ## Privacy
 Spellspeed runs only on duelingbook.com. It stores your settings in your browser, has no server and collects no data.
 See `privacy.html`.
+
+## New in 0.9.4-beta
+- Deck builder Guide (🧭 above Solo): every deck-builder tool in one checklist that ticks itself as you use it,
+  with Show me for each tool and a whole tour; hide the button from the toolbar menu.
+- Side plans between games: play a saved siding pattern from DuelingBook's siding screen in one click.
+- Combo lines in Solo: go back to any step, play the line again, save it per deck and share it as a code.
+- Deck history (🕘): every version of a deck with what changed, and its Rated record.
+- Duels: Elo shown in Rated duels; Attach or Overlay when you drop a card on a monster; a ? key sheet; optional
+  Mellow sound effects.
+- Deck builder: Summon Lab from your Main Deck; Ideas list Extra Deck monsters and plans first; sharper hand traps;
+  one row per card in results.
+- Works better with DBuddy (replays, sound packs, pile wheel, deck dock); cards with DuelingBook scripts no longer
+  freeze the duel; long card names stay readable.
 
 ## New in 0.9.3-beta
 - A welcome page on install: pick the features you want and whether card actions use right-click or DuelingBook's hover menu.

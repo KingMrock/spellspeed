@@ -60,6 +60,7 @@ input[type=checkbox]:disabled{cursor:default;opacity:.6}
 .theme[aria-pressed="true"]{border-color:var(--ssp-accent);box-shadow:inset 0 0 0 1px var(--ssp-accent)}
 .open{display:inline-block;margin:8px 0 10px;padding:11px 22px;border-radius:10px;background:var(--ssp-accent);color:var(--ssp-on-accent);font-weight:700;font-size:16px;text-decoration:none}
 .open:hover,.open:focus-visible{filter:brightness(1.08)}
+.open.secondary{background:var(--ssp-input);border:1px solid var(--ssp-line);color:var(--ssp-text);font-size:14px;font-weight:400}
 .where,.news{margin:0;padding-left:20px}
 .where li,.news li{margin:0 0 6px}
 #status{min-height:1.5em;margin:6px 4px;color:var(--ssp-muted);font-size:13px}

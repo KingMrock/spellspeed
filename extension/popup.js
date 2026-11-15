@@ -39,7 +39,8 @@
     ['Layout', [
       ['adaptiveLayout', 'Adaptive layout', 'Fit the stage to the current window.'],
       ['adaptiveDock', 'Dock chat and panels', 'Use the side or bottom band.', 'adaptiveLayout'],
-      ['adaptiveConstructor', 'Wider constructor grid', 'Use spare width for Auto search columns.', 'adaptiveLayout'],
+      ['adaptiveConstructor', 'Wider search', 'Use spare width for the search results.'],
+      ['guideButton', 'Guide button', 'The 🧭 Guide button above Solo in the deck builder. It hides itself once you have tried every tool; Open the guide in the toolbar menu still opens the checklist.'],
       ['hideZoomNotice', 'Hide zoom notice', 'Hide only the native zoom warning; browser zoom is unchanged.', 'adaptiveLayout']
     ]],
     ['Touch & phone', [
@@ -48,14 +49,13 @@
       ['touchLayout', 'Fit phone screen', 'On phones, size the page to the screen so the board fills it, and show a full-screen button.', 'touchControls']
     ]],
     ['Visuals', [
-      ['theme', 'Theme', 'Night, Classic, Abyss or Ember.'],
       ['animations', 'Smooth animations', 'Movement and declaration effects.'],
       ['cardMotion', 'Card motion', 'Gentle movement and smooth scrolling.', 'animations'],
       ['declareGlow', 'Declare glow', 'Type-colored glow with a brief light sweep.', 'animations'],
       ['fan', 'Animated card fans', 'Fan and Grid pile viewers with per-zone preferences.'],
       ['handHover', 'Hand hover lift', 'Raise your hand cards under the pointer.'],
       ['pileHover', 'Pile hover lift', 'Raise non-empty Deck, Extra Deck, GY and banished piles.'],
-      ['darkTextBoxes', 'Dark text boxes', 'Card text, chat, the duel log and text fields on a dark background, whatever the theme. The Night, Abyss and Ember themes are dark already; this matters most for Classic.'],
+      ['darkTextBoxes', 'Dark text boxes', 'Card text, chat, the duel log and text fields on a dark background, whatever the theme. The Night, Abyss and Ember themes are dark already; this matters most for Light.'],
       ['duelLayout', 'Compact duel layout', 'Phase buttons in a grid, a compact Turn button and life point controls, and Spellspeed’s die, coin, token and counter buttons. Off: DuelingBook’s own.'],
       ['actionHistory', 'Action histories', 'Each player’s recent actions in a panel by their avatar. Off: DuelingBook’s own profiles.'],
       ['hideDeclarationChat', 'Hide declarations in duel chat', 'Keep declarations in player action histories.'],
@@ -63,8 +63,9 @@
       ['hideSummonSpiral', 'Hide native summon spiral', 'Never show DuelingBook’s spinning Special Summon spiral; Smooth animations show soft rings instead.']
     ]],
     ['Sounds', [
-      ['sounds', 'Sound enhancements', 'Uses DuelingBook’s mute control.'],
+      ['sounds', 'Sound enhancements', 'Uses DuelingBook’s mute control. Steps aside while DBuddy’s sound pack is on.'],
       ['refinedSounds', 'Refined sound effects', 'Card riffles and restrained chimes; thinking from either player.', 'sounds'],
+      ['mellowSounds', 'Mellow sound effects', 'DuelingBook’s own sounds, softer: fewer sharp highs and gentler attacks, at the same loudness. Used instead of Refined sound effects while on.', 'sounds'],
       ['volumeControl', 'Show VFX volume control', 'Show the volume slider beside the native mute control.', 'sounds']
     ]],
     ['Replay & startup', [
@@ -78,108 +79,168 @@
     ]]
   ];
   const actions = {ok: 'OK / keep going', think: 'Thinking / big think', extra: 'Extra Deck (open / send)', deck: 'Deck (open / send)', grave: 'GY (open / send)', banished: 'Banished (open / send)', hand: 'Hand (hovered card)', declare: 'Declare hovered card', target: 'Target hovered card', sort: 'Sort pile', peek: 'See through', wheel: 'Position wheel on / off'};
-  const rows = [], keyButtons = new Map();
-  // Top of the panel: how card actions open (the choice with the most friction), then the
-  // features people switch most often. Both mirror the same settings as the full list below.
-  const quickToggles = [['drag', 'Drag & drop', '⇄'], ['shortcuts', 'Shortcut keys', '⌨'], ['fan', 'Card fans', '🂠'],
-    ['animations', 'Animations', '✦'], ['sounds', 'Sounds', '♪']];
-  const modeButtons = new Map(), quickButtons = new Map(), themeButtons = new Map(), lookButtons = new Map();
+  const rows = [], keyButtons = new Map(), modeButtons = new Map(), quickButtons = new Map(), lookButtons = new Map(), soundButtons = new Map();
   const normalizedTheme = value => DBLiteRules.settings(value).theme;
   const themes = ['night', 'classic', 'abyss', 'ember'];
-  {
-    // The look: DBETTER's, or DuelingBook's own with DBETTER's quality-of-life features (Classic).
-    const lookTitle = document.createElement('p'); lookTitle.className = 'quick-title'; lookTitle.textContent = 'Look';
-    const looks = document.createElement('div'); looks.className = 'menu-mode look-mode'; looks.setAttribute('role', 'radiogroup'); looks.setAttribute('aria-label', 'Look');
-    for (const [value, label, detail, theme] of [['dbetter', 'Spellspeed', 'Themes, card fans, animations, action histories and a layout that fits the window.', 'night'],
-      ['classic', 'Classic DuelingBook', 'DuelingBook’s own look and layout, still with drag and drop, shortcuts, quick chat, the replay timeline and the constructor extras.', 'classic']]) {
-      const option = document.createElement('button'); option.type = 'button'; option.className = 'mode-option'; option.id = 'look-' + value;
-      option.setAttribute('role', 'radio'); option.disabled = true;
-      const swatch = document.createElement('span'); swatch.className = 'theme-swatch'; swatch.dataset.dbetterTheme = theme; swatch.setAttribute('aria-hidden', 'true');
-      const text = document.createElement('span'); text.textContent = label; const small = document.createElement('small'); small.textContent = detail; text.append(small);
-      option.append(swatch, text); option.addEventListener('click', () => save(DBLiteRules.lookPatch(config, value))); looks.append(option); lookButtons.set(value, option);
+  const catalogue = new Map(groups.flatMap(([, entries]) => entries).map(entry => [entry[0], entry]));
+  const sections = [
+    ['duels', 'Duels', ['drag', 'dragDefense', 'dragSet', 'dragReveal', 'dragAttack', 'normalSummon', 'dropWheel', 'clickDrop', 'doubleClick', 'doubleClickPiles', 'doubleClickSet', 'contextMenu', 'declare', 'keepHandRevealed', 'quickActions', 'quickButtons', 'cardMacros']],
+    ['keys', 'Keys', ['shortcuts', 'signalKeys', 'zoneKeys', 'zoneKeysSend', 'cardKeys', 'sortKey', 'peekKey', 'blockAutoFocus']],
+    ['deck-builder', 'Deck builder', ['adaptiveConstructor', 'previewLinks', 'namePeek', 'guideButton']],
+    ['replays', 'Replays', ['replay', 'replaySpeed', 'replayRewind', 'replayVideo']],
+    ['look', 'Look', ['animations', 'cardMotion', 'declareGlow', 'fan', 'handHover', 'pileHover', 'darkTextBoxes', 'duelLayout', 'actionHistory', 'hideScreenshotButton', 'hideSummonSpiral', 'adaptiveLayout', 'adaptiveDock', 'hideZoomNotice']],
+    ['sound', 'Sound', ['sounds', 'refinedSounds', 'mellowSounds', 'volumeControl']],
+    ['chat', 'Chat', ['chatWheel', 'hideDeclarationChat']],
+    ['phone-touch', 'Phone & touch', ['touchControls', 'touchTapMenu', 'touchLayout']],
+    ['startup', 'Start-up', ['skipIntro', 'autoRps', 'retryLogin']],
+    ['help', 'Help & backup', []]
+  ];
+  const el = (tag, className, text) => Object.assign(document.createElement(tag), {className: className || '', ...(text === undefined ? {} : {textContent: text})});
+  const button = (text, id, handler) => {
+    const node = el('button', '', text); node.type = 'button'; if (id) node.id = id;
+    node.addEventListener('click', handler); return node;
+  };
+  const openGuide = item => {
+    Promise.resolve(api.runtime.sendMessage({type: 'DBETTER_GUIDE_OPEN', ...(item ? {item} : {})})).catch(() => {});
+    if (!full) window.close();
+  };
+  const openWelcome = hash => {
+    Promise.resolve(api.tabs.create({url: api.runtime.getURL('welcome.html') + hash})).catch(() => {});
+    if (!full) window.close();
+  };
+  function lookChooser() {
+    const row = el('div', 'setting look-setting'), title = el('p', 'quick-title', 'Look and theme');
+    const choices = el('div', 'look-mode'); choices.setAttribute('role', 'radiogroup'); choices.setAttribute('aria-label', 'Look and theme');
+    for (const [value, label, theme] of [['night', 'Night', 'night'], ['abyss', 'Abyss', 'abyss'], ['ember', 'Ember', 'ember'], ['light', 'Light', 'classic'], ['classic', 'Classic DuelingBook', 'classic']]) {
+      const option = button(label, value === 'night' ? 'look-dbetter' : 'look-' + value, () => save(value === 'classic' ? DBLiteRules.lookPatch(config, 'classic') : {...DBLiteRules.lookPatch(config, 'dbetter'), theme}));
+      option.className = 'theme-choice'; option.dataset.theme = theme; option.setAttribute('role', 'radio'); option.disabled = true;
+      const swatch = el('span', 'theme-swatch'); swatch.dataset.dbetterTheme = theme; swatch.setAttribute('aria-hidden', 'true'); option.prepend(swatch);
+      choices.append(option); lookButtons.set(value, option);
     }
-    const chooser = document.createElement('div'); chooser.className = 'menu-mode'; chooser.setAttribute('role', 'radiogroup'); chooser.setAttribute('aria-label', 'Card actions');
-    const title = document.createElement('p'); title.className = 'quick-title'; title.textContent = 'Card actions';
-    for (const [value, label, detail] of [[true, 'Right-click menu', 'Right-click a card for its actions. Hovering only previews it.'],
-      [false, 'Hover menu', 'DuelingBook’s own menu appears when you hover a card, also in Fan and Grid views.']]) {
-      const option = document.createElement('button'); option.type = 'button'; option.className = 'mode-option'; option.id = value ? 'menu-mode-right' : 'menu-mode-hover';
-      option.setAttribute('role', 'radio'); option.disabled = true;
-      const picture = document.createElement('span'); picture.className = `mode-picture ${value ? 'mode-right' : 'mode-hover'}`; picture.setAttribute('aria-hidden', 'true');
-      picture.append(document.createElement('i'), document.createElement('b'));
-      const text = document.createElement('span'); text.textContent = label; const small = document.createElement('small'); small.textContent = detail; text.append(small);
-      option.append(picture, text); option.addEventListener('click', () => save({contextMenu: value})); chooser.append(option); modeButtons.set(value, option);
+    row.append(title, choices);
+    if (!window.DBETTERApp && String(api.runtime?.getURL?.('') || '').startsWith('chrome-extension:')) {
+      const more = el('p', 'theme-more'), link = el('a', '', 'Check out DBuddy');
+      link.href = 'https://chromewebstore.google.com/detail/fpehmkbiafgdeaheeehcbpgahmlkolac'; link.target = '_blank'; link.rel = 'noopener';
+      more.append('Want more themes? ', link); row.append(more);
     }
-    const essentials = document.createElement('div'); essentials.className = 'essentials';
-    for (const [id, label, icon] of quickToggles) {
-      const tile = document.createElement('button'); tile.type = 'button'; tile.className = 'essential'; tile.disabled = true; tile.dataset.setting = id;
-      const glyph = document.createElement('span'); glyph.className = 'glyph'; glyph.textContent = icon; glyph.setAttribute('aria-hidden', 'true');
-      tile.append(glyph, document.createTextNode(label)); tile.addEventListener('click', () => save({[id]: !config[id]}));
-      essentials.append(tile); quickButtons.set(id, tile);
-    }
-    const essentialsTitle = document.createElement('p'); essentialsTitle.className = 'quick-title'; essentialsTitle.textContent = 'Essentials';
-    const themeTitle = document.createElement('p'); themeTitle.className = 'quick-title'; themeTitle.textContent = 'Theme';
-    const picker = document.createElement('div'); picker.className = 'theme-picker'; picker.setAttribute('role', 'group'); picker.setAttribute('aria-label', 'Theme');
-    for (const name of themes) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'theme-choice'; button.dataset.theme = name; button.disabled = true;
-      const swatch = document.createElement('span'); swatch.className = 'theme-swatch'; swatch.setAttribute('aria-hidden', 'true');
-      // Local preview tokens leave the surrounding button text in the active theme.
-      swatch.dataset.dbetterTheme = name;
-      button.append(swatch, document.createTextNode(name[0].toUpperCase() + name.slice(1)));
-      button.addEventListener('click', () => save({theme: name})); picker.append(button); themeButtons.set(name, button);
-    }
-    // Onboarding: the welcome card and the first-visit tips (tour.js) come back on the open DuelingBook tabs.
-    const tour = document.createElement('div'); tour.className = 'tour-row';
-    const tourButton = document.createElement('button'); tourButton.type = 'button'; tourButton.id = 'tour-reset'; tourButton.disabled = true; tourButton.textContent = 'Show tips again';
-    // The Android app (DBETTERApp, from its settings shim) never shows the welcome card: phones get the Spellspeed look.
-    const tourNote = document.createElement('small'); tourNote.textContent = window.DBETTERApp ? 'A short tip the first time you reach each part.' : 'The welcome card and a short tip the first time you reach each part.';
-    tourButton.addEventListener('click', () => save({ tourSeen: [], tourOff: false }));
-    tour.append(tourButton, tourNote);
-    $('quick').append(lookTitle, looks, tour, title, chooser, essentialsTitle, essentials, themeTitle, picker);
-    // The welcome page (welcome.html, opened on install by background.js): the setup again, and once after an update
-    // its What's new. Not in the Android app, which has no extension pages.
-    if (!window.DBETTERApp && api.tabs?.create) {
-      const open = hash => { Promise.resolve(api.tabs.create({ url: api.runtime.getURL('welcome.html') + hash })).catch(() => {}); if (!full) window.close(); };
-      const news = document.createElement('div'); news.className = 'tour-row whats-new'; news.hidden = true;
-      const newsButton = document.createElement('button'); newsButton.type = 'button'; newsButton.id = 'whats-new'; newsButton.textContent = 'What’s new';
-      const newsNote = document.createElement('small');
-      newsButton.addEventListener('click', () => { Promise.resolve(api.storage.local.remove?.('whatsNew')).catch(() => {}); open('#new'); });
-      news.append(newsButton, newsNote);
-      const setup = document.createElement('div'); setup.className = 'tour-row';
-      const setupButton = document.createElement('button'); setupButton.type = 'button'; setupButton.id = 'welcome-open'; setupButton.textContent = 'Setup page';
-      setupButton.addEventListener('click', () => open(''));
-      setup.append(setupButton, Object.assign(document.createElement('small'), { textContent: 'Pick what you use, the look and card actions, and see where things are.' }));
-      tour.after(setup); $('quick').prepend(news);
-      Promise.resolve(api.storage.local.get('whatsNew')).then(saved => {
-        if (typeof saved?.whatsNew !== 'string' || !saved.whatsNew) return;
-        newsNote.textContent = `Spellspeed was updated to ${saved.whatsNew}.`; news.hidden = false;
-      }).catch(() => {});
-    }
-    try { { const manifest = api.runtime.getManifest(); $('version').textContent = 'v' + (manifest.version_name || manifest.version); } } catch {}
+    return row;
   }
+  function cardActions(pictures) {
+    const chooser = el('div', pictures ? 'menu-mode' : 'segmented'); chooser.setAttribute('role', 'radiogroup'); chooser.setAttribute('aria-label', 'Card actions');
+    for (const [value, label, detail] of [[true, pictures ? 'Right-click menu' : 'Right-click', 'Right-click a card for its actions. Hovering only previews it.'], [false, pictures ? 'Hover menu' : 'Hover', 'DuelingBook’s own menu appears when you hover a card, also in Fan and Grid views.']]) {
+      const option = button('', value ? 'menu-mode-right' : 'menu-mode-hover', () => save({contextMenu: value}));
+      option.className = pictures ? 'mode-option' : ''; option.setAttribute('role', 'radio'); option.disabled = true;
+      if (pictures) {
+        const picture = el('span', `mode-picture ${value ? 'mode-right' : 'mode-hover'}`); picture.setAttribute('aria-hidden', 'true'); picture.append(el('i'), el('b')); option.append(picture);
+      }
+      const text = el('span', '', label); if (pictures) text.append(el('small', '', detail)); option.append(text);
+      chooser.append(option); modeButtons.set(value, option);
+    }
+    return chooser;
+  }
+  if (!full) {
+    if (!window.DBETTERApp) {
+      const guide = el('section', 'guide-block'); guide.id = 'guide-block';
+      const count = el('p', '', '🧭 Guide'); count.id = 'guide-count';
+      const progress = el('progress'); progress.id = 'guide-progress'; progress.max = DBLiteRules.guideIds.length; progress.value = 0; progress.setAttribute('aria-label', 'Features tried');
+      const controls = el('div', 'actions'); controls.append(button('Open the guide', 'guide-open', () => openGuide()));
+      // Hide or bring back the 🧭 Guide button above Solo (user, 2026-11-15: players can take the space back).
+      controls.append(button('Hide the button', 'guide-button-toggle', () => save({guideButton: !config.guideButton})));
+      if (DBLiteRules.guideVideos.tour) controls.append(button('▶ Video', 'guide-video', () => { Promise.resolve(api.tabs.create({url: DBLiteRules.guideVideos.tour})).catch(() => {}); }));
+      const news = button("What's new", 'whats-new', () => { Promise.resolve(api.storage.local.remove?.('whatsNew')).catch(() => {}); openWelcome('#new'); });
+      news.hidden = true; controls.append(news);
+      Promise.resolve(api.storage.local.get('whatsNew')).then(saved => { news.hidden = !saved?.whatsNew; }).catch(() => {});
+      guide.append(count, progress, controls); $('quick').append(guide);
+    }
+    $('quick').append(lookChooser(), el('p', 'quick-title', 'Card actions'), cardActions(true), el('p', 'quick-title', 'Quick switches'));
+    const essentials = el('div', 'essentials');
+    for (const [id, label, glyph, keys = [id]] of [['drag', 'Drag', '⇄'], ['shortcuts', 'Keys', '⌨'], ['fan', 'Fans', '🂠'], ['animations', 'Animations', '✦'], ['sounds', 'Sounds', '♪'], ['deck-builder', 'Deck builder', '🃏', ['adaptiveConstructor', 'previewLinks', 'namePeek']]]) {
+      const tile = button('', '', () => { const on = keys.every(key => config[key]); save(Object.fromEntries(keys.map(key => [key, !on]))); });
+      tile.className = 'essential'; tile.dataset.setting = id; tile.disabled = true; tile.append(el('span', 'glyph', glyph), document.createTextNode(label)); essentials.append(tile); quickButtons.set(keys, tile);
+    }
+    $('quick').append(essentials);
+  }
+  try { const manifest = api.runtime.getManifest(); $('version').textContent = 'v' + (manifest.version_name || manifest.version); } catch {}
   let config, capturing, queue = Promise.resolve(), ready = false;
   const error = message => { $('error').textContent = message; };
-  for (const [title, entries] of groups) {
-    const group = document.createElement('details'); group.className = 'settings-category'; group.open = full;
-    const summary = document.createElement('summary'); summary.append(Object.assign(document.createElement('span'), {className: 'category-name', textContent: title}), document.createElement('small'));
-    // One switch turns a whole category on or off (every listed setting, including sub-options).
-    const all = document.createElement('input'); all.type = 'checkbox'; all.className = 'group-toggle'; all.disabled = true;
-    all.setAttribute('aria-label', `All ${title} settings`); all.title = `Turn every ${title} setting on or off`;
-    all.addEventListener('click', event => event.stopPropagation());
-    all.addEventListener('change', () => save(Object.fromEntries(entries.filter(([id]) => id !== 'theme').map(([id]) => [id, all.checked]))));
-    summary.insertBefore(all, summary.querySelector('small')); group.append(summary); group.dbliteEntries = entries.filter(([id]) => id !== 'theme').map(([id]) => id);
-    for (const [id, label, description, parent] of entries) {
-      // The popup lists main switches only, plus the sub-options that change how a plain drop behaves.
-      if (!full && parent && !['normalSummon', 'dropWheel'].includes(id)) continue;
-      const row = document.createElement('label'); row.className = parent ? 'setting sub-setting' : 'setting'; row.htmlFor = id;
-      const text = document.createElement('span'); text.textContent = label;
-      const detail = document.createElement('small'); detail.textContent = description; text.append(detail);
-      const input = document.createElement(id === 'theme' ? 'select' : 'input'); input.id = id; input.disabled = true;
-      if (id === 'theme') for (const name of themes) input.append(Object.assign(document.createElement('option'), {value: name, textContent: name[0].toUpperCase() + name.slice(1)}));
-      else input.type = 'checkbox';
-      row.append(text, input); group.append(row); rows.push({id, row, input, parent, search: `${title} ${label} ${description}`.toLowerCase()});
-      input.addEventListener('change', () => save({[id]: id === 'theme' ? input.value : input.checked}));
+  const sectionNodes = new Map(), searchExtras = [];
+  const searchable = (row, search) => { searchExtras.push({row, search: search.toLowerCase()}); return row; };
+  function settingRow(id, title, group) {
+    const [, label, description, parent] = catalogue.get(id);
+    const row = el('label', parent ? 'setting sub-setting' : 'setting'); row.htmlFor = id;
+    const text = el('span', '', label); text.append(el('small', '', description));
+    const input = el('input'); input.id = id; input.type = 'checkbox'; input.disabled = true;
+    row.append(text, input); group.append(row); rows.push({id, row, input, parent, search: `${title} ${label} ${description}`.toLowerCase()});
+    input.addEventListener('change', () => save({[id]: input.checked})); return row;
+  }
+  for (const [slug, title, ids] of sections) {
+    const group = el('section', full ? 'settings-category' : 'search-results'); group.id = 'section-' + slug; sectionNodes.set(slug, group);
+    if (full) {
+      const heading = el('div', 'section-heading'); heading.append(el('h2', '', title));
+      if (ids.length) {
+        const all = el('input', 'group-toggle'); all.type = 'checkbox'; all.disabled = true; all.setAttribute('aria-label', `All ${title} settings`); all.title = `Turn every ${title} setting on or off`;
+        all.addEventListener('change', () => save(Object.fromEntries(ids.map(id => [id, all.checked])))); heading.append(el('small'), all);
+      }
+      group.append(heading); group.settingIds = ids;
+      const link = el('a', '', title); link.href = '#' + group.id; link.addEventListener('click', () => setCurrent(group)); $('section-menu').append(link);
+      if (slug === 'look') group.append(searchable(lookChooser(), 'look theme night abyss ember light classic duelingbook'));
+    }
+    for (const id of ids) {
+      if (full && id === 'mellowSounds') continue;
+      if (full && (id === 'contextMenu' || id === 'refinedSounds')) {
+        const sound = id === 'refinedSounds', row = el('div', sound ? 'setting sub-setting sound-setting' : 'setting');
+        row.append(el('p', '', sound ? 'Sound effects' : 'Card actions'));
+        const controls = sound ? el('div', 'segmented') : cardActions(false);
+        if (sound) {
+          controls.setAttribute('role', 'radiogroup'); controls.setAttribute('aria-label', 'Sound effects');
+          for (const [value, label, patch] of [['native', 'DuelingBook', {refinedSounds: false, mellowSounds: false}], ['refined', 'Refined', {refinedSounds: true, mellowSounds: false}], ['mellow', 'Mellow', {mellowSounds: true}]]) {
+            const option = button(label, 'sound-' + value, () => save(patch)); option.setAttribute('role', 'radio'); controls.append(option); soundButtons.set(value, option);
+          }
+        }
+        for (const key of sound ? ['refinedSounds', 'mellowSounds'] : ['contextMenu']) {
+          const input = el('input'); input.type = 'checkbox'; input.id = key; input.hidden = true; row.append(input);
+          rows.push({id: key, row, input, parent: sound ? 'sounds' : undefined, search: `${title} ${row.textContent} ${catalogue.get(key)[1]} ${catalogue.get(key)[2]}`.toLowerCase()});
+        }
+        row.append(controls); group.append(row);
+      } else settingRow(id, title, group);
+      if (full && id === 'chatWheel') { group.append(searchable($('chat-settings'), 'chat quick messages presets wheel')); }
     }
     $('categories').append(group);
+  }
+  function setCurrent(section) {
+    for (const link of $('section-menu').querySelectorAll('a')) {
+      const current = link.hash === '#' + section.id; link.classList.toggle('current', current);
+      if (current) link.setAttribute('aria-current', 'location'); else link.removeAttribute('aria-current');
+    }
+  }
+  if (full) {
+    const move = (id, slug, search) => sectionNodes.get(slug).append(searchable($(id), search));
+    move('key-settings', 'keys', 'keyboard shortcuts remap'); move('board-setting', 'look', 'board size scale smaller larger layout'); move('volume-setting', 'sound', 'vfx volume sound loudness 0-100');
+    const help = sectionNodes.get('help'), helpActions = el('div', 'actions tour-row');
+    if (!window.DBETTERApp) helpActions.append(button('Open the guide', 'guide-open', () => openGuide()));
+    const reset = button('Show tips again', 'tour-reset', () => save({tourSeen: [], tourOff: false})); reset.disabled = true; helpActions.append(reset);
+    const note = el('small', '', window.DBETTERApp ? 'A short tip the first time you reach each part.' : 'The welcome card and a short tip the first time you reach each part.');
+    if (!window.DBETTERApp) helpActions.append(button('Setup page', 'welcome-open', () => openWelcome('')));
+    note.className = 'help-note'; helpActions.append(note);
+    help.append(searchable(helpActions, 'help guide show tips again setup page'), searchable($('transfer'), 'help backup reset defaults export import json preferences'));
+    for (const note of [...document.querySelectorAll('main > p.note')]) help.append(searchable(note, note.textContent));
+    if (!window.DBETTERApp) {
+      const tools = el('div', 'deck-tools'); tools.append(el('p', 'note', 'Most deck-builder tools have no switch. Show me opens DuelingBook and points at the tool.'));
+      const grid = el('div', 'tool-grid');
+      for (const [item, name] of [['access', 'Access · Starters · Ideas'], ['lab', 'Summon Lab'], ['describe', 'Describe'], ['odds', 'Opening odds 🎲'], ['siding', 'Siding patterns ⇄'], ['history', 'Deck history 🕘']]) {
+        const tile = el('div', 'tool-tile'); const show = button('Show me', '', () => openGuide(item)); show.dataset.guideItem = item; show.setAttribute('aria-label', 'Show me ' + name);
+        tile.append(el('span', '', name), show); grid.append(tile);
+      }
+      tools.append(grid); sectionNodes.get('deck-builder').append(searchable(tools, tools.textContent));
+    }
+    setCurrent(sectionNodes.get('duels'));
+    const trackSection = () => {
+      const visible = [...sectionNodes.values()].filter(section => !section.hidden);
+      const atEnd = window.scrollY > 0 && window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+      const current = atEnd ? visible.at(-1) : visible.filter(section => section.getBoundingClientRect().top <= 110).pop() || visible[0]; if (current) setCurrent(current);
+    };
+    window.addEventListener('scroll', trackSection, {passive: true});
+    window.addEventListener('resize', trackSection);
   }
   // Quick chat messages (full settings page): eight short fields, saved as they change.
   const chatInputs = [];
@@ -194,14 +255,22 @@
   }
   function render() {
     document.documentElement.dataset.dbetterTheme = config.theme;
-    for (const [name, button] of themeButtons) { button.setAttribute('aria-pressed', String(config.theme === name)); button.disabled = !ready; }
     chatInputs.forEach((input, i) => { if (document.activeElement !== input) input.value = config.chatPresets[i] || ''; input.disabled = !ready; });
-    for (const [value, option] of lookButtons) { option.setAttribute('aria-checked', String(config.look === value)); option.disabled = !ready; }
-    $('tour-reset').disabled = !ready;
+    const selectedLook = config.look === 'classic' ? 'classic' : config.theme === 'classic' ? 'light' : config.theme;
+    for (const [value, option] of lookButtons) { option.setAttribute('aria-checked', String(selectedLook === value)); option.disabled = !ready; }
+    if ($('tour-reset')) $('tour-reset').disabled = !ready;
+    if ($('guide-count')) { $('guide-count').textContent = `🧭 Guide · ${config.guideDone.length} of ${DBLiteRules.guideIds.length} features tried`; $('guide-progress').value = config.guideDone.length; }
+    if ($('guide-button-toggle')) {
+      const allTried = config.guideDone.length >= DBLiteRules.guideIds.length, toggle = $('guide-button-toggle');
+      toggle.hidden = allTried; toggle.disabled = !ready; toggle.textContent = config.guideButton ? 'Hide the button' : 'Show the button';
+      toggle.title = 'The 🧭 Guide button above Solo in the deck builder';
+    }
+    const sound = config.mellowSounds ? 'mellow' : config.refinedSounds ? 'refined' : 'native';
+    for (const [value, option] of soundButtons) { option.setAttribute('aria-checked', String(sound === value)); option.disabled = !ready || !config.sounds; }
     for (const [value, option] of modeButtons) { option.setAttribute('aria-checked', String(config.contextMenu === value)); option.disabled = !ready; }
-    for (const [id, tile] of quickButtons) { tile.setAttribute('aria-pressed', String(!!config[id])); tile.disabled = !ready; }
+    for (const [keys, tile] of quickButtons) { tile.setAttribute('aria-pressed', String(keys.every(id => config[id]))); tile.disabled = !ready; }
     for (const {id, row, input, parent} of rows) {
-      if (id === 'theme') input.value = config.theme; else input.checked = config[id]; input.disabled = !ready || !!parent && !config[parent];
+      input.checked = config[id]; input.disabled = !ready || !!parent && !config[parent];
       row.classList.toggle('disabled', !!parent && !config[parent]);
     }
     for (const [action, button] of keyButtons) {
@@ -209,12 +278,14 @@
       const sub = ['ok','think'].includes(action) ? 'signalKeys' : ['declare','target'].includes(action) ? 'cardKeys' : action === 'sort' ? 'sortKey' : action === 'peek' ? 'peekKey' : action === 'wheel' ? 'drag' : 'zoneKeys';
       button.disabled = !ready || !config.shortcuts || !config[sub];
     }
-    $('vfxVolume').value = config.vfxVolume; $('volume-value').textContent = `${config.vfxVolume}%`;
-    $('boardSize').value = config.boardSize; $('board-value').textContent = `${config.boardSize}%`; $('boardSize').disabled = !config.adaptiveLayout;
-    for (const group of document.querySelectorAll('.settings-category')) {
-      const inputs = [...group.querySelectorAll('.setting input')]; group.querySelector('summary small').textContent = `${inputs.filter(input => input.checked).length} of ${inputs.length} on`;
-      const all = group.querySelector('.group-toggle'), on = group.dbliteEntries.filter(id => config[id]).length;
-      all.checked = on === group.dbliteEntries.length; all.indeterminate = on > 0 && on < group.dbliteEntries.length; all.disabled = !ready;
+    if (full) {
+      $('vfxVolume').value = config.vfxVolume; $('volume-value').textContent = `${config.vfxVolume}%`;
+      $('boardSize').value = config.boardSize; $('board-value').textContent = `${config.boardSize}%`; $('boardSize').disabled = !config.adaptiveLayout;
+      for (const group of document.querySelectorAll('.settings-category')) {
+        const ids = group.settingIds, all = group.querySelector('.group-toggle'); if (!all) continue;
+        const on = ids.filter(id => config[id]).length; group.querySelector('.section-heading small').textContent = `${on} of ${ids.length} on`;
+        all.checked = on === ids.length; all.indeterminate = on > 0 && on < ids.length; all.disabled = !ready;
+      }
     }
     const hints = Object.entries(actions).map(([action, label]) => `${DBLiteRules.keyLabel(config.keys[action])}: ${label}`).join(' · ');
     $('shortcuts').closest('label').querySelector('small').textContent = hints;
@@ -235,23 +306,26 @@
     };
     queue = queue.then(operation); return queue;
   }
-  $('search').addEventListener('input', () => {
+  function filterSettings() {
     const query = $('search').value.trim().toLowerCase(); let any = false;
-    for (const item of rows) { item.row.hidden = !item.search.includes(query); if (!item.row.hidden) any = true; }
-    for (const group of document.querySelectorAll('.settings-category')) {
-      group.hidden = ![...group.querySelectorAll('.setting')].some(row => !row.hidden);
-      if (query && !group.hidden) group.open = true;
+    const uniqueRows = new Set(rows.map(item => item.row));
+    for (const row of uniqueRows) { row.hidden = !full && !query || !rows.some(item => item.row === row && item.search.includes(query)); if (!row.hidden) any = true; }
+    for (const {row, search} of searchExtras) { row.hidden = !search.includes(query); }
+    for (const button of keyButtons.values()) {
+      const row = button.closest('.key-row'); row.hidden = !row.textContent.toLowerCase().includes(query) && !'keyboard shortcuts remap'.includes(query);
     }
-    for (const button of keyButtons.values()) { const row = button.closest('.key-row'); row.hidden = !row.textContent.toLowerCase().includes(query) && !'keyboard shortcuts remap'.includes(query); if (!row.hidden) any = true; }
     if (full) {
-      const matchesVolume = 'vfx volume sound loudness 0-100'.includes(query);
-      $('volume-setting').hidden = !matchesVolume; any ||= matchesVolume;
-      const matchesBoard = 'board size scale smaller larger layout'.includes(query);
-      $('board-setting').hidden = !matchesBoard; any ||= matchesBoard;
-      $('key-settings').hidden = ![...keyButtons.values()].some(button => !button.closest('.key-row').hidden);
-    }
-    $('empty').hidden = any;
-  });
+      $('key-settings').hidden = document.body.classList.contains('touch') || ![...keyButtons.values()].some(button => !button.closest('.key-row').hidden);
+      for (const section of sectionNodes.values()) {
+        section.hidden = ![...section.children].some(child => !child.classList.contains('section-heading') && !child.hidden);
+        const link = $('section-menu').querySelector(`[href="#${section.id}"]`); link.hidden = section.hidden;
+        if (!section.hidden) any = true;
+      }
+      const first = [...sectionNodes.values()].find(section => !section.hidden); if (first) setCurrent(first);
+    } else $('categories').hidden = !query;
+    $('empty').hidden = !query || any;
+  }
+  $('search').addEventListener('input', filterSettings);
   $('all-settings')?.addEventListener('click', () => api.runtime.openOptionsPage());
   if (full) {
     $('key-settings').hidden = $('transfer').hidden = false;
@@ -315,6 +389,7 @@
       $('import').value = '';
     });
   }
+  filterSettings();
   try {
     const saved = await api.storage.local.get('settings'); config = DBLiteRules.settings(saved.settings); ready = true; render();
     $('status').textContent = 'Settings apply automatically';

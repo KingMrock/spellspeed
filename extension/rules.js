@@ -1,7 +1,7 @@
 /* DBETTER, GPL-3.0-only. See NOTICE.txt. */
 (function (root) {
   'use strict';
-  const defaults = Object.freeze({ animations: true, sounds: true, replay: true, drag: true, doubleClick: true, declare: true, normalSummon: true, fan: true, contextMenu: true, quickActions: true, shortcuts: true, handHover: true, pileHover: true, autoRps: true, skipIntro: true, hideDeclarationChat: true, dragDefense: true, dragSet: true, dropWheel: true, dragReveal: true, dragAttack: true, doubleClickPiles: true, doubleClickSet: true, signalKeys: true, zoneKeys: true, cardKeys: true, sortKey: true, peekKey: true, quickButtons: true, cardMacros: true, cardMotion: true, declareGlow: true, replaySpeed: true, replayRewind: true, replayVideo: true, refinedSounds: true, volumeControl: true, adaptiveLayout: true, adaptiveDock: false, adaptiveConstructor: true, hideZoomNotice: true, hideScreenshotButton: true, hideSummonSpiral: true, blockAutoFocus: true, zoneKeysSend: true, previewLinks: true, namePeek: true, keepHandRevealed: true, clickDrop: true, chatWheel: true, touchControls: true, touchLayout: true, touchTapMenu: true, actionHistory: true, duelLayout: true, darkTextBoxes: true, retryLogin: true });
+  const defaults = Object.freeze({ animations: true, sounds: true, replay: true, drag: true, doubleClick: true, declare: true, normalSummon: true, fan: true, contextMenu: true, quickActions: true, shortcuts: true, handHover: true, pileHover: true, autoRps: true, skipIntro: true, hideDeclarationChat: true, dragDefense: true, dragSet: true, dropWheel: true, dragReveal: true, dragAttack: true, doubleClickPiles: true, doubleClickSet: true, signalKeys: true, zoneKeys: true, cardKeys: true, sortKey: true, peekKey: true, quickButtons: true, cardMacros: true, cardMotion: true, declareGlow: true, replaySpeed: true, replayRewind: true, replayVideo: true, refinedSounds: true, mellowSounds: false, volumeControl: true, adaptiveLayout: true, adaptiveDock: false, adaptiveConstructor: true, hideZoomNotice: true, hideScreenshotButton: true, hideSummonSpiral: true, blockAutoFocus: true, zoneKeysSend: true, previewLinks: true, namePeek: true, keepHandRevealed: true, clickDrop: true, chatWheel: true, touchControls: true, touchLayout: true, touchTapMenu: true, actionHistory: true, duelLayout: true, darkTextBoxes: true, retryLogin: true, guideButton: true });
   // Quick chat wheel: up to 8 short messages (each deck can add its own in the constructor).
   const defaultChat = Object.freeze(['gg', 'glhf', 'mc', 'ty', 'gl', 'np', 'wait', 'ok']);
   function chatList(value, fallback = defaultChat) {
@@ -46,22 +46,48 @@
       boardSize: Number.isFinite(value.boardSize) ? Math.max(60, Math.min(100, Math.round(value.boardSize))) : 100,
       chatPresets: chatList(value.chatPresets),
       look: value.look === 'classic' ? 'classic' : 'dbetter', lookSaved: savedLook(value.lookSaved),
-      tourSeen: Array.isArray(value.tourSeen) ? tourIds.filter(id => value.tourSeen.includes(id)) : [], tourOff: value.tourOff === true };
+      tourSeen: Array.isArray(value.tourSeen) ? tourIds.filter(id => value.tourSeen.includes(id)) : [], tourOff: value.tourOff === true,
+      guideDone: Array.isArray(value.guideDone) ? guideIds.filter(id => value.guideDone.includes(id)) : [] };
   }
   // A page's DBLITE_QUICK message: the switches a duel offers outside the settings (user, 2026-10-29: the position
   // wheel on and off, for laid-back mouse play or keyboard play). Only known settings, as booleans; null when nothing changes.
+  // Also one moved key, from the DBuddy hotkey clash note's one-click fix (user, 2026-11-12): a known action and a valid
+  // key that no other action uses.
   const quickKeys = Object.freeze(['dropWheel']);
   function quickPatch(current, message) {
     const config = settings(current), patch = {};
     for (const key of quickKeys) if (typeof message?.[key] === 'boolean' && message[key] !== config[key]) patch[key] = message[key];
+    const move = message?.key;
+    if (move && typeof move === 'object' && Object.hasOwn(defaultKeys, move.action) && validKey(move.value)) {
+      const value = move.value.toLowerCase();
+      if (config.keys[move.action] !== value && !Object.entries(config.keys).some(([action, key]) => action !== move.action && key === value))
+        patch.keys = { ...config.keys, [move.action]: value };
+    }
     return Object.keys(patch).length ? patch : null;
   }
   // Onboarding (tour.js): the welcome card, then one tip per part. Seen tips and Skip are saved in the settings.
-  const tourIds = Object.freeze(['welcome', 'duel', 'viewer', 'replay', 'constructor']);
-  // The settings patch for a page's DBLITE_TOUR message: only known tips, Skip and a look. null when nothing changes.
+  // 'guide': the invitation to the deck builder guide was answered (first-launch card, welcome page or the toast).
+  const tourIds = Object.freeze(['welcome', 'duel', 'viewer', 'replay', 'constructor', 'guide']);
+  // Deck builder guide (guide.js; user, 2026-11-14, design B): a checklist of the deck builder's tools in five groups.
+  // An item is done the first time the player uses the tool; `guideDone` keeps those ids in this order.
+  const guideGroups = Object.freeze([['find', 'Find cards'], ['read', 'Read a card'], ['extra', 'Extra Deck'], ['test', 'Test the deck'], ['match', 'Matches']]);
+  const guideItems = Object.freeze([
+    ['search', 'find', 'Search for cards'], ['describe', 'find', 'Describe a card in your own words'], ['recent', 'find', 'Go back to a recent search'],
+    ['links', 'read', 'Follow a link in card text'], ['access', 'read', 'Access: what gets a card out of the Deck'],
+    ['starters', 'read', 'Starters: what reaches it from your hand'], ['ideas', 'read', 'Ideas: every one- or two-card line'],
+    ['lab', 'extra', 'Summon Lab'], ['labMain', 'extra', 'Summon Lab from your Main Deck'],
+    ['odds', 'test', 'Opening odds'], ['lines', 'test', 'Combo lines in Solo'],
+    ['siding', 'match', 'Siding patterns'], ['sidePlan', 'match', 'Side plans between games'], ['history', 'match', 'Deck history'], ['chat', 'match', 'Quick chat for this deck']
+  ].map(([id, group, title]) => Object.freeze({ id, group, title })));
+  const guideIds = Object.freeze(guideItems.map(item => item.id));
+  // YouTube links (user, 2026-11-14): filled in once the release video and the shorts are public. Empty: no video
+  // button or clip link is shown anywhere.
+  const guideVideos = Object.freeze({ tour: '', items: Object.freeze({}) });
+  // The settings patch for a page's DBLITE_TOUR message: only known tips, Skip, a look and guide items used. null when nothing changes.
   function tourPatch(current, message) {
     const config = settings(current), patch = {};
     if (tourIds.includes(message?.seen) && !config.tourSeen.includes(message.seen)) patch.tourSeen = tourIds.filter(id => id === message.seen || config.tourSeen.includes(id));
+    if (guideIds.includes(message?.done) && !config.guideDone.includes(message.done)) patch.guideDone = guideIds.filter(id => id === message.done || config.guideDone.includes(id));
     if (message?.off === true && !config.tourOff) patch.tourOff = true;
     if (['dbetter', 'classic'].includes(message?.look)) Object.assign(patch, lookPatch(current, message.look));
     return Object.keys(patch).length ? patch : null;
@@ -123,6 +149,26 @@
   }
   // Use native menu actions plus the requested direct placement/attachment
   // shortcuts. Source/viewer/host checks run again before native dispatch.
+  // Attach is in DuelingBook's own menu only while its player controls an Xyz Monster
+  // (hasXyzMonster), and only for Graveyard and banished cards. Other cards are banished
+  // first (content.js), so another Xyz Monster than the dropped card must be there.
+  function canAttach(card, target, actions) {
+    if (!target.anyXyz) return false;
+    if (card.onField || card.hand || card.viewedDeck || card.extra) return true;
+    return actions.includes('Attach');
+  }
+  // The wheel on an Xyz Monster: Attach (under it, as material) or Overlay (on top of it).
+  // [action, label, sub]; empty when there is only one way, unless every way is asked for (all).
+  function hostChoices(card, target, actions, all = false) {
+    if (target.kind !== 'monster' || !target.occupied || !target.overlayEligible || !target.xyz) return [];
+    const has = name => actions.includes(name), list = [];
+    if (canAttach(card, target, actions)) list.push(['Attach', 'Attach', 'as material']);
+    if (card.extra) {
+      if (has('OL ATK')) list.push(['OL ATK', 'Overlay', 'on top']);
+      if (has('OL DEF') && !card.link) list.push(['OL DEF', 'Overlay', 'on top · DEF']);
+    } else if (card.onField && has('Overlay')) list.push(['Overlay', 'Overlay', 'on top']);
+    return all || list.length > 1 ? list : [];
+  }
   function dropAction(card, target, shift, actions, ctrl = false, alt = false) {
     const has = name => actions.includes(name);
     const first = (...names) => names.find(has) || null;
@@ -138,10 +184,14 @@
     if (target.kind === 'opponentMonster') return card.inMonsterZone ? first('Attack') : null;
     if (target.occupied) {
       if (target.kind !== 'monster' || !target.overlayEligible) return null;
-      if (card.extra) return first(shift && !card.link ? 'OL DEF' : 'OL ATK');
-      if (card.onField) return shift ? (target.xyz ? 'Attach' : null) : first('Overlay');
-      if (target.xyz && (card.hand || card.viewedDeck)) return 'Attach';
-      return target.xyz ? first('Attach') : null;
+      // DuelingBook's two plays onto a monster (user, 2026-11-13): Attach puts the dropped card
+      // under the target as material; Overlay (a field card) or OL ATK / OL DEF (an Xyz Monster
+      // from the Extra Deck) puts it on top, the target going under it.
+      const attach = canAttach(card, target, actions) ? 'Attach' : null;
+      const over = card.extra ? first(shift && !card.link ? 'OL DEF' : 'OL ATK') : card.onField ? first('Overlay') : null;
+      if (!target.xyz) return card.extra || card.onField && card.xyz ? over || attach : attach;
+      if (card.onField && shift) return attach;
+      return over || attach;
     }
     switch (target.kind) {
       case 'monster':
@@ -151,7 +201,10 @@
         return first(shift && !card.link ? 'SS DEF' : 'SS ATK');
       case 'spell':
         if (card.onField) return first('Move');
-        if ((card.viewedExtra || card.faceUpExtraPendulum) && card.monster) return 'To ST';
+        // A monster from the viewed Deck or face-up banished too (user, 2026-11-14: Bingo Machine, Go!!! shows
+        // revealed monsters there). Measured in a real duel: the Hand, GY and Deck menus offer To S/T for monsters,
+        // the Extra Deck and banished menus do not, yet DuelingBook's server takes the play from both.
+        if ((card.viewedExtra || card.faceUpExtraPendulum || card.viewedDeck || card.faceUpBanished) && card.monster) return 'To ST';
         if (card.trap) return shift ? first('To ST') : first('Set ST', 'To ST');
         return shift ? first('Set ST', 'To ST') : first('Activate ST', 'To ST', 'Set ST');
       case 'field':
@@ -277,10 +330,15 @@
       theme: !!doc?.getElementById('dbte-theme-vars'), foils: !!doc?.getElementById('dbte-rarity'), tools,
       // DBuddy's card hotkeys press items of DuelingBook's own hover menu, and its extra card actions add items to it.
       cardMenus: tools.has('cardHotkeys') || tools.has('extraActions'),
-      silentPileView: tools.has('silentPileView'), replayTools: tools.has('replayTools') };
+      silentPileView: tools.has('silentPileView'), replayTools: tools.has('replayTools'), sounds: tools.has('siteSounds') };
     html?.classList.toggle('dblite-dbuddy', state.present);
     html?.classList.toggle('dblite-dbuddy-theme', state.theme);
     return (dbuddyState = state);
+  }
+  // A DBuddy pile-wheel action in progress (marked by bootstrap.js until DBuddy's bridge answers; 1.5 s at most).
+  function dbuddyPileAction() {
+    const at = Number(root.document?.documentElement?.dataset.dbliteDbuddyPile);
+    return at > 0 && Date.now() - at < 1500;
   }
   function onDbuddy(listener) { dbuddyListeners.add(listener); return () => dbuddyListeners.delete(listener); }
   function dbuddyChanged() {
@@ -329,5 +387,5 @@
     watch();
     if (!doc.body) doc.addEventListener('DOMContentLoaded', () => { watch(); dbuddyChanged(); }, { once: true });
   }
-  root.DBLiteRules = { dbuddy, onDbuddy, skipInput, cleanFanClone, imageReady, replaceArtwork, defaultChat, chatList, layoutPlan, clampFloating, offsetBox, boxBlocked, defaults, defaultKeys, validKey, keyLabel, settings, classicLook, lookPatch, tourIds, tourPatch, quickPatch, pageImage, duelServer, replayUrl, cardUrl, cardPalette, dropAction, hasHook, markHook };
+  root.DBLiteRules = { dbuddy, dbuddyPileAction, onDbuddy, skipInput, cleanFanClone, imageReady, replaceArtwork, defaultChat, chatList, layoutPlan, clampFloating, offsetBox, boxBlocked, defaults, defaultKeys, validKey, keyLabel, settings, classicLook, lookPatch, tourIds, tourPatch, guideGroups, guideItems, guideIds, guideVideos, quickPatch, pageImage, duelServer, replayUrl, cardUrl, cardPalette, dropAction, hostChoices, hasHook, markHook };
 })(globalThis);

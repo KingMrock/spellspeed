@@ -1528,6 +1528,23 @@
         rules.markHook(wrapped, original); hooks.set(fn, wrapped); window[fn] = wrapped;
       }
     }
+    // A face-down banished card going to the hand: DuelingBook shows its front at
+    // once, while the card still lies face-down at the pile for the tween's 0.5 s
+    // delay; its rotation watcher hides the front again only when the flip starts
+    // and shows it past 90°. On screen: front, card back, front (a flash). Let the
+    // card's own onRotate pick the face for its current angle right away.
+    function hookBanishedToHand() {
+      const original = window.toHandFromBanished;
+      if (typeof original !== 'function' || rules.hasHook(original, hooks.get('toHandFromBanished'))) return;
+      const wrapped = function (p, data, ...rest) {
+        const card = window.DBETTERRebuilding ? null : (p?.banished_arr || []).find(item => id(item) === data?.id);
+        const down = !!card?.data('face_down');
+        const result = original.call(this, p, data, ...rest);
+        if (down && card[0].isConnected && card.data('face_down') && typeof card.onRotate === 'function') card.onRotate();
+        return result;
+      };
+      rules.markHook(wrapped, original); hooks.set('toHandFromBanished', wrapped); window.toHandFromBanished = wrapped;
+    }
     function hookViewLifecycle() {
       const view = nativeView();
       if (view !== watchedView) {
@@ -1566,6 +1583,14 @@
       for (const card of cards) fanConcealment.set(card, concealed(card, descriptor));
       try { refreshFanNow(); } finally { fanPassDescriptor = null; fanConcealment = null; }
     }
+    // A card effect's list (Theorealize's "Opponent's Deck (Top 1 Cards)", random Extra Deck cards, partial views)
+    // stays open in DuelingBook after its cards leave it, and every card menu waits until it is closed. Once the fan
+    // has no card of it left, show DuelingBook's own window again, with its close button, instead of nothing.
+    // Closing it here is not safe in general: exitViewing sends the picks of some lists (Deck (Picking 4 Cards)).
+    function handBackView(view) {
+      if (fan || classicSwitch) hideFan();
+      view.classList.toggle('dblite-native-view', false);
+    }
     function refreshFanNow() {
       const view = nativeView(), zone = window.viewing;
       view?.classList.toggle('dblite-native-view', wantsFan(zone));
@@ -1579,6 +1604,7 @@
         // Check duel state, not filtered/rendered cards. Native effects can
         // temporarily remove the last card, so wait for their queue to settle.
         if (zones[zone] && nativeReady() && !sequence && !panel && !dragging && !moving) { closeMenu(); closeViewer(); }
+        else if (!zones[zone]) handBackView(view);
         else if (observing() && fan) hideFan();
         return;
       }
@@ -1599,7 +1625,10 @@
       // viewport. Its real cards are descendants, not necessarily direct children.
       const cards = [...view.querySelectorAll(':scope > .content .card')].map(node => pile.find(card => card[0] === node))
         .filter(card => card && !card.data('fake_card'));
-      if (!cards.length) { if (fan) hideFan(); view.classList.toggle('dblite-native-view', wantsFan(zone)); return; }
+      if (!cards.length) {
+        if (!zones[zone]) { handBackView(view); return; }
+        if (fan) hideFan(); view.classList.toggle('dblite-native-view', wantsFan(zone)); return;
+      }
       if (fanZone !== zone) { hideFan(); query = ''; sortedFan = ['fan', 'grid'].includes(viewMode) && !!sortPreference()?.sorted; }
       const key = `${zone}:${sortedFan}:${cards.map(card => `${id(card)}:${displayName(card)}:${concealed(card)}:${!!card.data('face_down')}:${card[0].className}:${sortedFan ? `${cardGroup(card)}:${sortMonsterType(card)}:${sortLevel(card)}` : ''}`).join('|')}`;
       if (fan && fanKey === key) { refreshFaces(); return; }
@@ -1984,6 +2013,328 @@
         if (same.hidden === offered) same.hidden = !offered;
       }
     }
+    // ---- Combo lines (user, 2026-11-12) ------------------------------------------------------------------------------
+    // In Solo, the player's plays since the opening hand are kept as a line, in the Line view of the Actions panel.
+    // A step there goes back to it: DuelingBook has no undo, so the same opening hand is dealt again (as ↺ does) and
+    // the plays up to that step are sent again, each waiting for DuelingBook's answer. ▶ sends the next step of a line
+    // that goes further. Lines are saved per deck, and a line code shares one (line.js; only DuelingBook's board plays
+    // are ever sent again). Cards are found again by printed card and place: DuelingBook gives every card a new id on
+    // each reset (measured 2026-11-12).
+    const LINES_KEY = 'dblite-solo-lines', LINES_PER_DECK = 30;
+    let line = null, lineReplay = null, linePending = null, lineView = false, lineMore = null, lineBox = null, lineToggle = null, lineKey = '';
+    // DuelingBook's answers to the player's own board plays (duelResponse). A replay sends one play at a time and waits
+    // for the next answer, whatever its name: only a few plays were checked to come back under the name they were sent with.
+    // Viewing, shuffles and chat are not counted (line.js recordable): the Deck view a replay opens is answered too.
+    let lineAnswers = 0;
+    const lineApi = () => window.DBLiteLine;
+    const lineContext = () => !!lineApi() && !!window.solo && !!window.duelist && !window.replay && !window.tag_duel && !window.automatic && !!player() && !!window.duelId;
+    const lineValid = () => !!line && lineContext() && line.player === player() && line.duel === window.duelId;
+    const lineOwn = card => !!card && card.data('owner') === player() && !card.data('fake_card');
+    const lineKnown = card => { const front = card.data('cardfront'); return front?.data('initialized') !== false && Number(front?.data('id')) > 0 && !!front?.data('name'); };
+    const lineDeckName = () => (soloSessionValid() && soloSession.deckName) || 'Solo';
+    function linePlace(card) {
+      const at = targetLocation(card); if (!at) return '';
+      if (at.key) return { hand_arr: 'hand', main_arr: 'deck', extra_arr: 'extra', grave_arr: 'gy', banished_arr: 'banished' }[at.key] || '';
+      if (at.slot) return 'field:' + at.slot;
+      if (at.zone === 'Xyz Materials') return 'materials';
+      if (at.zone === 'Extra Monster Zone') return api.same(window.linkLeft, card) ? 'field:emzL' : 'field:emzR';
+      return '';
+    }
+    function lineDescribe(cardId) {
+      const card = (player()?.all_cards_arr || []).find(c => Number(id(c)) === Number(cardId) && lineOwn(c));
+      if (!card || !lineKnown(card)) return null;
+      const front = card.data('cardfront');
+      return { i: Number(front.data('id')), n: String(front.data('name')), f: linePlace(card) };
+    }
+    const lineCandidates = () => (player()?.all_cards_arr || []).filter(c => lineOwn(c) && lineKnown(c))
+      .map(c => ({ id: Number(id(c)), i: Number(c.data('cardfront').data('id')), f: linePlace(c) }));
+    function hookLine() {
+      const send = window.Send;
+      if (typeof send === 'function' && !rules.hasHook(send, 'dbliteLineSend')) {
+        const wrapped = function (data, ...rest) {
+          try { recordLinePlay(data); } catch (error) { console.warn('Spellspeed line:', error); }
+          return send.call(this, data, ...rest);
+        };
+        wrapped.dbliteLineSend = true; rules.markHook(wrapped, send); window.Send = wrapped;
+      }
+      const respond = window.duelResponse;
+      if (typeof respond === 'function' && !rules.hasHook(respond, 'dbliteLineReceipt')) {
+        const wrapped = function (data, ...rest) {
+          if (typeof data?.play === 'string' && data.username === player()?.username && !passiveSignalPlays.has(data.play) && lineApi()?.recordable({ ...data, action: 'Duel' })) lineAnswers++;
+          return respond.call(this, data, ...rest);
+        };
+        wrapped.dbliteLineReceipt = true; rules.markHook(wrapped, respond); window.duelResponse = wrapped;
+      }
+    }
+    function recordLinePlay(data) {
+      if (!lineValid() || lineReplay || soloPractice || !lineApi().recordable(data)) return;
+      if (linePending) settleLineOutcome(true);
+      // Playing on a hand dealt while the line waited for its own: that hand starts a new line.
+      if (line.needsDeal && line.otherOpening) {
+        const opening = line.otherOpening;
+        line = { player: player(), duel: window.duelId, opening, hand: [...opening.hand], stack: [...opening.stack], steps: [], done: 0, needsDeal: false, name: '', version: line.version + 1 };
+      }
+      const s = lineApi().step(data, lineDescribe);
+      // A play after going back starts a new branch from there.
+      if (line.done < line.steps.length) line.steps.splice(line.done);
+      if (line.steps.length >= 400) return;
+      line.steps.push(s); line.done = line.steps.length; line.needsDeal = false; line.version++;
+      if (s.top) linePending = { step: s, deck: [...player().main_arr], sent: Date.now(), moved: -1, still: 0 };
+    }
+    // A Deck-order play (Draw, Mill…): keep the cards it moved, once DuelingBook has moved them.
+    function settleLineOutcome(now = false) {
+      const pending = linePending; if (!pending) return;
+      const p = player(), moved = pending.deck.filter(c => !api.includes(p.main_arr, c));
+      if (!now && Date.now() - pending.sent < 6000) {
+        if (!nativeReady() || Date.now() - pending.sent < 250 || !moved.length) return;
+        if (moved.length !== pending.moved) { pending.moved = moved.length; pending.still = 0; return; }
+        if (++pending.still < 2) return;
+      }
+      linePending = null;
+      lineApi().setOutcome(pending.step, moved.filter(lineKnown).map(c => {
+        const place = linePlace(c), front = c.data('cardfront');
+        const to = place === 'hand' ? 'hand' : place === 'gy' ? 'gy' : place === 'banished' ? (c.data('face_down') ? 'banishedFD' : 'banished') : '';
+        return { r: { i: Number(front.data('id')), n: String(front.data('name')), f: 'deck' }, to };
+      }));
+      if (line) line.version++;
+    }
+    function lineGo(target) {
+      if (!lineValid() || lineReplay) return;
+      target = Math.max(0, Math.min(line.steps.length, target));
+      if (target === line.done && !line.needsDeal) return;
+      if (!nativeReady() || soloPractice || sequence || wizard || window.resetting) { api.announce('Wait for the current action to finish.'); return; }
+      if (linePending) settleLineOutcome(true);
+      closeMenu(); lineMore = null;
+      const reset = target < line.done || !!line.needsDeal;
+      lineReplay = { target, stage: reset ? 'reset' : 'play', deadline: Date.now() + 30000 + 5000 * Math.abs(target - (reset ? 0 : line.done)), queue: [], waiting: null, openedDeck: false, skipped: 0 };
+      if (reset) line.done = 0;
+      renderLine();
+    }
+    // interrupted: stopped before the board reached the step the line shows (Escape, no answer, a missing card). A
+    // play may still be on its way, so the next ⏮ / ◀ / ▶ / step starts again from the opening hand.
+    function stopLine(message, interrupted = true) {
+      const job = lineReplay; lineReplay = null;
+      // The opening hand this replay was dealing: stop dealing it too.
+      if (job?.stage === 'dealing' && soloPractice) cancelAll();
+      if (job && interrupted && line && (job.waiting || job.queue.length || job.stage !== 'play')) line.needsDeal = true;
+      if (job?.openedDeck && window.viewing === 'Deck' && nativeReady()) closeViewer();
+      if (message) api.announce(message);
+      renderLine();
+    }
+    function finishLineReplay() {
+      const skipped = lineReplay.skipped; stopLine('', false);
+      api.announce(line.done ? `Line: step ${line.done} of ${line.steps.length}` + (skipped ? ` · ${skipped} step${skipped === 1 ? '' : 's'} not replayed` : '') : 'Line: back to the opening hand');
+    }
+    function advanceLine() {
+      const job = lineReplay; if (!job) return;
+      if (!lineValid() || Date.now() > job.deadline) { stopLine(`Line replay stopped at step ${line?.done || 0}. Check the board.`); return; }
+      if (job.stage === 'reset') {
+        if (!nativeReady() || soloPractice || sequence || wizard || window.resetting) return;
+        if (viewZone()) { closeViewer(); return; }
+        closeViewer();
+        startSoloPractice({ ...(soloSessionValid() ? soloSession : {}), ids: [...line.hand, ...line.stack],
+          settings: { handCount: line.hand.length, stackCount: line.stack.length, ordered: true }, sameHand: true }, true);
+        job.stage = 'dealing'; job.dealt = false; job.dealStart = Date.now(); return;
+      }
+      if (job.stage === 'dealing') {
+        if (soloPractice) return;
+        if (!job.dealt) { if (Date.now() - job.dealStart > 4000) stopLine('The opening hand could not be dealt again. Line replay stopped.'); return; }
+        job.stage = 'play'; line.needsDeal = false;
+      }
+      if (job.waiting) {
+        const wait = job.waiting;
+        if (lineAnswers <= wait.before) { if (Date.now() - wait.sent > 8000) stopLine(`No answer from DuelingBook for step ${line.done + 1}. Line replay stopped; check the board.`); return; }
+        if (!nativeReady()) return;
+        job.waiting = null;
+        if (!job.queue.length) { line.done++; renderLine(); }
+      }
+      if (!nativeReady() || sequence || wizard || soloPractice || window.resetting) return;
+      if (!job.queue.length) {
+        if (line.done >= job.target) { finishLineReplay(); return; }
+        const s = line.steps[line.done];
+        if (!s) { finishLineReplay(); return; }
+        if (!lineApi().replayable(s)) { line.done++; job.skipped++; renderLine(); return; }
+        const deck = lineApi().needsDeck(s);
+        if (!deck && job.openedDeck && window.viewing === 'Deck') { closeViewer(); job.openedDeck = false; return; }
+        if (deck && window.viewing !== 'Deck') {
+          if (job.deckAsked && Date.now() - job.deckAsked < 5000) return;
+          if (window.viewing) { closeViewer(); return; }
+          const top = player().main_arr[0];
+          if (!top) { stopLine(`Step ${line.done + 1} needs your Deck, and it is empty. Line replay stopped.`); return; }
+          job.deckAsked = Date.now(); job.openedDeck = true; window.cardMenuClicked(top, 'View deck'); return;
+        }
+        if (deck && !player().main_arr.every(lineKnown)) return; // DuelingBook is still turning the Deck's cards face-up.
+        const result = lineApi().plan(s, lineCandidates());
+        if (result.error) {
+          const ref = result.ref || {};
+          stopLine(`Step ${line.done + 1}: no ${ref.n || 'card'} in your ${lineApi().placeName(ref.f) || 'cards'}. Line replay stopped at step ${line.done}.`); return;
+        }
+        job.queue = result.plays;
+      }
+      const message = job.queue.shift();
+      job.waiting = { play: message.play, before: lineAnswers, sent: Date.now() };
+      window.Send(message);
+    }
+    // The opening hand a line starts from: every deal Spellspeed or DuelingBook makes in Solo (soloOpening).
+    function watchLineOpening() {
+      const opening = soloOpening && soloOpening.player === player() && soloOpening.duel === window.duelId ? soloOpening : null;
+      if (!opening || opening === line?.opening) return;
+      if (lineValid() && lineReplay?.stage === 'dealing') { line.opening = opening; line.otherOpening = null; line.done = 0; lineReplay.dealt = true; return; }
+      // Any other deal during a replay (DuelingBook's Reset Deck, ↺) ends the replay.
+      if (lineReplay) stopLine('Line replay stopped: the deck was reset.', false);
+      // A line waiting for its own deal (a replay stopped, a line just loaded) keeps its steps whatever hand is dealt
+      // meanwhile: ⏮ deals its hand again. A play on another hand starts a new line (recordLinePlay).
+      if (lineValid() && line.needsDeal && !(lineApi().sameCards(line.hand, opening.hand) && lineApi().sameCards(line.stack, opening.stack))) {
+        line.opening = opening; line.otherOpening = opening; return;
+      }
+      // The same hand dealt again (↺, Reset deck with a chosen hand): the line stays, to be played again.
+      if (lineValid() && lineApi().sameCards(line.hand, opening.hand) && lineApi().sameCards(line.stack, opening.stack)) { line.opening = opening; line.otherOpening = null; line.done = 0; line.needsDeal = false; line.version++; return; }
+      line = { player: player(), duel: window.duelId, opening, hand: [...opening.hand], stack: [...opening.stack], steps: [], done: 0, needsDeal: false, name: '', version: 0 };
+      linePending = null; lineMore = null;
+    }
+    function updateLine() {
+      if (!lineContext()) { if (line) { line = null; lineReplay = null; linePending = null; } renderLine(); return; }
+      hookLine(); watchLineOpening();
+      if (line && !lineValid()) { line = null; lineReplay = null; linePending = null; }
+      if (linePending) settleLineOutcome();
+      advanceLine(); renderLine();
+    }
+    // ---- saved lines and line codes
+    function lineStore() {
+      try { const raw = JSON.parse(localStorage.getItem(LINES_KEY) || 'null'); if (raw?.v === 1 && raw.decks && typeof raw.decks === 'object') return raw; } catch { /* Storage may be unavailable. */ }
+      return { v: 1, decks: {} };
+    }
+    function savedLines() {
+      const list = lineStore().decks[lineDeckName()];
+      return Array.isArray(list) ? list.map(entry => { try { return lineApi().check(entry); } catch { return null; } }).filter(Boolean) : [];
+    }
+    function writeLines(list) {
+      const store = lineStore(); store.decks[lineDeckName()] = list.map(entry => ({ v: 1, ...entry }));
+      try { localStorage.setItem(LINES_KEY, JSON.stringify(store)); return true; } catch { api.announce('Could not save: the browser refused to store the line.'); return false; }
+    }
+    function saveLine(nameText) {
+      const name = String(nameText || '').trim().slice(0, 80) || `Line ${savedLines().length + 1}`;
+      const list = savedLines().filter(entry => entry.name !== name);
+      if (list.length >= LINES_PER_DECK) { api.announce(`This deck has ${LINES_PER_DECK} saved lines. Delete one first.`); return; }
+      const entry = { name, deck: lineDeckName(), hand: [...line.hand], stack: [...line.stack], steps: JSON.parse(JSON.stringify(line.steps)) };
+      if (writeLines([...list, entry])) { line.name = name; lineMore = null; api.announce(`Line saved: ${name}`); }
+    }
+    // A saved or pasted line replaces the current one; it starts from its own opening hand.
+    function loadLine(entry) {
+      const { most, names } = lineApi().needs(entry), have = new Map();
+      let unknown = 0;
+      for (const card of player().all_cards_arr || []) {
+        if (!lineOwn(card)) continue;
+        if (!lineKnown(card)) { unknown++; continue; }
+        const i = Number(card.data('cardfront').data('id')); have.set(i, (have.get(i) || 0) + 1);
+      }
+      const short = [...most].filter(([i, n]) => (have.get(i) || 0) < n);
+      const missing = short.map(([i]) => names.get(i) || `card #${i}`);
+      // Cards DuelingBook has not shown yet (a Deck never viewed) may be the ones: the deal then checks them.
+      if (missing.length && short.reduce((sum, [i, n]) => sum + n - (have.get(i) || 0), 0) > unknown) { api.announce(`This line needs cards your deck lacks: ${missing.slice(0, 4).join(', ')}${missing.length > 4 ? '…' : ''}`, 6000); return false; }
+      line = { player: player(), duel: window.duelId, opening: line?.opening || null, hand: [...entry.hand], stack: [...entry.stack], steps: JSON.parse(JSON.stringify(entry.steps)), done: 0, needsDeal: true, name: entry.name, version: (line?.version || 0) + 1 };
+      lineMore = null; lineView = true; lineGo(0); return true;
+    }
+    function copyLine(output) {
+      const code = lineApi().encode({ ...line, deck: lineDeckName() });
+      output.value = code; output.hidden = false; output.select();
+      navigator.clipboard?.writeText(code).then(() => api.announce('Line code copied. Paste it in Spellspeed’s Solo, Line ⋯ › Paste a line.'), () => {});
+    }
+    // ---- the Line view in the Actions panel
+    function lineButton(label, title, action, cls = '') {
+      const node = button(label, action, cls); node.title = title; node.setAttribute('aria-label', title); return node;
+    }
+    function renderLine() {
+      const history = lineValid() && !historiesOff() ? histories.get(player()) : null;
+      if (!history) {
+        lineToggle?.remove(); lineBox?.remove(); lineToggle = lineBox = null; lineKey = '';
+        for (const node of document.querySelectorAll('.dblite-line-open')) node.classList.toggle('dblite-line-open', false);
+        return;
+      }
+      const heading = history.node.querySelector('.dblite-history-heading');
+      if (!lineToggle || lineToggle.parentElement !== heading || lineBox?.parentElement !== history.node) {
+        lineToggle?.remove(); lineBox?.remove();
+        lineToggle = lineButton('Line', 'Combo line: go back to any step of this Solo game, save and share lines', () => { lineView = !lineView; lineMore = null; renderLine(); }, 'dblite-line-toggle');
+        heading.append(lineToggle);
+        lineBox = element('div', 'dblite-line'); history.node.insertBefore(lineBox, history.latest); lineKey = '';
+      }
+      history.node.classList.toggle('dblite-line-open', lineView);
+      lineToggle.textContent = lineView ? 'Actions' : 'Line'; lineToggle.setAttribute('aria-pressed', String(lineView));
+      const caption = heading.querySelector('.dblite-history-caption');
+      if (caption && caption.textContent !== (lineView ? 'Line' : 'Actions')) caption.textContent = lineView ? 'Line' : 'Actions';
+      lineBox.hidden = !lineView;
+      if (!lineView) return;
+      const key = JSON.stringify([line.version, line.done, line.steps.length, line.name, lineReplay?.stage || '', lineReplay?.target ?? -1, lineMore?.mode || '', lineMore?.version || 0, !!linePending]);
+      if (key === lineKey) return;
+      lineKey = key;
+      const busy = !!lineReplay, bar = element('div', 'dblite-line-bar');
+      const go = n => () => lineGo(n);
+      const first = lineButton('⏮', 'Back to the opening hand', go(0)), back = lineButton('◀', 'Back one step', go(line.done - 1)), next = lineButton('▶', 'Play the next step of the line', go(line.done + 1));
+      first.disabled = busy || (line.done === 0 && !line.needsDeal); back.disabled = busy || line.done === 0; next.disabled = busy || line.done >= line.steps.length;
+      const status = element('span', 'dblite-line-status', busy ? `Replaying ${line.done}/${lineReplay.target}…` : `${line.done}/${line.steps.length}`);
+      status.setAttribute('role', 'status');
+      const more = lineButton('⋯', 'Save, load, copy or paste a line', () => { lineMore = lineMore ? null : { mode: 'menu', version: 0 }; renderLine(); }, 'dblite-line-more-button');
+      more.disabled = busy; more.setAttribute('aria-expanded', String(!!lineMore));
+      bar.append(first, back, next, status, more);
+      const body = lineMore ? renderLineMore() : renderLineSteps(busy);
+      lineBox.replaceChildren(bar, body);
+    }
+    function renderLineSteps(busy) {
+      if (!line.steps.length) return element('p', 'dblite-line-empty', line.needsDeal ? 'Loading the line…' : 'Your plays in this Solo game appear here, step by step. Click a step to go back to it.');
+      const list = element('ol', 'dblite-line-steps'); list.setAttribute('aria-label', 'Line steps');
+      line.steps.forEach((s, index) => {
+        const { verb, name, detail } = lineApi().label(s), n = index + 1, ahead = n > line.done, skip = !lineApi().replayable(s);
+        const row = element('li', 'dblite-line-step' + (ahead ? ' is-ahead' : '') + (n === line.done ? ' is-current' : '') + (skip ? ' is-skip' : ''));
+        const target = element('button', 'dblite-line-go'); target.type = 'button'; target.disabled = busy;
+        target.append(element('span', 'dblite-line-n', String(n)), element('span', 'dblite-line-verb', verb), element('span', 'dblite-line-name', name));
+        if (detail) target.append(element('span', 'dblite-line-detail', detail));
+        const what = `${verb} ${name}`.trim();
+        target.title = skip ? `${what}: not sent again by a replay (Spellspeed cannot repeat this play)` : n === line.done ? `${what}: the board is here` : ahead ? `Play the line up to step ${n}: ${what}` : `Back to step ${n}: ${what}`;
+        target.setAttribute('aria-label', target.title);
+        target.onclick = () => lineGo(n);
+        row.append(target); list.append(row);
+      });
+      requestAnimationFrame(() => list.querySelector('.is-current')?.scrollIntoView?.({ block: 'nearest' }));
+      return list;
+    }
+    function renderLineMore() {
+      const box = element('div', 'dblite-line-menu');
+      if (lineMore.mode === 'save') {
+        const input = element('input'); input.type = 'text'; input.maxLength = 80; input.value = line.name || ''; input.placeholder = `Line ${savedLines().length + 1}`; input.setAttribute('aria-label', 'Line name');
+        input.onkeydown = event => { event.stopPropagation(); if (event.key === 'Enter') saveLine(input.value); if (event.key === 'Escape') { lineMore = null; renderLine(); } };
+        box.append(element('label', 'dblite-line-label', `Save for ${lineDeckName()}`), input, lineButton('Save', 'Save this line', () => saveLine(input.value)), lineButton('Cancel', 'Back to the steps', () => { lineMore = null; renderLine(); }));
+        requestAnimationFrame(() => input.focus());
+        return box;
+      }
+      if (lineMore.mode === 'paste') {
+        const input = element('textarea'); input.rows = 3; input.placeholder = lineApi().PREFIX + '…'; input.setAttribute('aria-label', 'Line code');
+        for (const type of ['keydown', 'keyup', 'keypress']) input.addEventListener(type, event => event.stopPropagation());
+        const load = () => { try { const entry = lineApi().decode(input.value); loadLine(entry); } catch (error) { api.announce(error.message, 5000); } };
+        box.append(element('label', 'dblite-line-label', 'Paste a line code'), input, lineButton('Load', 'Load this line and deal its opening hand', load), lineButton('Cancel', 'Back to the steps', () => { lineMore = null; renderLine(); }));
+        requestAnimationFrame(() => input.focus());
+        return box;
+      }
+      const saveButton = lineButton('Save this line…', 'Save this line for this deck', () => { lineMore = { mode: 'save', version: 0 }; renderLine(); });
+      saveButton.disabled = !line.steps.length;
+      const output = element('textarea', 'dblite-line-code'); output.readOnly = true; output.rows = 2; output.hidden = true; output.setAttribute('aria-label', 'Line code to share');
+      const copy = lineButton('Copy line code', 'Copy a code that shares this line', () => copyLine(output)); copy.disabled = !line.steps.length;
+      const paste = lineButton('Paste a line…', 'Load a line from a line code', () => { lineMore = { mode: 'paste', version: 0 }; renderLine(); });
+      // A line always starts from its opening hand: starting over deals it again.
+      const clear = lineButton('Start over', 'Forget these steps and deal the opening hand again', () => { line.steps = []; line.done = 0; line.name = ''; line.needsDeal = true; line.version++; lineMore = null; lineGo(0); renderLine(); });
+      box.append(saveButton, copy, output, paste, clear);
+      const saved = savedLines();
+      if (saved.length) {
+        const list = element('ul', 'dblite-line-saved'); list.setAttribute('aria-label', `Saved lines for ${lineDeckName()}`);
+        for (const entry of saved) {
+          const row = element('li');
+          const open = lineButton(entry.name, `Load ${entry.name}: deal its opening hand`, () => loadLine(entry), 'dblite-line-load');
+          const remove = lineButton('×', `Delete ${entry.name}`, () => { if (writeLines(savedLines().filter(other => other.name !== entry.name))) { lineMore.version++; renderLine(); } }, 'dblite-line-delete');
+          row.append(open, remove); list.append(row);
+        }
+        box.append(element('p', 'dblite-line-label', `Saved for ${lineDeckName()}`), list);
+      }
+      return box;
+    }
     function practiceDrawStep() {
       let card;
       return {
@@ -2038,10 +2389,10 @@
         const plan = window.DBETTERConstructor?.takePractice();
         if (plan) { soloSession = { ...plan, ...context() }; saveSoloSession(); startSoloPractice(plan); }
       }
-      watchSoloOpening(); updateSoloControls();
+      watchSoloOpening(); updateSoloControls(); updateLine();
       // The server only deals from a viewed Deck; keep that view off screen.
-      document.documentElement.classList.toggle('dblite-solo-dealing', !!soloPractice && (['view', 'select', 'dealing'].includes(soloPractice.stage) || window.viewing === 'Deck'));
-      soloSetupClock(!!soloPractice);
+      document.documentElement.classList.toggle('dblite-solo-dealing', !!soloPractice && (['view', 'select', 'dealing'].includes(soloPractice.stage) || window.viewing === 'Deck') || !!lineReplay?.openedDeck && window.viewing === 'Deck');
+      soloSetupClock(!!soloPractice || !!lineReplay);
       const job = soloPractice; if (!job) return;
       hookPracticeHandPosition();
       if (!contextValid(job) || !window.solo || Date.now() > job.deadline) { stop('Solo setup stopped. Check the current hand before continuing.'); return; }
@@ -2510,7 +2861,7 @@
       if (!api.config().shortcuts || !api.config().peekKey) setPeek(false);
       api.duelTools?.update();
       clearTileMotions();
-      hookViewLifecycle(); hookPileMoveOrigins(); hookReceipts(); refreshFan(); refreshTargets(); refreshNotices(); refreshReplayHands(); flushHistory(); refreshDeclarations(); updateToolbar(); updateWizard(); updateOpponentRequest();
+      hookViewLifecycle(); hookPileMoveOrigins(); hookBanishedToHand(); hookReceipts(); refreshFan(); refreshTargets(); refreshNotices(); refreshReplayHands(); flushHistory(); refreshDeclarations(); updateToolbar(); updateWizard(); updateOpponentRequest();
       if (sequence) advance();
       refreshHandReveal(); markKeptRevealed();
       const showHand = document.getElementById('show_hand_btn');
@@ -2713,14 +3064,14 @@
         closeMenu();
         if (window.viewing === zone) closeViewer(); else openPile(zone);
       },
-      busy: () => !!sequence || !!wizard || !!panel || !!moving || !!soloPractice,
+      busy: () => !!sequence || !!wizard || !!panel || !!moving || !!soloPractice || !!lineReplay,
       handReveal: { available: handRevealReady, on: handRevealOn, set: setHandReveal, toggle: () => setHandReveal(!handRevealOn()) },
       allowsChat: wizardChat,
       // Deck of the current Solo session started from the constructor (other duels use the default deck).
       deckName: () => soloSessionValid() ? soloSession.deckName || null : null,
       closeViewer: () => { if (viewZone() && nativeReady() && !sequence && !wizard) closeViewer(); },
       dragging: active => { dragging = active; fan?.classList.toggle('dblite-fan-dragging', active); if (active) closeMenu(); },
-      escape: (typing = false) => { if (deckWheel && !deckWheel.hidden) { closeWheel(true); return true; } if (settingsPanel) { closeSettings(true); return true; } if (moving) { finishMoving(false); return true; } if (sequence || wizard || panel || soloPractice) { cancelAll(); return true; } if (opponentRequest) { closeOpponentRequest(); return true; } if (menu) { closeMenu(); return true; } if (fan && !typing) { closeViewer(); return true; } return false; }
+      escape: (typing = false) => { if (deckWheel && !deckWheel.hidden) { closeWheel(true); return true; } if (settingsPanel) { closeSettings(true); return true; } if (moving) { finishMoving(false); return true; } if (lineReplay) { stopLine('Line replay stopped. Completed steps are kept.'); return true; } if (sequence || wizard || panel || soloPractice) { cancelAll(); return true; } if (opponentRequest) { closeOpponentRequest(); return true; } if (menu) { closeMenu(); return true; } if (fan && !typing) { closeViewer(); return true; } return false; }
     };
   }
   const css = `
@@ -2753,6 +3104,7 @@
     .dblite-fan-resize{position:absolute;z-index:4;pointer-events:auto;touch-action:none}
     html.dblite-native-menu-open :is(.dblite-classic-switch,.dblite-tools,.dblite-deck-wheel){opacity:0!important;pointer-events:none!important}
     html.dblite-zone-pick :is(.dblite-fan,.dblite-classic-switch,#view){opacity:0!important;pointer-events:none!important}
+    html.dblite-zone-pick .dblite-fan *,html.dblite-zone-pick .dblite-classic-switch *,html.dblite-zone-pick #view *{pointer-events:none!important}
     .dblite-fan-resize[data-edge=e]{top:18px;bottom:18px;right:0;width:6px;cursor:ew-resize}
     .dblite-fan-resize[data-edge=s]{left:18px;right:18px;bottom:0;height:6px;cursor:ns-resize}
     .dblite-fan-resize[data-edge=se]{right:0;bottom:0;width:14px;height:14px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--ssp-panel) 56%,var(--ssp-panel) 64%,transparent 65%,transparent 75%,var(--ssp-panel) 76%,var(--ssp-panel) 84%,transparent 85%);border-bottom-right-radius:14px}
@@ -2817,6 +3169,9 @@
     .dblite-tools .dblite-wheel-toggle{flex:0 0 34px;width:34px;height:34px;padding:5px;border-radius:50%;background:var(--ssp-panel);box-shadow:0 2px 7px #0005}
     .dblite-wheel-toggle svg{display:block;width:22px;height:22px;fill:none;stroke:var(--ssp-accent);stroke-width:2;stroke-linecap:round}
     .dblite-wheel-toggle[aria-expanded="true"]{outline:2px solid var(--ssp-accent);outline-offset:2px}
+    /* Under a DBuddy theme the line colour is DBuddy's dark border, so the dock's ＋ and Draw vanished on the dark field
+       (user, 2026-11-14): accent outline and the theme's raised colour, like the die/coin/token buttons. */
+    html.dblite-dbuddy-theme .dblite-tools :is(.dblite-draw,.dblite-wheel-toggle){border:2px solid var(--dbt-accent,var(--ssp-accent));background:var(--dbt-raised,var(--ssp-panel-2));box-shadow:0 3px 10px #000a}
     .dblite-deck-wheel{position:fixed;z-index:2147483003;width:188px;height:188px;box-sizing:border-box;color:var(--ssp-text);color-scheme:inherit;font:13px/1.3 system-ui,sans-serif;filter:drop-shadow(0 8px 16px #0007);animation:dblite-wheel-in var(--dblite-motion-fast,140ms) ease-out}
     .dblite-deck-wheel *{box-sizing:border-box;position:static}
     .dblite-tools-items{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
@@ -2910,6 +3265,39 @@
     .dblite-target-zone{flex:1;font-size:6.5px;color:var(--ssp-muted)}
     .dblite-action-history .dblite-action-time{flex:0 0 auto;margin-left:auto;color:var(--ssp-muted);font-size:8px;line-height:10px;font-variant-numeric:tabular-nums;white-space:nowrap}
     .dblite-history-latest{flex:0 0 auto;width:100%;border:0;border-top:1px solid var(--ssp-line);border-radius:0;padding:2px;background:var(--ssp-panel);color:var(--dblite-target-color);font:600 9px 'Segoe UI',Arial,sans-serif;cursor:pointer}
+    /* Combo lines in Solo: the Line view of the player's Actions panel. */
+    .dblite-action-history.dblite-line-open :is(.dblite-history-list,.dblite-history-latest){display:none!important}
+    .dblite-action-history .dblite-line-toggle{flex:0 0 auto;margin:0 0 0 auto;border:1px solid color-mix(in srgb,var(--dblite-target-color) 60%,var(--ssp-line));border-radius:4px;background:var(--ssp-panel-2);color:var(--ssp-text);padding:0 5px;font:700 8px/13px 'Segoe UI',Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;box-shadow:none;text-shadow:none}
+    .dblite-action-history .dblite-line-toggle:is(:hover,:focus-visible){border-color:var(--dblite-target-color)}
+    .dblite-action-history .dblite-line{display:flex;flex:1;min-height:0;flex-direction:column}
+    .dblite-action-history .dblite-line[hidden]{display:none!important}
+    .dblite-action-history .dblite-line-bar{display:flex;flex:0 0 auto;align-items:center;gap:3px;padding:3px 5px;border-bottom:1px solid var(--ssp-line)}
+    .dblite-action-history .dblite-line-bar button{flex:0 0 auto;min-width:20px;height:18px;margin:0;padding:0 4px;border:1px solid var(--ssp-line);border-radius:4px;background:var(--ssp-panel-2);color:var(--ssp-text);font:600 10px/16px 'Segoe UI',Arial,sans-serif;cursor:pointer;box-shadow:none;text-shadow:none}
+    .dblite-action-history :is(.dblite-line-bar,.dblite-line-menu) button:is(:hover,:focus-visible):not(:disabled){border-color:var(--dblite-target-color)}
+    .dblite-action-history :is(.dblite-line-bar,.dblite-line-menu,.dblite-line-steps) button:disabled{opacity:.4;cursor:default}
+    .dblite-action-history .dblite-line-status{flex:1;min-width:0;color:var(--ssp-muted);font:600 9px/12px 'Segoe UI',Arial,sans-serif;text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .dblite-action-history .dblite-line-steps{flex:1;min-height:0;margin:0;padding:0;list-style:none;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--dblite-target-color) transparent}
+    .dblite-action-history .dblite-line-step{margin:0;padding:0}
+    .dblite-action-history .dblite-line-go{display:grid;grid-template-columns:15px minmax(0,1fr) auto;column-gap:4px;align-items:baseline;width:100%;margin:0;border:0;border-bottom:1px solid var(--ssp-line);border-radius:0;background:none;color:var(--ssp-text);padding:2px 5px 2px 2px;text-align:left;font:10px/13px 'Segoe UI',Arial,sans-serif;cursor:pointer;box-shadow:none;text-shadow:none}
+    .dblite-action-history .dblite-line-go:is(:hover,:focus-visible):not(:disabled){background:color-mix(in srgb,var(--dblite-target-color) 14%,transparent)}
+    .dblite-action-history .dblite-line-go:focus-visible{outline:1px solid var(--dblite-target-color);outline-offset:-1px}
+    .dblite-action-history .dblite-line-n{grid-row:span 2;color:var(--ssp-muted);font-size:8px;text-align:right;font-variant-numeric:tabular-nums}
+    .dblite-action-history .dblite-line-verb{color:var(--dblite-target-color);font-size:8px;font-weight:700;white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis}
+    .dblite-action-history .dblite-line-detail{grid-column:3;grid-row:1;color:var(--ssp-muted);font-size:8px;white-space:nowrap!important}
+    .dblite-action-history .dblite-line-name{grid-column:2/4;font-weight:600;white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis}
+    .dblite-action-history .dblite-line-step.is-ahead .dblite-line-go{opacity:.62}
+    .dblite-action-history .dblite-line-step.is-current .dblite-line-go{background:color-mix(in srgb,var(--dblite-target-color) 16%,transparent);box-shadow:inset 3px 0 var(--dblite-target-color)}
+    .dblite-action-history .dblite-line-step.is-skip .dblite-line-verb{color:var(--ssp-muted);text-decoration:line-through}
+    .dblite-action-history .dblite-line-empty{margin:0;padding:6px 7px;color:var(--ssp-muted);font-size:10px;line-height:13px}
+    .dblite-action-history .dblite-line-menu{display:flex;flex:1;min-height:0;flex-direction:column;gap:4px;padding:5px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+    .dblite-action-history .dblite-line-menu :is(button,input,textarea){width:100%;margin:0;border:1px solid var(--ssp-line);border-radius:4px;background:var(--ssp-panel-2);color:var(--ssp-text);padding:2px 5px;font:600 10px/14px 'Segoe UI',Arial,sans-serif;text-align:left;box-shadow:none;text-shadow:none}
+    .dblite-action-history .dblite-line-menu textarea{resize:vertical;font:9px/12px Consolas,monospace;word-break:break-all}
+    .dblite-action-history .dblite-line-menu textarea[hidden]{display:none!important}
+    .dblite-action-history .dblite-line-label{margin:2px 0 0;color:var(--ssp-muted);font-size:9px;line-height:12px}
+    .dblite-action-history .dblite-line-saved{display:flex;flex-direction:column;gap:3px;margin:0;padding:0;list-style:none}
+    .dblite-action-history .dblite-line-saved li{display:flex;gap:3px;margin:0}
+    .dblite-action-history .dblite-line-saved .dblite-line-load{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap!important}
+    .dblite-action-history .dblite-line-saved .dblite-line-delete{flex:0 0 22px;width:22px;text-align:center}
     #duel .dblite-history-profile{translate:var(--dblite-profile-shift) var(--dblite-profile-y,0px);scale:var(--dblite-profile-scale);transform-origin:top left!important}
     #duel.dblite-history-layout>.cout_txt{top:212px!important;height:168px!important;max-width:calc(var(--dblite-history-width) - 9px)!important;font-size:11px;line-height:1.15}
     #duel.dblite-history-layout :is(.cin_txt,.cin_txt+.textinput){top:406px!important;max-width:calc(var(--dblite-history-width) - 20px)!important;box-sizing:border-box}

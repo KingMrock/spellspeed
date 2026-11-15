@@ -1,7 +1,6 @@
-/* DBETTER, GPL-3.0-only. Onboarding (user, 2026-10-28): a welcome card that asks for the DBETTER or the Classic
- * DuelingBook look, then a short tip the first time each part is reached (a duel, a card fan, the replay timeline,
- * the deck constructor). Every tip can be skipped; "Show tips again" in the settings brings them back.
- * Seen tips, Skip and the look are saved by the loader (DBLITE_TOUR); this page only asks. */
+/* Spellspeed, GPL-3.0-only. See NOTICE.txt. A first-launch invitation with look choices and the deck-builder guide,
+ * then a short tip the first time each part is reached. Phones show only the invitation.
+ * Seen tips, Skip and the look are saved by the loader; this page only asks. */
 (() => {
   'use strict';
   if (window.DBETTERTour) return;
@@ -70,7 +69,8 @@
     { id: 'constructor', when: () => visible(document.getElementById('deck_constructor')) && !!builderSearch(),
       still: () => visible(document.getElementById('deck_constructor')), steps: () => [
       { target: builderSearch, title: 'Card search', text: 'Search by name, text and filters. The results use the space beside your deck.' },
-      config.previewLinks && { target: () => first('#preview_txt'), title: 'Card text links', text: `${tap() ? 'Tap' : 'Point at'} a card to read it in the card preview. In its text, names, Types, Levels and other phrases are links: ${tap() ? 'tap' : 'click'} one to list the matching cards. Under the text, Access lists the cards that can get this one out of the Deck.` }
+      config.previewLinks && { target: () => first('#preview_txt'), title: 'Card text links', text: `${tap() ? 'Tap' : 'Point at'} a card to read it in the card preview. In its text, names, Types, Levels and other phrases are links: ${tap() ? 'tap' : 'click'} one to list the matching cards. Under the text, Access lists the cards that can get this one out of the Deck.` },
+      { target: () => first('.dbetter-guide-button'), title: 'Guide', text: '🧭 Guide lists every deck-builder tool. Each one ticks itself when you use it, and Show me walks you through it.' }
     ].filter(Boolean) }
   ];
 
@@ -88,7 +88,7 @@
     return node;
   }
   function tell(message) { window.postMessage({ type: 'DBLITE_TOUR', ...message }, location.origin); }
-  function markSeen(id) { if (seen.has(id)) return; seen.add(id); tell({ seen: id }); }
+  function markSeen(id) { if (seen.has(id)) return; seen.add(id); tell({ seen: id }); if (id === 'constructor') markSeen('guide'); }
   function skipAll() { off = true; tell({ off: true }); close(); }
 
   function close() {
@@ -102,9 +102,12 @@
     root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); root.setAttribute('aria-labelledby', 'dbetter-tour-title');
     const card = element('div', 'dbetter-tour-card');
     const title = element('h2', '', 'Welcome to Spellspeed'); title.id = 'dbetter-tour-title';
-    const intro = element('p', '', 'Choose a look. You can change it at any time in the settings: ' + settingsWhere() + '.');
+    const intro = element('p', '', 'You can change all of this later from ' + settingsWhere() + '.');
     const choices = element('div', 'dbetter-tour-looks');
-    const choose = look => { tell({ look, seen: 'welcome' }); seen.add('welcome'); close(); };
+    const choose = look => {
+      tell({ look }); config = rules.settings({ ...config, look });
+      choices.querySelectorAll('[data-look]').forEach(node => node.setAttribute('aria-pressed', String(node.dataset.look === look)));
+    };
     for (const [look, label, detail] of [
       ['dbetter', 'Spellspeed', 'Themes, card fans, animations, action histories by the avatars and right-click card actions.'],
       ['classic', 'Classic DuelingBook', 'DuelingBook’s own look, layout and menus, with drag and drop, shortcut keys, quick chat, the replay timeline and the deck constructor extras.']]) {
@@ -113,14 +116,34 @@
       option.append(element('strong', '', label), element('span', '', detail));
       choices.append(option);
     }
+    const answer = action => { markSeen('welcome'); markSeen('guide'); close(); action?.(); };
+    const invitations = element('div', 'dbetter-tour-invitations');
+    for (const [label, detail, action] of [
+      ['Take the tour', 'About 6 minutes in the deck builder. Stop and resume any time.', () => window.DBETTERGuide?.startTour()],
+      ...(rules.guideVideos.tour ? [['Watch the video', '90 seconds on YouTube.', () => window.open(rules.guideVideos.tour, '_blank', 'noopener')]] : []),
+      ['Explore on my own', 'Short tips the first time you reach each part.', null]]) {
+      const option = button('', () => answer(action), 'dbetter-tour-look'); option.dataset.choice = label;
+      option.append(element('strong', '', label), element('span', '', detail)); invitations.append(option);
+    }
     const foot = element('div', 'dbetter-tour-foot');
-    foot.append(element('span', '', 'Short tips follow the first time you reach a duel, a replay or the deck constructor.'), button('Skip tips', () => { markSeen('welcome'); skipAll(); }, 'dbetter-tour-skip'));
-    card.append(title, intro, choices, foot); root.append(card);
-    const keys = event => { if (event.key === 'Escape') { event.stopPropagation(); markSeen('welcome'); close(); } };
+    foot.append(button('Skip tips', () => answer(skipAll), 'dbetter-tour-skip'));
+    card.append(title, intro);
+    if (!tap()) card.append(element('h3', 'dbetter-tour-step', '1 · Your look'), choices);
+    card.append(element('h3', 'dbetter-tour-step', '2 · Get to know it'), invitations, foot); root.append(card);
+    const keys = event => { if (event.key === 'Escape') { event.stopPropagation(); answer(); } };
     document.addEventListener('keydown', keys, true);
     document.body.append(root);
     open = { id: 'welcome', root, cleanup: () => document.removeEventListener('keydown', keys, true) };
     choices.querySelector(`[data-look="${config.look}"]`)?.focus({ preventScroll: true });
+  }
+
+  // Existing players get one tip pointing at the 🧭 Guide button above Solo (user, 2026-11-15: show where it is).
+  const guideButton = () => { const node = document.querySelector('#deck_constructor .dbetter-guide-button'); return visible(node) ? node : null; };
+  function invitation() {
+    show({ id: 'guide', still: () => !playing(),
+      steps: () => [{ target: guideButton, title: 'New: the deck builder Guide',
+        text: 'This button opens it: every deck-builder tool in one list. Each one ticks itself when you use it, and Show me walks you through it.' }],
+      actions: [['Later', null, 'dbetter-tour-skip'], ['Take a look', () => window.DBETTERGuide?.openDock(), 'dbetter-tour-next']] });
   }
 
   function show(tip) {
@@ -134,7 +157,8 @@
     const next = button('', () => { if (++index >= steps.length) { markSeen(tip.id); close(); } else render(); }, 'dbetter-tour-next');
     const skip = button('Skip tips', () => { markSeen(tip.id); skipAll(); }, 'dbetter-tour-skip');
     const arrow = element('i', 'dbetter-tour-arrow');
-    const row = element('div', 'dbetter-tour-row'); row.append(count, skip, next);
+    const row = element('div', 'dbetter-tour-row');
+    row.append(count, ...(tip.actions ? tip.actions.map(([label, act, className]) => button(label, () => { markSeen(tip.id); close(); act?.(); }, className)) : [skip, next]));
     root.append(arrow, title, text, row);
     root.addEventListener('mousedown', event => event.stopPropagation());
     // Escape also reaches the page, so the same key closes the tip and, say, the card fan under it.
@@ -184,19 +208,25 @@
 
   function check() {
     if (off || document.hidden || window.DBETTERRebuilding || !document.body) return;
+    if (document.querySelector('.dbetter-guide-coach,.dbetter-guide-strip')) { close(); return; }
     if (open) {
       // A tip whose part was closed (the fan, the constructor, the duel) counts as seen.
       if (open.still && !open.still()) { markSeen(open.id); close(); } else open.place?.();
       return;
     }
-    if (!seen.has('welcome')) {
-      // Phones and the Android app (user, 2026-10-28): no choice, the DBETTER look; Classic is not made for a phone.
+    if (!seen.has('welcome') || (tap() && !seen.has('guide'))) {
+      // Phones and the Android app show the guide invitation without the look choice.
       // The phone class is set by touch.js after the page fits: wait a moment before deciding.
       if (performance.now() - started < 1500) return;
-      if (phone() || app()) { markSeen('welcome'); return; }
+      if (tap() && seen.has('guide')) { markSeen('welcome'); return; }
       // Never over a duel in progress: the welcome waits for the next page outside one.
       if (!playing()) welcome();
       return;
+    }
+    if (!seen.has('guide') && seen.has('constructor') && visible(document.getElementById('deck_constructor')) && builderSearch() && !playing()) {
+      // No button to point at: hidden in the settings or every tool tried already.
+      if (config.guideButton === false || config.guideDone.length >= rules.guideIds.length) { markSeen('guide'); return; }
+      if (guideButton()) { invitation(); return; }
     }
     const tip = tips.find(tip => !seen.has(tip.id) && tip.when());
     if (!tip) { waiting = null; return; }
@@ -229,6 +259,10 @@
     .dbetter-tour-card h2{margin:0 0 6px;font-size:20px;color:inherit}
     .dbetter-tour-card p{margin:0 0 14px;color:var(--ssp-muted,#a3b2b8)}
     .dbetter-tour .dbetter-tour-looks{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .dbetter-tour-invitations{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px}
+    .dbetter-tour-step{font-size:12px;color:var(--ssp-accent,#4fc3b5);margin:14px 0 8px}
+    .dbetter-tour-invitation{bottom:12px;right:12px;width:min(290px,calc(100vw - 24px));padding:14px;border:1px solid var(--ssp-accent,#4fc3b5);border-radius:10px;background:var(--ssp-panel,#242c2e);box-shadow:0 8px 28px #000b}
+    .dbetter-tour-invitation p{margin:8px 0 12px}
     .dbetter-tour .dbetter-tour-look{display:flex;flex-direction:column;gap:4px;padding:12px;text-align:left;border-radius:9px;cursor:pointer;color:inherit;background:var(--ssp-input,#1b2224);border:1px solid var(--ssp-line,#3a4548);font:inherit}
     .dbetter-tour .dbetter-tour-look strong{font-size:15px}
     .dbetter-tour .dbetter-tour-look span{font-size:12px;color:var(--ssp-muted,#a3b2b8)}
@@ -252,6 +286,8 @@
     .dbetter-tour-ring{position:fixed;z-index:2147483642;border-radius:8px;box-shadow:0 0 0 2px var(--ssp-accent,#4fc3b5),0 0 0 6px #4fc3b533;pointer-events:none}
     html.dbetter-phone .dbetter-tour{font-size:12px}
     html.dbetter-phone .dbetter-tour-looks{grid-template-columns:1fr}
+    html.dbetter-phone .dbetter-tour-invitations,html.dbetter-app .dbetter-tour-invitations{grid-template-columns:1fr}
+    @media(max-width:600px){.dbetter-tour-invitations{grid-template-columns:1fr}}
   `;
   (document.head || html).append(style);
 

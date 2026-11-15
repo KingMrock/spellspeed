@@ -7,13 +7,32 @@
     'lifepoints_end', 'move', 'normal_summon', 'ok', 'partner_found', 'reveal', 'shred',
     'special_summon', 'shuffle_hand', 'shuffle', 'swap', 'switch', 'target', 'turn_chime',
     'snapshot', 'chatinbound', 'chatoutbound', 'hurry_up']);
+  // Effects DuelingBook serves under /sounds/ (Mellow softens those). The chat cues are Spellspeed's own: fetching
+  // /sounds/chatinbound.mp3 and chatoutbound.mp3 answers 404, which Chrome logged as an error (user, 2026-11-15).
+  const nativeEffects = new Set([...effects].filter(name => name !== 'chatinbound' && name !== 'chatoutbound'));
   function create(config, root = assetRoot) {
     const hooks = new Map();
     const rules = window.DBLiteRules;
     const shuffleVariants = new Map();
     let gainingLife = false;
+    // DBuddy's sound pack (2.2.3+: a pack, muted or uploaded sounds) owns DuelingBook's sounds while it is on: Spellspeed's
+    // Refined/Mellow sounds, its VFX volume and its thinking cue step aside, so the pack plays as DBuddy set it up
+    // (sounds the pack doesn't cover stay DuelingBook's own, as in DBuddy).
+    const dbuddySounds = () => !!rules.dbuddy?.().sounds;
     const asset = name => new URL(`sfx-${name}.wav`, root).href;
+    // DuelingBook's own effect file behind a sound, as an absolute same-origin URL (music, wins and losses: null).
+    function nativeEffect(sound) {
+      if (sound === window.gameLossSound) return null;
+      const src = typeof sound === 'string' ? sound : sound?.getAttribute?.('src') || sound?.src;
+      if (typeof src !== 'string') return null;
+      try {
+        const url = new URL(src, location.href), name = url.pathname.match(/^\/sounds\/([a-z_]+)\.mp3$/i)?.[1].toLowerCase();
+        return url.origin === location.origin && nativeEffects.has(name) ? url.href : null;
+      } catch { return null; }
+    }
     function replacement(sound) {
+      // Mellow sounds (user, 2026-11-12) keep DuelingBook's own files, softened, in place of the refined set.
+      if (config().mellow) return null;
       // Loss clips and music always retain their original audio objects/URLs.
       if (sound === window.gameLossSound) return null;
       const src = typeof sound === 'string' ? sound : sound?.getAttribute?.('src') || sound?.src;
@@ -52,7 +71,7 @@
     function audioContext(gesture = false) {
       if (!context && (gesture || activated()) && typeof window.AudioContext === 'function') {
         try { context = new window.AudioContext({ latencyHint: 'interactive' }); } catch { context = null; }
-        if (context) for (const url of raw.keys()) decode(url);
+        if (context) for (const url of raw.keys()) (config().mellow && !url.startsWith(root) ? decodeMellow : decode)(url);
       }
       return context;
     }
@@ -66,7 +85,52 @@
       pending.set(url, fetchRaw(url).then(bytes => bytes && ctx.decodeAudioData(bytes.slice(0)))
         .then(buffer => { if (buffer) buffers.set(url, buffer); }, () => {}).finally(() => pending.delete(url)));
     }
-    function warmUp() { if (config().sounds) for (const name of warmNames) { fetchRaw(asset(name)); decode(asset(name)); } }
+    // Mellow sounds (user, 2026-11-12: "the same sample as the DuelingBook ones … more mellow … doesn't rip your ear").
+    // Measured on DuelingBook's files: the harsh ones carry most of their energy above 4 kHz (shuffle_hand, shred,
+    // continuous, flip, shuffle, counter) or have very sharp attacks (crest factor 25–31 dB: flip, move, draw, coinflip).
+    // Each file is rendered once, offline: a little low warmth, highs shelved down and rolled off, attacks rounded by
+    // a soft compressor, then brought back to the file's own average level without a louder peak. Nothing of
+    // DuelingBook's is shipped: its own files are fetched from its own server, as the page does.
+    const level = buffer => {
+      let peak = 0, sum = 0, count = 0;
+      for (let c = 0; c < buffer.numberOfChannels; c++) for (const v of buffer.getChannelData(c)) { const a = Math.abs(v); if (a > peak) peak = a; sum += v * v; count++; }
+      return { peak, rms: Math.sqrt(sum / (count || 1)) };
+    };
+    // Back to the file's own average level, but peaks at most 85 % of the original and at most +3 dB of make-up, so a
+    // mostly-bright file (counter, shuffle_hand) ends a little quieter rather than bright again.
+    const mellowGain = (before, after) => after.rms && after.peak ? Math.min(before.rms / after.rms, 0.85 * before.peak / after.peak, 10 ** (3 / 20)) : 1;
+    async function soften(buffer) {
+      const Offline = window.OfflineAudioContext;
+      if (typeof Offline !== 'function') return null;
+      const sr = buffer.sampleRate, out = new Offline(buffer.numberOfChannels, buffer.length + Math.round(sr * 0.06), sr);
+      const node = (type, frequency, gain, q) => { const f = out.createBiquadFilter(); f.type = type; f.frequency.value = frequency; if (gain !== undefined) f.gain.value = gain; if (q !== undefined) f.Q.value = q; return f; };
+      const before = level(buffer), source = out.createBufferSource(), squeeze = out.createDynamicsCompressor();
+      // Settings measured in Chrome on DuelingBook's files (2026-11-12): a first, lighter set (shelf -7 dB at 3.2 kHz,
+      // low-pass 7.5 kHz, 4 ms attack) moved the crest factor by about 1 dB, too slow for the card clicks; this one
+      // lowers it 2–8 dB (move 28.9 → 23.6, draw 28.1 → 22.8, coinflip 24.9 → 17.1) and the highs 3.5–8.5 dB.
+      squeeze.threshold.value = Math.max(-60, 20 * Math.log10(before.peak || 1e-3) - 18); squeeze.knee.value = 6; squeeze.ratio.value = 4;
+      squeeze.attack.value = 0.001; squeeze.release.value = 0.1;
+      source.buffer = buffer;
+      // User, same day: that set (shelf -10 dB from 2.5 kHz, low-pass 6 kHz, +2 dB lows) sounded "kind of muffled". The
+      // compressor (the attacks) stays; the top end is only eased: shelf -5 dB from 4 kHz, low-pass 11 kHz, +1 dB lows.
+      source.connect(node('lowshelf', 220, 1)).connect(node('highshelf', 4000, -5)).connect(node('lowpass', 11000, undefined, 0.5)).connect(squeeze).connect(out.destination);
+      source.start();
+      const rendered = await out.startRendering(), gain = mellowGain(before, level(rendered));
+      for (let c = 0; c < rendered.numberOfChannels; c++) { const data = rendered.getChannelData(c); for (let i = 0; i < data.length; i++) data[i] *= gain; }
+      return rendered;
+    }
+    function decodeMellow(url) {
+      const ctx = audioContext(), key = 'mellow:' + url;
+      if (!ctx || buffers.has(key) || pending.has(key)) return;
+      pending.set(key, fetchRaw(url).then(bytes => bytes && ctx.decodeAudioData(bytes.slice(0))).then(buffer => buffer && soften(buffer))
+        .then(buffer => { if (buffer) buffers.set(key, buffer); }, () => {}).finally(() => pending.delete(key)));
+    }
+    const nativeUrl = name => new URL(`/sounds/${name}.mp3`, location.href).href;
+    function warmUp() {
+      if (!config().sounds) return;
+      if (config().mellow) { for (const name of nativeEffects) { fetchRaw(nativeUrl(name)); decodeMellow(nativeUrl(name)); } return; }
+      for (const name of warmNames) { fetchRaw(asset(name)); decode(asset(name)); }
+    }
     // Autoplay rules keep a new context suspended until the page has had a user gesture. Chrome only counts real
     // clicks and key presses (not Escape, not synthetic events) and logs a warning for any earlier start or resume,
     // so both wait for its user activation flag (browsers without it start on any of these events, as before).
@@ -84,9 +148,12 @@
       source.buffer = buffer; gain.gain.value = volume; source.connect(gain).connect(ctx.destination); source.start();
       return true;
     }
+    let warmed = null;
     function update() {
       if (window.DBETTERRebuilding) return;
-      if (!raw.size) warmUp();
+      // Warm the set in use; switching between refined and mellow warms the other one.
+      const set = config().sounds && !dbuddySounds() ? (config().mellow ? 'mellow' : 'refined') : null;
+      if (set && set !== warmed) { warmed = set; warmUp(); }
       hook('updateLifePoints', original => function (player, data, ...rest) {
         if (window.DBETTERRebuilding) return original.call(this, player, data, ...rest);
         const previous = gainingLife;
@@ -96,10 +163,17 @@
       });
       hook('playSound', original => function (...args) {
         if (window.DBETTERRebuilding) return;
+        if (dbuddySounds()) return original.apply(this, args);
         const before = window.audio_arr?.length || 0;
         const src = typeof args[0] === 'string' ? args[0] : args[0]?.src || '';
         const soundName = src.match(/(?:^|\/)(?:sounds\/|sfx-)([a-z_]+|win\d+)\.(?:mp3|wav)(?:$|\?)/i)?.[1]?.toLowerCase();
         const effect = effects.has(soundName) || /^win\d+$/.test(soundName || '') || ['thinking', 'lifepoints_gain'].includes(soundName) || /^shuffle(_hand)?_[ab]$/.test(soundName || '');
+        const mellow = config().sounds && config().mellow && args[1] !== false ? nativeEffect(args[0]) : null;
+        if (mellow) {
+          if (muted()) return undefined;
+          if (playBuffer('mellow:' + mellow, 0.35 * (config().vfxVolume ?? 100) / 100)) return undefined;
+          decodeMellow(mellow); // Not ready yet (first seconds of a page): this once, DuelingBook's own sound plays.
+        }
         const revised = config().sounds && args[1] !== false ? replacement(args[0]) : null;
         // Retain DB's mute, volume, restart, overlap and playback bookkeeping.
         if (revised) {
@@ -115,7 +189,7 @@
       hook('thinking', original => function (player, ...args) {
         if (window.DBETTERRebuilding) return original.call(this, player, ...args);
         const result = original.call(this, player, ...args);
-        if (config().sounds && window.duel_active && !window.resetting && !window.paused && player &&
+        if (config().sounds && !config().mellow && !dbuddySounds() && window.duel_active && !window.resetting && !window.paused && player &&
             [window.player1, window.player2, window.player3, window.player4].includes(player)) {
           // Only the received event plays audio; clicks and key presses send no extra cue.
           window.playSound?.(asset('thinking'));

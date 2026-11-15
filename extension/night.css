@@ -1211,6 +1211,7 @@ html.dbetter-night #deck_constructor .dblite-builder-search .dblite-options labe
 #deck_constructor .dblite-builder-search .dblite-access-options{display:flex;flex-wrap:wrap;gap:3px 8px;margin:-6px 0 5px;padding:4px 6px;border:1px solid var(--ssp-line);border-top:0;border-radius:0 0 4px 4px;background:var(--ssp-panel-2)}
 #deck_constructor .dblite-builder-search .dblite-access-options label{display:flex;align-items:center;gap:3px;white-space:nowrap;cursor:pointer}
 #deck_constructor .dblite-builder-search .dblite-access-title{width:100%;font-weight:600}
+#deck_constructor .dblite-builder-search .dblite-access-note{width:100%;margin-top:-3px;font-size:.92em;opacity:.75}
 html.dbetter-night #deck_constructor .dblite-builder-search .dblite-access-options{background:var(--ssp-panel-2);border-color:var(--ssp-line)}
 /* Summon Lab: Polymerization's art as the icon; the panel takes the filters' place while open. */
 #deck_constructor .dblite-builder-search .dblite-lab-icon{display:inline-block;width:15px;height:15px;flex:none;vertical-align:-3px;border-radius:3px;background-size:265% auto;background-position:50% 34%;background-repeat:no-repeat;box-shadow:0 0 0 1px #0004;font-size:11px;line-height:15px;text-align:center}
@@ -1351,6 +1352,25 @@ html.dbetter-night .dblite-odds select{background:var(--ssp-input)!important;col
 .dblite-odds .dblite-siding-export{flex:none;min-height:28px;padding:0 12px}
 .dblite-odds .dblite-siding-export:disabled{opacity:.45;cursor:default}
 .dblite-odds .dblite-siding-new:disabled{opacity:.45;cursor:default}
+/* Side plans on DuelingBook's siding screen between games (constructor.js duelSideControls). */
+.dblite-duel-side-button{cursor:pointer;padding:0;white-space:nowrap}
+.dblite-duel-side-button[aria-expanded="true"]{outline:2px solid var(--ssp-accent);outline-offset:1px}
+.dblite-solo-settings.dblite-duel-side{width:360px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;padding:12px;scrollbar-width:thin}
+.dblite-duel-side header{margin-bottom:6px}
+.dblite-duel-side header button{width:26px;height:26px;font-size:16px;line-height:1}
+.dblite-duel-side .dblite-odds-note{margin:0 0 8px;font-size:12px;color:var(--ssp-muted)}
+.dblite-duel-side-list{display:flex;flex-direction:column;gap:6px}
+.dblite-duel-side-row{display:grid;grid-template-columns:40px minmax(0,1fr);gap:10px;align-items:center;padding:6px;border:1px solid var(--ssp-line);border-radius:6px;background:var(--ssp-panel-2)}
+.dblite-duel-side-text{display:flex;flex-direction:column;gap:3px;min-width:0}
+.dblite-duel-side-text>strong{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dblite-duel-side-text>small{font-size:11px;font-style:italic;color:var(--ssp-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dblite-duel-side-orders{display:flex;gap:6px}
+.dblite-duel-side .dblite-duel-side-go{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;padding:4px 6px;font:inherit;font-size:12px;background:var(--ssp-panel)}
+.dblite-duel-side .dblite-duel-side-go span{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ssp-accent)}
+.dblite-duel-side .dblite-duel-side-go small{font-size:10px;color:var(--ssp-muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dblite-duel-side .dblite-duel-side-go:not(:disabled):is(:hover,:focus-visible){border-color:var(--ssp-accent);outline:none}
+.dblite-duel-side .dblite-duel-side-go:disabled{opacity:.55;cursor:default}
+.dblite-duel-side-status{margin:8px 0 0!important;font-weight:600}
 .dblite-odds p.dblite-siding-none{margin:10px 0;opacity:.75}
 .dblite-siding-nav{display:flex;justify-content:space-between;gap:6px;margin-bottom:8px}
 .dblite-odds .dblite-siding-nav button{min-height:24px;padding:0 10px}
@@ -1587,6 +1607,10 @@ html.dblite-dbuddy :is(.dblite-avatar-menu,.dblite-deck-menu){z-index:2147482600
 html.dblite-dbuddy :is(.dbetter-touch-bar){z-index:2147482640!important}
 html.dblite-dbuddy :is(.dbetter-rotate){z-index:2147482641!important}
 html.dblite-dbuddy :is(#dblite-record){z-index:2147482000!important}
+/* User report 2026-11-12: on the front page, DBuddy's theme gives each of Welcome / Forum / Rules a dark background
+   plus a 0.25em spread shadow; the buttons touch, so each shadow covered the bottom of the word above. Without the
+   shadow the three backgrounds meet edge to edge (measured: 107–156, 156–205, 205–254 px). */
+html.dblite-dbuddy body #welcome_buttons > span{box-shadow:none!important}
 html.dblite-dbuddy :is(.dbetter-tour){z-index:2147482643!important}
 html.dblite-dbuddy :is(.dbetter-tour-ring){z-index:2147482642!important}
 html.dblite-dbuddy :is(.dblite-panel){z-index:2147482644!important}
@@ -1650,3 +1674,84 @@ html.dblite-dbuddy-theme body #deck_constructor :is(.deck_bg,.side_bg,.extra_bg)
 /* The viewing eyes beside the LP bars rest dimmed (35%) until a player views a pile; on DBuddy's dark themes that was
    nearly invisible (screenshot review, 2026-11-12). */
 html.dblite-dbuddy-theme #duel .dblite-viewing-eye:not(.is-viewing){opacity:.55}
+
+/* Deck history (2026-11-12): 🕘 beside ⇄, the versions of this deck newest first, like a list of commits. */
+html .dblite-solo-settings.dblite-history{width:420px;max-width:calc(100vw - 16px);height:min(600px,calc(100vh - 16px));max-height:calc(100vh - 16px);display:flex;flex-direction:column;overflow:hidden;padding:12px}
+.dblite-history header{margin-bottom:8px}
+.dblite-history header strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.dblite-history header button{flex:none;width:26px;height:26px}
+.dblite-history-tools{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.dblite-history .dblite-history-tools button{height:24px;padding:0 8px;font:12px system-ui;flex:none}
+.dblite-history .dblite-history-status{margin:0;font-size:11px;color:var(--ssp-muted);min-width:0}
+.dblite-history-compare{border:1px solid var(--ssp-line);border-radius:6px;padding:6px 8px;margin-bottom:6px;max-height:40%;overflow:auto;scrollbar-width:thin}
+.dblite-history-compare[hidden]{display:none}
+.dblite-history-pickers{display:flex;align-items:center;gap:6px}
+.dblite-history-pickers select{flex:1;min-width:0;height:24px;background:var(--ssp-input);color:inherit;border:1px solid var(--ssp-line);border-radius:4px;font:12px system-ui}
+html.dbetter-night .dblite-history-pickers select{background:var(--ssp-input)!important;color:inherit!important;border-color:var(--ssp-line)!important}
+.dblite-history-compare-head{display:flex;align-items:center;gap:8px;margin:6px 0 2px;font-size:12px}
+.dblite-history-list{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;margin:0;padding:0 4px 0 0;list-style:none}
+.dblite-history-version{position:relative;padding:0 0 8px 18px}
+.dblite-history-version::before{content:"";position:absolute;left:5px;top:12px;bottom:-2px;width:2px;background:var(--ssp-line)}
+.dblite-history-version:last-child::before{display:none}
+.dblite-history .dblite-history-head{display:flex;align-items:center;gap:8px;width:100%;min-height:24px;padding:2px 6px 2px 0;border:0;background:none;text-align:left;font:12px system-ui;color:inherit}
+.dblite-history .dblite-history-head:hover{background:var(--ssp-panel-2)}
+.dblite-history-dot{position:absolute;left:0;top:7px;width:12px;height:12px;border-radius:50%;background:var(--ssp-panel);box-shadow:inset 0 0 0 2px var(--ssp-accent)}
+.dblite-history-version[data-kind="now"] .dblite-history-dot{box-shadow:inset 0 0 0 2px var(--ssp-muted);background:none}
+.dblite-history-version[data-kind="outside"] .dblite-history-dot{box-shadow:inset 0 0 0 2px var(--ssp-you)}
+.dblite-history-when{font-weight:700;white-space:nowrap}
+.dblite-history-version[data-kind="now"] .dblite-history-when{font-weight:400;font-style:italic}
+.dblite-history-counts{display:flex;gap:5px;font-weight:700;font-variant-numeric:tabular-nums}
+.dblite-history-sizes{margin-left:auto;color:var(--ssp-muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+/* Green and red like a diff, leaning to the theme's text colour so they read on light and dark panels. */
+.dblite-history-add{color:color-mix(in srgb,#2fb344 72%,var(--ssp-text))}.dblite-history-remove{color:color-mix(in srgb,#e5484d 72%,var(--ssp-text))}.dblite-history-move{color:var(--ssp-muted)}
+.dblite-history-changes{margin:2px 0 0;padding:0;list-style:none;font-size:12px;line-height:1.45}
+.dblite-history-changes li{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dblite-history-changes .dblite-history-more{color:var(--ssp-muted)}
+.dblite-history .dblite-history-note{margin:0;font-size:11px;color:var(--ssp-muted)}
+.dblite-history-actions{display:flex;gap:6px;margin-top:5px}
+.dblite-history .dblite-history-actions button{height:24px;padding:0 8px;font:12px system-ui}
+.dblite-history .dblite-history-actions button:disabled{opacity:.5;cursor:default}
+.dblite-history-empty{color:var(--ssp-muted);font-size:12px;padding:8px 0}
+.dblite-history .dblite-history-foot{margin:6px 0 0;font-size:11px;color:var(--ssp-muted)}
+.dblite-history-rated{padding:0 5px;border-radius:8px;background:var(--ssp-panel-2);box-shadow:inset 0 0 0 1px var(--ssp-line);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* DuelingBook's checked boxes (user, 2026-11-14: "it should be visible no matter what"): accent fill
+   and a bold check in the theme's text-on-accent colour. DBuddy's themes forced the check black
+   (filter:brightness(0)), which vanished on a dark accent. Classic keeps DuelingBook's own box. */
+html:is(.dblite-dbuddy-theme, [data-dbetter-theme]:not([data-dbetter-theme="classic"])) body #content input[type=checkbox]:checked + .checkbox:not(.red),
+html:is(.dblite-dbuddy-theme, [data-dbetter-theme]:not([data-dbetter-theme="classic"])) body #content input[type=checkbox]:checked + .checkbox_background + .checkbox:not(.red) {
+  background-color:var(--ssp-accent)!important;background-image:none!important;border-radius:3px!important;
+}
+html:is(.dblite-dbuddy-theme, [data-dbetter-theme]:not([data-dbetter-theme="classic"])) body #content input[type=checkbox]:checked + .checkbox:not(.red) img.check,
+html:is(.dblite-dbuddy-theme, [data-dbetter-theme]:not([data-dbetter-theme="classic"])) body #content input[type=checkbox]:checked + .checkbox_background + .checkbox:not(.red) img.check { visibility:hidden!important }
+html:is(.dblite-dbuddy-theme, [data-dbetter-theme]:not([data-dbetter-theme="classic"])) body #content input[type=checkbox]:checked + .checkbox:not(.red)::after,
+html:is(.dblite-dbuddy-theme, [data-dbetter-theme]:not([data-dbetter-theme="classic"])) body #content input[type=checkbox]:checked + .checkbox_background + .checkbox:not(.red)::after {
+  content:'';position:absolute;left:50%;top:44%;width:3.5px;height:7.5px;box-sizing:content-box;pointer-events:none;
+  border:solid var(--ssp-on-accent);border-width:0 2.5px 2.5px 0;border-radius:1px;transform:translate(-50%,-50%) rotate(45deg);
+}
+
+/* Spellspeed's own checkboxes in the deck builder search (filter lists, Pendulum, TCG/OCG, Link arrows, Genesys points;
+   user, 2026-11-15: "the checkmarks are still not there"): they showed a 9 px ✓ glyph in an 11 px box, or Chrome's
+   10 px native box. Now 13 px, accent fill when checked and the same bold check drawn in CSS as DuelingBook's boxes
+   above (html body: the Night theme's older :checked rule kept the box dark, so the old ✓ barely showed); excluded options keep their ✕. The phone keeps its 15 px boxes (touch.js) for the plain ones. */
+#deck_constructor .dblite-builder-search input[type=checkbox],
+#deck_constructor .dblite-builder-search .dblite-options input[type=checkbox] {
+  -webkit-appearance:none;appearance:none;position:relative;display:inline-grid;place-content:center;box-sizing:border-box;width:13px;height:13px;min-height:13px;
+  flex:0 0 auto;padding:0;margin:0 5px 0 0;border:1.5px solid var(--ssp-muted);border-radius:3px;background:var(--ssp-input);vertical-align:middle;cursor:pointer;
+}
+html body #deck_constructor .dblite-builder-search input[type=checkbox]:checked:not([data-exclude]),
+html body #deck_constructor .dblite-builder-search .dblite-options input[type=checkbox]:checked:not([data-exclude]) {
+  background:var(--ssp-accent)!important;border-color:var(--ssp-accent)!important;
+}
+html body #deck_constructor .dblite-builder-search input[type=checkbox]:checked:not([data-exclude])::before,
+html body #deck_constructor .dblite-builder-search .dblite-options input[type=checkbox]:checked:not([data-exclude])::before {
+  content:'';display:block;width:2.5px;height:6.5px;box-sizing:content-box;
+  border:solid var(--ssp-on-accent);border-width:0 2.5px 2.5px 0;border-radius:1px;transform:translateY(-1px) rotate(45deg);
+}
+html body #deck_constructor .dblite-builder-search .dblite-options input[type=checkbox][data-exclude][data-exclude] {
+  background:var(--ssp-you)!important;border-color:var(--ssp-you)!important;
+}
+html body #deck_constructor .dblite-builder-search .dblite-options input[type=checkbox][data-exclude]::before {
+  content:'✕';display:block;width:auto;height:auto;border:0;transform:none;
+  color:var(--ssp-panel);font:700 10px/1 Arial,sans-serif;
+}

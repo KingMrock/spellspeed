@@ -52,16 +52,28 @@
     // Hand trap: a monster discarded/banished/revealed/sent from the hand at the opponent's
     // timing (Quick Effect, either player's / opponent's turn, "when your opponent ..."),
     // or a Trap that may be activated from the hand.
-    const handUse = /\b(?:discard|reveal) this card\b|\b(?:send|banish) this card(?: and [^.;:]*?)? from (?:your|the) hand\b|special summon this card \(?from your hand/;
+    const handUse = /\b(?:discard|reveal) this card\b|\b(?:send|banish) this card(?: and [^.;:]*?)? from (?:your|the) hand\b|special summon (?:both )?this card \(?from your hand/;
     const fromHand = handUse.test(text);
     const opponentTimingRe = /quick effect|either player's turn|(?:during )?your opponent's (?:turn|main phase|battle phase|standby phase|end phase|draw phase)|\bwhen (?:your opponent|a card or effect is activated|an? (?:monster|spell|trap|card)\b[^.;:]*?activat)|\bif your opponent (?:special summons|activates|adds|draws)/, opponentTiming = opponentTimingRe.test(text);
     // Battle tricks (Kuriboh-style damage-step discards) are not hand traps: drop cards whose
     // every hand-activation sentence is about attacks or damage calculation.
-    const handSentences = text.split(/[.\n]/).filter(part => handUse.test(part));
-    const battleOnly = handSentences.length > 0 && handSentences.every(part => /damage calculation|damage step|battle damage|\battacks?\b|attack declaration|battle phase/.test(part));
+    // A hand effect goes on in its bullets ("apply these effects this turn. ●Each time your opponent …", Mulcharmy) and in
+    // "If Summoned this way, …" after it (Retaliating "C").
+    const fragments = text.split(/[.\n]/).filter(part => part.trim());
+    const handSentences = fragments.flatMap((part, i) => {
+      if (!handUse.test(part)) return [];
+      let whole = part;
+      for (let j = i + 1; j < fragments.length && /^\s*(?:●|if summoned this way\b)/.test(fragments[j]); j++) whole += '. ' + fragments[j];
+      return [whole];
+    });
+    const battleOnly = handSentences.length > 0 && handSentences.every(part => /damage calculation|damage step|battle damage|\battacks?\b|attack declaration|battle phase|\bbattles\b/.test(part));
+    // It must also get in the opponent's way (0.9.4, playtest F6: "hand trap" listed 200 cards, Apprentice Illusion Magician and
+    // Aleister the Invoker among them, which only pump your own monster): negate, destroy, banish, bounce, Tribute, take control,
+    // stop a player ("neither player can"), or draw off their play (Maxx "C"). The card's own cost is not it.
+    const interferes = part => /\b(?:negate|destroy|banish|return|shuffle|tribute|take control|gain control|draw|change (?:it|that monster|its battle position|the battle position)|neither player can|your opponent cannot|(?:your opponent|they) (?:must )?discard|banished instead|each time your opponent|send [^.;]*?(?:your opponent controls|on the field|opponent's)[^.;]*? to the (?:gy|graveyard))/.test(part.replace(handUse, ' ').replace(/\b(?:discard|reveal|send|banish|tribute) this card\b[^;:]*/g, ' '));
     // The hand activation and the opponent/quick timing must be in the same effect (one sentence),
     // so cards that merely discard or reveal themselves for their own-turn effects do not count.
-    const handTiming = handSentences.some(part => opponentTimingRe.test(part)) && !battleOnly;
+    const handTiming = handSentences.some(part => opponentTimingRe.test(part) && interferes(part)) && !battleOnly;
     when('handtrap', card.card_type === 'Monster' && fromHand && handTiming || card.card_type === 'Trap' && /activate this card from your hand/.test(text));
     // Negation: negate an activation, effect or Summon (attack negation is a battle trick).
     when('negate', /\bnegate\b(?! (?:an |the |that |its |this )?attacks?\b)/.test(text));
@@ -2415,17 +2427,67 @@
     }
     return true;
   }
+  // From my Main Deck (user, 2026-11-12, for 0.9.4: "Summon Lab from my deck"): which Extra Deck monsters the monsters of
+  // the Main Deck can make, each copy used once. The deck's monsters that fit some part of the recipe are tried in groups,
+  // smallest first, with the Lab's own checks (Level sums, same Level, Link Rating, assignMaterials); the first group that
+  // works is the result, the recipe naming a deck card ranking first (pieceRank). Main Deck monsters only: a material
+  // that is itself an Extra Deck monster is a chain of Summons, out of scope (docs/summon-lab-design.md).
+  const LAB_DECK_MAX = 6;
+  function labDeckPool(lab) {
+    if (lab.deckPool) return lab.deckPool;
+    const by = new Map();
+    for (const item of lab.materials) { const entry = by.get(item.name); if (entry) entry.count++; else by.set(item.name, { card: labMaterial(item), count: 1 }); }
+    return lab.deckPool = [...by.values()];
+  }
+  function* labDeckMatchTask(card, lab) {
+    const recipe = materialRecipe(card);
+    if (!recipe) return null;
+    const pool = labDeckPool(lab);
+    let best = null, bestRank = Infinity;
+    for (const candidate of [recipe, ...recipe.alternatives]) {
+      if (best && candidate.parts.every(part => part.options.every(option => pieceRank(option) >= bestRank))) continue;
+      const options = candidate.parts.flatMap(part => part.options);
+      const fits = pool.filter(entry => options.some(option => option.generic || fitsMaterial(entry.card, option)));
+      if (!fits.length) continue;
+      const low = Math.max(1, candidate.parts.reduce((sum, part) => sum + Math.min(...part.options.map(option => option.min)), 0));
+      const high = Math.min(LAB_DECK_MAX, candidate.kind === 'Link' ? candidate.level || LAB_DECK_MAX : LAB_DECK_MAX, candidate.parts.reduce((sum, part) => sum + Math.max(...part.options.map(option => option.max)), 0));
+      const chosen = [], taken = new Map();
+      const pick = function* (start, size) {
+        labSpend(); yield* labCheckpoint();
+        if (chosen.length === size) return materialTotalsFit(candidate, chosen, true) ? yield* assignMaterialsTask(candidate, chosen.slice(), true) : null;
+        for (let i = start; i < fits.length; i++) {
+          const entry = fits[i];
+          if ((taken.get(entry) || 0) >= entry.count) continue;
+          chosen.push(entry.card); taken.set(entry, (taken.get(entry) || 0) + 1);
+          if (materialTotalsFit(candidate, chosen, false)) { const found = yield* pick(i, size); if (found) return found; }
+          chosen.pop(); taken.set(entry, taken.get(entry) - 1);
+        }
+        return null;
+      };
+      for (let size = low; size <= high; size++) {
+        const found = yield* pick(0, size);
+        if (!found) continue;
+        const rank = Math.min(...found.filter(item => item.materials.length).map(item => pieceRank(item.option)));
+        if (rank < bestRank) { best = found; bestRank = rank; }
+        break;
+      }
+      if (bestRank === 0) break;
+    }
+    return best;
+  }
   const labMatch = (card, lab) => labDrain(labMatchTask(card, lab));
   function* labMatchTask(card, lab) {
     if (!lab?.materials.length || !extraDeckMonster(card)) return null;
-    const cache = (lab.matches ||= { exact: new Map(), includes: new Map() })[lab.mode];
+    const cache = (lab.matches ||= { exact: new Map(), includes: new Map(), deck: new Map() })[lab.mode];
     if (cache.has(card)) return cache.get(card);
     const bounded = lab.materials.some(item => item.generic);
     const skipped = () => { (lab.notEvaluated ||= new Set()).add(card); return LAB_NOT_EVALUATED; };
     let used = null;
     try {
       const recipe = materialRecipe(card);
-      if (recipe) {
+      // A deck's search has a time allowance per target, like an Any slot's: the rest is "not evaluated".
+      if (recipe && lab.mode === 'deck') { labWork = { steps: 0, deadline: performance.now() + 150 }; used = yield* labDeckMatchTask(card, lab); }
+      else if (recipe) {
         const materials = lab.materials.map(item => item.generic ? item : labMaterial(item)), exact = lab.mode !== 'includes';
         // Pool construction is shared setup, not combinatorial target work.
         if (bounded) for (const item of materials) if (item.generic) yield* genericPoolTask(item);
@@ -2514,7 +2576,8 @@
     if (details.has(card)) return details.get(card);
     const used = labRank(card, lab) < Infinity ? labMatch(card, lab) : null, recipe = used?.recipe;
     if (!recipe) return null;
-    const exact = lab.mode !== 'includes', materials = lab.materials.map(item => item.generic ? item : labMaterial(item));
+    // From the Main Deck: the deck cards the result takes, not the whole deck.
+    const exact = lab.mode !== 'includes', materials = lab.mode === 'deck' ? used.witnesses : lab.materials.map(item => item.generic ? item : labMaterial(item));
     const levels = recipe.kind === 'Synchro' || recipe.difference || recipe.sameLevel;
     const scale = m => levels ? (/Xyz|Link/.test(String(m.monster_color)) ? '' : `Lv ${Number(m.level) || 0}`) : recipe.kind === 'Link' && String(m.monster_color).includes('Link') ? `Link-${Number(m.level) || 1}` : '';
     // Which part each material went to, by position (the same card may be chosen twice).
@@ -2605,7 +2668,7 @@
         return generic && typeof generic === 'object' && !Array.isArray(generic) ? { generic, name: labGenericLabel(generic) } : null;
       } catch { return null; }
     });
-    const lab = materials.length && materials.every(Boolean) ? { mode: mode === 'includes' ? 'includes' : 'exact', materials } : null;
+    const lab = materials.length && materials.every(Boolean) ? { mode: ['includes', 'deck'].includes(mode) ? mode : 'exact', materials } : null;
     if (labQueries.size >= 4) labQueries.delete(labQueries.keys().next().value);
     labQueries.set(text, lab);
     return lab;
@@ -2934,6 +2997,11 @@
   // one step, generic searchers included ("add 1 Normal Spell": Endymion, the Mighty Master of Magic), those that need
   // less first. A card tries its IDEA_TRIES best steps.
   const IDEA_STEP = 20, IDEA_TRIES = 6;
+  // A need you cannot bring about yourself, on your own turn (0.9.4, playtest F3: Ideas for Dark Magician opened with
+  // "Apprentice Magician → Magician's Robe: when destroyed by battle"): battle, damage, the opponent's moves, counters that
+  // build up. Such lines come after every plan (IDEA_SITUATIONAL) and say so; none is dropped (user's design, 2026-10-30).
+  const IDEA_SITUATIONAL = 60;
+  const situationalNeed = need => /\bby battle\b|\bbattles?\b|\battack(?:s|ed|ing)?\b|\bdamage\b|\bopponent\b|\bthey\b|\bcounters?\b|\bLP (?:are|is) \d+ or less\b/i.test(need || '');
   const ideaVia = target => labDrain(ideaViaTask(target));
   function* ideaViaTask(target) {
     if (!target) return [];
@@ -2946,8 +3014,16 @@
     }
     return steps.sort((a, b) => a.rank - b.rank);
   }
+  // An Extra Deck monster is an Idea too (user, 2026-11-14: Ideas for Swiftwind Panther Warrior had no Xyz that searches
+  // it, or searches a card that gets it): it is not in the opening hand, so it needs its own Summon, and its effects are
+  // read on the field after that Summon (an Xyz Summoned with materials can detach them). That Summon is a need like any
+  // other: on its own it ranks as the two-step lines rank a need (IDEA_EXTRA), so it comes after equal Main Deck lines.
+  const IDEA_EXTRA = 10;
   function ideaRank(card, target, via, steps) {
-    if (!target || card.name === target.name || extraDeckMonster(card) || card.card_type === 'Skill') return { rank: Infinity };
+    if (!target || card.name === target.name || card.card_type === 'Skill') return { rank: Infinity };
+    // "Must be Special Summoned (from your Extra Deck) by sending the above cards ..." (Arcana Force EX): no Fusion Summon.
+    const extra = extraDeckMonster(card), kind = extra && !/\bMust (?:first )?be Special Summoned\b/i.test(card.effect || '') && String(card.monster_color).match(/Fusion|Synchro|Xyz|Link/)?.[0];
+    const summonNeed = extra ? kind ? `its ${kind} Summon` : 'its Special Summon from the Extra Deck' : '', origin = extra ? 'summoned' : 'hand', summon = extra ? (kind || 'special').toLowerCase() : '';
     // Most cards take nothing out of a Deck: they reach no step, and are Starters only through a material line (for speed:
     // measured on the phone, Dark Magician took 6.7 s before this).
     const own = indexedText(card).fetch ||= fetchClauses(card), bridge = bridgeActions({ card_type: 'Spell' }), decks = { main: own.filter(phrase => bridge.has(phrase.action) && phrase.fromMain),
@@ -2963,16 +3039,18 @@
     if (!reached.length && !direct && !lineSummonPhrases(card).length) return via.material?.get(card) || { rank: Infinity };
     const sure = starterRank(card, target, via);
     if (sure.rank < Infinity) return sure;
-    const resolves = resolvesToGY(card), opening = phrase => effectUse(card, phrase, 'hand', '', true) || resolves && effectUse(card, phrase, 'gy', '', true);
+    const resolves = resolvesToGY(card), opening = phrase => effectUse(card, phrase, origin, summon, true) || resolves && effectUse(card, phrase, 'gy', '', true);
+    // What the card needs for this effect; an Extra Deck monster first needs its Summon.
+    const needOf = (phrase, step) => [summonNeed, !opening(phrase) ? effectNeed(card, phrase, origin, summon, true) : /\bEnd Phase\b/i.test(phrase.effect?.condition || '') ? 'the End Phase' : summonsAlone(phrase, step) ? '' : 'materials for its Summon'].filter(Boolean).join('; ');
     // On its own, with what it needs.
     if (direct) {
       let best = { rank: Infinity };
       for (const phrase of accessPhrases(card, target)) {
         const rank = actionRank(fetchRank(target, phrase), phrase);
         if (rank === Infinity) continue;
-        const need = !opening(phrase) ? effectNeed(card, phrase, 'hand', '', true) : /\bEnd Phase\b/i.test(phrase.effect?.condition || '') ? 'the End Phase' : summonsAlone(phrase, target) ? '' : 'materials for its Summon';
-        const chance = chanceOf(phrase.effect), total = IDEA_STEP + rank + (chance ? CHANCE_STEP : 0);
-        if (total < best.rank) best = { rank: total, how: { move: 'direct', action: phrase.action, chance, idea: { starter: need } } };
+        const need = needOf(phrase, target);
+        const chance = chanceOf(phrase.effect), situational = situationalNeed(need), total = IDEA_STEP + (extra ? IDEA_EXTRA : 0) + rank + (chance ? CHANCE_STEP : 0) + (situational ? IDEA_SITUATIONAL : 0);
+        if (total < best.rank) best = { rank: total, how: { move: 'direct', action: phrase.action, chance, idea: { starter: need, situational } } };
       }
       return best;
     }
@@ -2983,15 +3061,16 @@
         const firstRank = fetchRank(step, first);
         if (firstRank === Infinity || !summonsAlone(first, step)) continue;
         // A starter that works only "During the End Phase" (Watch Cat) leaves the step no Main Phase.
-        const open = opening(first), starter = !open ? effectNeed(card, first, 'hand', '', true) : /\bEnd Phase\b/i.test(first.effect?.condition || '') ? 'the End Phase' : summonsAlone(first, step) ? '' : 'materials for its Summon';
+        const open = opening(first), starter = needOf(first, step);
         const place = first.destroy ? 'destroyed' : first.action === 'summon' && /\bin face-down Defense Position\b/i.test(first.effect?.text || '') && !/\bor face-down Defense Position\b/i.test(first.effect?.text || '') ? 'set' : PLACE[first.action];
         for (const next of accessPhrases(step, target)) {
           if (fetchRank(target, next) === Infinity) continue;
           // "Special Summon 1 Level 3 Fiend monster ..., but negate its effects" (Tour Guide From the Underworld), as in chainRank.
           const negated = place === 'summoned' && /\b(?:its|their) effects (?:are|is) negated\b|\bnegate (?:its|their) effects\b|\bwith (?:its|their) effects negated\b/i.test(first.effect?.text || '');
           const stepNeed = negated ? 'effects that its Summon does not negate' : forbidsStep(step, first) ? 'effects that its first card does not forbid that turn' : effectUse(step, next, place, first.summon, !open?.normal) ? '' : effectNeed(step, next, place, first.summon, !open?.normal);
-          const chance = chanceOf(first.effect) || chanceOf(next.effect), total = IDEA_STEP + 10 * (1 + !!starter + !!stepNeed) + actionRank(firstRank, first) + second + (chance ? CHANCE_STEP : 0);
-          if (total < best.rank) best = { rank: total, via: step, how: { move: first.destroy ? 'destroy' : 'get', action: next.action, chance, idea: { starter, step: stepNeed, generic: second >= GENERIC_STEP } } };
+          const situational = situationalNeed(starter) || situationalNeed(stepNeed);
+          const chance = chanceOf(first.effect) || chanceOf(next.effect), total = IDEA_STEP + 10 * (1 + !!starter + !!stepNeed) + actionRank(firstRank, first) + second + (chance ? CHANCE_STEP : 0) + (situational ? IDEA_SITUATIONAL : 0);
+          if (total < best.rank) best = { rank: total, via: step, how: { move: first.destroy ? 'destroy' : 'get', action: next.action, chance, idea: { starter, step: stepNeed, generic: second >= GENERIC_STEP, situational } } };
         }
       }
       if (++tries >= IDEA_TRIES) break;
@@ -3085,8 +3164,15 @@
         const list = [...new Set(cardClauses(card).effects)], before = list.slice(Math.max(0, list.indexOf(effect) - 6), list.indexOf(effect)).reverse();
         const head = effect.own !== undefined ? effect.text.slice(0, effect.text.length - effect.own.length) : (before.find(other => /\bnumber of\b/i.test(other.text)) || before[0])?.text || '';
         const count = words(head).match(/\bnumber of [^.;]*/i)?.[0];
-        text = count ? `${text} (the ${count})` : head ? `${text}: ${words(head)}` : text;
+        // "●3:" under "the number of Piece Counters" reads "3 Piece Counters" (0.9.4, playtest W2: "3; the number of Piece Counters").
+        const amount = text.match(/^(\d+)(\+| or more)?$/);
+        // "●3:" under "detach 2 to 4 materials" (Primathmech Alembertian), "●Tails:" under a coin toss (Arcana Force EX).
+        const detach = amount && before.some(other => /\bdetach \d+ (?:to|or) \d+ materials?\b/i.test(other.text));
+        if (detach) text = `${amount[1]} materials to detach`;
+        else if (/^(?:Heads|Tails)$/i.test(text)) text = `the coin to land ${text}`;
+        else text = count && amount ? `${amount[1]}${amount[2] ? ' or more' : ''} ${count.replace(/^number of\s+/i, '')}` : count ? `${text} (the ${count})` : head ? `${text}: ${words(head)}` : text;
       }
+      text = text.replace(/^(\d+)(\+| or more)?\s*[;:]\s*(?:the )?number of\s+/i, (all, n, more) => `${n}${more ? ' or more' : ''} `);
       return clip(text);
     }
     if (phrase.when && phrase.when.replace(LINE_CONDITION, ' ').trim()) return words(`if ${phrase.when}`);
@@ -3094,8 +3180,8 @@
     if (!needs.length || needs.includes('never')) return words(effect.condition) || 'more than the line';
     if (card.card_type === 'Trap' && needs.includes('card')) return 'to be Set a turn before';
     // A Level 5 or higher monster in the hand gets to the field by a Tribute Summon.
-    if (place === 'hand' && card.card_type === 'Monster' && !normalSummonable(card) && needs.every(need => need === 'field' || need === 'summon:normal')) return summonRule(card).noNormal ? 'its Special Summon (it cannot be Normal Summoned)' : 'a Tribute Summon';
-    return [...new Set(needs.map(need => need === 'summon:normal' ? (!normalSummonable(card) ? 'a Tribute Summon' : normal ? 'its Normal Summon' : 'a second Normal Summon')
+    if (place === 'hand' && card.card_type === 'Monster' && !normalSummonable(card) && needs.every(need => need === 'field' || need === 'summon:normal')) return summonRule(card).noNormal ? 'its Special Summon (it cannot be Normal Summoned)' : tributeSummon(card);
+    return [...new Set(needs.map(need => need === 'summon:normal' ? (!normalSummonable(card) ? tributeSummon(card) : normal ? 'its Normal Summon' : 'a second Normal Summon')
       : PLACE_WORDS[need] || (need.startsWith('summon:') ? `to be ${need[7].toUpperCase()}${need.slice(8)} Summoned` : need)))].join(' or ');
   }
   function chainRank(card, step, target, generic = 0) {
@@ -3185,6 +3271,14 @@
   // your LP are 1000 or less").
   const permitted = (card, words) => [...quoteText(card.effect).matchAll(new RegExp(String.raw`(?:^|[.:\n]\s*)([^.:\n]*?)\b(?:you can |can be )?${words}`, 'gi'))]
     .some(match => !match[1].replace(/\byour opponent has (?:\d+|two) or more cards in (?:their|his or her) hand\b/gi, ' ').replace(LINE_CONDITION, ' ').trim());
+  // Playtest (2026-11-04): "needs a Tribute Summon" on Nervedo, whose text names no Tribute, read as a reader error. It
+  // comes from the Level (10, in the hand), so the need says so: "a Tribute Summon (Level 10: 2 Tributes)". The card's
+  // own count wins ("Requires 3 Tributes to Normal Summon").
+  function tributeSummon(card) {
+    const level = Number(card.level), own = String(card.effect || '').match(/\bRequires (\d) Tributes? to Normal Summon\b/i);
+    const count = own ? Number(own[1]) : level >= 7 ? 2 : level >= 5 ? 1 : 0;
+    return count && level ? `a Tribute Summon (Level ${level}: ${count} Tribute${count > 1 ? 's' : ''})` : 'a Tribute Summon';
+  }
   const normalSummonable = card => card.card_type === 'Monster' && !extraDeckMonster(card) && !summonRule(card).noNormal && (Number(card.level) <= 4 || permitted(card, 'Normal Summon this card without Tributing'));
   // A Trap is activated from the hand only when its text says so; a Quick-Play Spell or Trap Set this turn waits; a
   // Ritual Spell needs its Ritual Monster in the hand.
@@ -3610,7 +3704,7 @@
     if (reverse?.mode === 'support') parts.push(`Support for “${reverse.id}”`);
     else if (target) parts.push(reverse.mode === 'synergy' ? `Synergy with “${target.name}”` : reverse.mode === 'starters' ? `Starters for “${target.name}”` : reverse.mode === 'ideas' ? `Ideas for “${target.name}”` : `Access to “${target.name}”`);
     const lab = labOf(q.lab);
-    if (lab) parts.push(`${lab.mode === 'includes' ? 'With' : 'Made from'} ${lab.materials.map(m => `“${m.name}”`).join(' + ')}`);
+    if (lab) parts.push(lab.mode === 'deck' ? `Made from your Main Deck (${lab.materials.length} monsters)` : `${lab.mode === 'includes' ? 'With' : 'Made from'} ${lab.materials.map(m => `“${m.name}”`).join(' + ')}`);
     if (q.describe.trim()) parts.push(`“${q.describe.trim()}”`);
     if (q.name) parts.push(`Name “${q.name}”`);
     if (q.effect) parts.push(`Text “${q.effect}”`);
@@ -3860,7 +3954,7 @@
       grid.append(item);
     }
     // Phones: the deck's quick chat (💬) and the opening odds (🎲) live here too.
-    for (const [button, label, open] of [[deckChatButton, '💬 Quick chat', showDeckChat], [oddsButton, '🎲 Opening odds', showOdds], [sidingButton, '⇄ Siding patterns', showSiding]]) {
+    for (const [button, label, open] of [[deckChatButton, '💬 Quick chat', showDeckChat], [oddsButton, '🎲 Opening odds', showOdds], [sidingButton, '⇄ Siding patterns', showSiding], [historyButton, '🕘 Deck history', showHistory]]) {
       if (!button?.isConnected) continue;
       const item = element('button', label); item.type = 'button'; item.onclick = () => { closeDeckMenu(); open(); };
       grid.append(item);
@@ -3889,7 +3983,7 @@
         }
       }
     })));
-    for (const button of [deckChatButton, oddsButton, sidingButton]) if (button && button.hidden !== phone) button.hidden = phone;
+    for (const button of [deckChatButton, oddsButton, sidingButton, historyButton]) if (button && button.hidden !== phone) button.hidden = phone;
     if (phone && !deckMenuButton?.isConnected) {
       deckMenuButton = element('button', '⋯ Deck', 'dblite-deck-more'); deckMenuButton.type = 'button';
       deckMenuButton.title = 'Import, export, clear, set as default, new, rename, delete, save as'; deckMenuButton.setAttribute('aria-haspopup', 'dialog'); deckMenuButton.setAttribute('aria-expanded', 'false');
@@ -3915,7 +4009,7 @@
     area.placeholder = 'One message per line, e.g.\nmy chain\nresponse?\ngo ahead';
     area.value = (deckChat()[name] || []).join('\n');
     Object.assign(area.style, { width: '100%', resize: 'vertical', padding: '6px', background: 'var(--ssp-input)', color: 'inherit', border: '1px solid var(--ssp-line)', borderRadius: '4px', font: '13px/1.35 system-ui' });
-    const hint = element('p', 'Shown first in the 💬 chat wheel when you duel with this deck, then your general messages (Spellspeed settings). Up to 8 in all; 40 characters each.');
+    const hint = element('p', 'Shown first in the 💬 chat wheel when you duel with this deck, then your general messages (Spellspeed’s All settings, from its toolbar button). Up to 8 in all; 40 characters each.');
     const save = () => {
       const all = deckChat(), list = [...new Set(area.value.split('\n').map(text => text.replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean))].slice(0, 8);
       if (list.length) all[name] = list; else delete all[name];
@@ -4670,14 +4764,18 @@
     deckChatButton.setAttribute('aria-label', 'Quick chat messages for this deck'); deckChatButton.title = 'Quick chat messages for this deck'; deckChatButton.setAttribute('aria-expanded', 'false'); deckChatButton.onclick = showDeckChat;
     oddsButton = element('button', '🎲', 'dblite-solo-gear dblite-odds-button'); oddsButton.type = 'button';
     oddsButton.setAttribute('aria-label', 'Opening odds for this deck'); oddsButton.title = 'Opening odds: the chance of opening a starter with this deck'; oddsButton.setAttribute('aria-expanded', 'false'); oddsButton.onclick = showOdds;
+    historyButton = element('button', '🕘', 'dblite-solo-gear dblite-history-button'); historyButton.type = 'button';
+    historyButton.setAttribute('aria-label', 'Deck history'); historyButton.title = 'Deck history: how this deck changed at each save, kept in this browser only'; historyButton.setAttribute('aria-haspopup', 'dialog'); historyButton.setAttribute('aria-expanded', 'false'); historyButton.onclick = showHistory;
     sidingButton = element('button', '⇄', 'dblite-solo-gear dblite-siding-button'); sidingButton.type = 'button';
     sidingButton.setAttribute('aria-label', 'Siding patterns for this deck'); sidingButton.title = 'Siding patterns: the cards you side in and out for each matchup'; sidingButton.setAttribute('aria-haspopup', 'dialog'); sidingButton.setAttribute('aria-expanded', 'false'); sidingButton.onclick = showSiding;
     overviewButton = element('button', '⤢', 'dblite-solo-gear dblite-overview-button'); overviewButton.type = 'button';
     overviewButton.setAttribute('aria-label', 'Sizes of the card overview, the search and the deck'); overviewButton.title = 'Sizes: a wider card overview, a smaller picture or bigger text; the deck makes room'; overviewButton.setAttribute('aria-expanded', 'false'); overviewButton.onclick = showOverviewSettings;
     // Room for the chat, odds, siding and sizes buttons (inline, so it applies before the stylesheet reloads).
-    soloButton.style.setProperty('width', '50px', 'important'); for (const button of [soloGear, deckChatButton, oddsButton, sidingButton, overviewButton]) button.style.setProperty('width', '26px', 'important');
-    for (const button of [deckChatButton, oddsButton, sidingButton, overviewButton]) button.style.setProperty('font-size', '12px', 'important');
-    wrap.append(soloButton, soloGear, deckChatButton, oddsButton, sidingButton, overviewButton, status); root.append(wrap); root.classList.toggle('dblite-solo-ready', true);
+    // Seven in the 200 px row: Solo 44 px, the six others 23 px, 3 px apart.
+    wrap.style.setProperty('gap', '3px', 'important');
+    soloButton.style.setProperty('width', '44px', 'important'); for (const button of [soloGear, deckChatButton, oddsButton, sidingButton, historyButton, overviewButton]) button.style.setProperty('width', '23px', 'important');
+    for (const button of [deckChatButton, oddsButton, sidingButton, historyButton, overviewButton]) button.style.setProperty('font-size', '12px', 'important');
+    wrap.append(soloButton, soloGear, deckChatButton, oddsButton, sidingButton, historyButton, overviewButton, status); root.append(wrap); root.classList.toggle('dblite-solo-ready', true);
   }
   function cancelPractice(message) {
     if (window.callbackAfterSave === practicePlan?.launch) window.callbackAfterSave = null;
@@ -4747,7 +4845,13 @@
     if (query.pointsEnabled && !window.GenesysCards?.length) { controls.status.textContent = 'Points list is still loading.'; return; }
     query.described = query.describe.trim() ? describeRead(query.describe) : null;
     renderDescribe(query.described);
-    results = window.Cards.filter(c => matches(c, query, environmentCache));
+    // One row per card: DuelingBook's catalog has 258 names twice with the same passcode (Fusion Deployment 10631 and 17150),
+    // which listed them twice in every search, Starters and Ideas included (playtest F8; 0.9.4).
+    const prints = new Set();
+    results = window.Cards.filter(c => matches(c, query, environmentCache)).filter(c => {
+      const key = `${c.name}\u0000${c.serial_number || c.effect || ''}`;
+      return !prints.has(key) && prints.add(key);
+    });
     // Reverse search: the cards that name it first, then its archetype, mentions, and Type / stat searchers.
     // A description: the cards whose effects name what it asks first, then those that fit any card of that kind.
     const rank = query.fetches ? environmentCache.fetchRanks : query.lab ? environmentCache.labRanks : query.described?.active ? environmentCache.describeRanks : null;
@@ -5125,8 +5229,15 @@
     incompleteHelp.hidden = true; incompleteHelp.setAttribute('role', 'status'); labRow.after(incompleteHelp);
     const slots = element('div', '', 'dblite-lab-slots'), add = element('button', '＋ Material', 'dblite-lab-add'), mode = element('select', '', 'dblite-lab-mode'), find = element('button', 'Find', 'dblite-lab-find');
     add.type = find.type = 'button'; mode.setAttribute('aria-label', 'Use the materials');
-    for (const [value, text] of [['exact', 'Exactly these'], ['includes', 'These + others']]) { const option = element('option', text); option.value = value; mode.append(option); }
-    mode.title = 'Exactly these: the monsters are all the materials. These + others: they are among the materials.';
+    for (const [value, text] of [['exact', 'Exactly these'], ['includes', 'These + others'], ['deck', 'From my Main Deck']]) { const option = element('option', text); option.value = value; mode.append(option); }
+    mode.title = 'Exactly these: the monsters are all the materials. These + others: they are among the materials. From my Main Deck: what the monsters of your Main Deck can make.';
+    // From my Main Deck: no materials to pick; the deck is read when Find is pressed.
+    const deckMonsters = () => (Array.isArray(window.deck_filled_arr) ? window.deck_filled_arr : []).map(front => catalogCard(front?.data?.('id'))).filter(card => card?.card_type === 'Monster');
+    mode.addEventListener('change', () => {
+      const deck = mode.value === 'deck';
+      slots.hidden = add.hidden = deck;
+      help.textContent = deck ? `Which Fusion, Synchro, Xyz and Link Monsters can the ${deckMonsters().length} monsters of your Main Deck make? Each copy is used once.` : defaultHelp;
+    });
     const actions = element('div', '', 'dblite-lab-actions'); actions.append(add, mode, find);
     lab.append(head, help, slots, actions);
     fields.after(lab);
@@ -5234,8 +5345,9 @@
       const unknown = [...slots.children].filter(box => !box.dataset.spec && box.querySelector('input').value.trim() && !named(box));
       for (const box of slots.children) box.classList.toggle('dblite-lab-slot-missing', unknown.includes(box));
       if (unknown.length) { help.textContent = `No monster named “${unknown[0].querySelector('input').value.trim()}”: pick one from the suggestions, or use ◉.`; return; }
-      const items = [...slots.children].map(box => box.dataset.spec ? labItemValue(JSON.parse(box.dataset.spec)) : named(box)).filter(Boolean);
-      if (!items.length) { help.textContent = 'Pick at least one monster (type a name, ◉ for the card in the overview, or Any to describe one).'; return; }
+      const deck = mode.value === 'deck';
+      const items = deck ? deckMonsters().map(card => String(card.id)) : [...slots.children].map(box => box.dataset.spec ? labItemValue(JSON.parse(box.dataset.spec)) : named(box)).filter(Boolean);
+      if (!items.length) { help.textContent = deck ? 'Your Main Deck has no monsters yet.' : 'Pick at least one monster (type a name, ◉ for the card in the overview, or Any to describe one).'; return; }
       const value = `${mode.value}:${items.join(',')}`;
       job = evaluateLab(value, {
         valid: () => active && window.currentLabel === 'deck_constructor' && lab.isConnected && !lab.hidden,
@@ -5275,8 +5387,9 @@
       help.textContent = unchecked ? incompleteHelp.textContent : 'Pick monsters, or describe one with Any: which Fusion, Synchro, Xyz and Link Monsters can they make?';
       labRow.hidden = !value; if (!value) { labLabel.replaceChildren(); return; }
       const counts = found ? ['Fusion', 'Synchro', 'Xyz', 'Link'].map(kind => [kind, found.filter(c => String(c.monster_color).includes(kind)).length]).filter(([, n]) => n) : [];
-      labLabel.replaceChildren(labIcon(), ` ${value.mode === 'includes' ? 'With' : 'From'} ${value.materials.map(m => m.name).join(' + ')}${counts.length ? ' · ' + counts.map(([kind, n]) => `${n} ${kind}`).join(' · ') : ''}`);
-      labRow.title = (value.mode === 'includes' ? 'Extra Deck monsters that can use these monsters among their materials.' : 'Extra Deck monsters these monsters can make, using exactly them.') + ' Read from each material line; not rules-complete.';
+      const from = value.mode === 'deck' ? `From your Main Deck (${value.materials.length} monsters)` : `${value.mode === 'includes' ? 'With' : 'From'} ${value.materials.map(m => m.name).join(' + ')}`;
+      labLabel.replaceChildren(labIcon(), ` ${from}${counts.length ? ' · ' + counts.map(([kind, n]) => `${n} ${kind}`).join(' · ') : ''}`);
+      labRow.title = (value.mode === 'deck' ? 'Extra Deck monsters the monsters of your Main Deck can make, each copy used once; the card overview shows which.' : value.mode === 'includes' ? 'Extra Deck monsters that can use these monsters among their materials.' : 'Extra Deck monsters these monsters can make, using exactly them.') + ' Read from each material line; not rules-complete.';
     };
   }
   function build() {
@@ -5322,6 +5435,8 @@
     accessGear.title = 'What counts as Access'; accessGear.setAttribute('aria-label', 'What counts as Access'); accessGear.setAttribute('aria-expanded', 'false');
     const accessOptions = element('div', '', 'dblite-access-options'); accessOptions.hidden = true; accessOptions.setAttribute('role', 'group'); accessOptions.setAttribute('aria-label', 'What counts as Access');
     const accessTitle = element('span', 'Access from the Deck:', 'dblite-access-title'); accessOptions.append(accessTitle);
+    // Playtest F7 (0.9.4): the choices also change Starters and Ideas; say so where they are made.
+    accessOptions.append(element('span', 'Also used by Starters and Ideas.', 'dblite-access-note'));
     accessOptions.dataset.deck = 'main';
     for (const [action, label] of ACCESS_ACTIONS) {
       const line = element('label'), box = element('input'); box.type = 'checkbox'; box.value = action; box.checked = accessActions.main.has(action);
@@ -5356,7 +5471,7 @@
       if (reverse) fetchLabel.replaceChildren(`⤺ ${what} “`, name, `”${named ? ` · ${named} ${{ support: 'reach half its monsters or more', starters: 'on their own first', ideas: named === 1 ? 'Starter first' : 'Starters first' }[reverse.mode] || 'by name first'}` : ''}`); else fetchLabel.replaceChildren();
       fetchRow.title = ({ synergy: 'Access, plus cards that add, summon, Set or send this card from anywhere, cards that name it or its archetype, and the cards it names or fetches.',
         starters: 'Starters: cards that, alone in your opening hand, get this card on their own (listed first) or search or summon one of its own searchers (named, archetype or mention), which then gets it; no other card, and nothing from your opponent. Lines by chance come after the sure ones. Hover a result to see how. Each step counts what Access counts: ⚙ changes it for both.',
-        ideas: 'Ideas: every card that gets this card alone or through one of its searchers, also when it needs more than that one card: a cost, a condition, a trigger, a place. Each result says what it needs. The Starters come first, then the cards that get it but need something, then the two-step lines, searchers of any card of its kind included. Each step counts what Access counts: ⚙ changes it.',
+        ideas: 'Ideas: every card that gets this card alone or through one of its searchers, also when it needs more than that one card: a cost, a condition, a trigger, a place. Each result says what it needs. The Starters come first, then the cards that get it but need something, then the two-step lines, searchers of any card of its kind included. Extra Deck monsters too (an Xyz that searches it, or searches a card that gets it), with their own Summon as a need. Each step counts what Access counts: ⚙ changes it.',
         support: 'Cards outside the archetype that can search or summon at least a quarter of its monsters (and at least 2), most first.' }[reverse?.mode]
         || 'Cards whose text takes this card out of its Deck: the Extra Deck for Fusion, Synchro, Xyz and Link Monsters, the Main Deck for the rest. ⚙ chooses what counts (search, Special Summon, Set, send to the GY, banish), separately for Extra Deck monsters.') + ' Read from the card texts; not rules-complete.';
     };
@@ -5617,6 +5732,406 @@
     for (const [key, value] of [['left', left], ['top', top], ['width', size], ['height', size]]) if (button.style[key] !== value) button.style[key] = value;
     refreshUndo();
   }
+  // Deck history (user, 2026-11-12: "a GitHub-like timeline of how your deck changed over time"). Each save that changes
+  // a deck's cards adds a version: its Main, Extra and Side Deck card ids, in order. A deck opened here for the first
+  // time adds the version it has ("first version seen here"); one changed since in another browser or device adds a
+  // version marked so. Kept per deck id in this browser only (localStorage, never sent: Spellspeed collects nothing),
+  // the last DECK_HISTORY_LIMIT versions of each deck. Save As starts the new deck with the history of the deck it came
+  // from; deleting a deck deletes its history. 🕘 beside ⇄ lists the versions, newest first, each with the cards added,
+  // removed and moved since the version before. Compare shows any two versions, or one and the deck now; Load puts a
+  // version in the constructor as unsaved changes, one ↶ Undo step, saved only when the player saves.
+  const DECK_HISTORY_KEY = 'dbetter-deck-history', DECK_HISTORY_LIMIT = 100, DECK_HISTORY_BYTES = 2000000;
+  const HISTORY_LISTS = [['main', 'deck_filled_arr', 'Main'], ['extra', 'extra_filled_arr', 'Extra'], ['side', 'side_filled_arr', 'Side']];
+  const historyListName = key => HISTORY_LISTS.find(([k]) => k === key)?.[2] || key;
+  // Card ids in order, a run of copies as id*n: "4031*3,1702,88*2".
+  function historyEncode(ids) {
+    const out = [];
+    for (let i = 0; i < ids.length;) { let j = i; while (j < ids.length && ids[j] === ids[i]) j++; out.push(j - i > 1 ? ids[i] + '*' + (j - i) : ids[i]); i = j; }
+    return out.join(',');
+  }
+  const historyDecode = text => String(text || '').split(',').filter(Boolean).flatMap(part => { const [id, n] = part.split('*'); return id ? Array(Math.min(Math.max(Math.floor(Number(n)) || 1, 1), 60)).fill(id) : []; });
+  function historyStore() {
+    try {
+      const all = JSON.parse(localStorage.getItem(DECK_HISTORY_KEY) || '{}');
+      if (all && typeof all === 'object' && !Array.isArray(all)) return { decks: all.decks && typeof all.decks === 'object' ? all.decks : {}, names: all.names && typeof all.names === 'object' ? all.names : {} };
+    } catch { /* A fresh history. */ }
+    return { decks: {}, names: {} };
+  }
+  // Writes the history. Past DECK_HISTORY_BYTES (or the browser's quota) the oldest versions of the longest history go
+  // first. Names are kept only for cards that some version still has.
+  function writeHistory(all) {
+    for (let round = 0; round < 60; round++) {
+      const used = new Set();
+      for (const entry of Object.values(all.decks)) for (const v of entry?.versions || []) for (const [key] of HISTORY_LISTS) for (const id of historyDecode(v[key])) used.add(id);
+      all.names = Object.fromEntries(Object.entries(all.names).filter(([id]) => used.has(id)));
+      const text = JSON.stringify(all);
+      if (text.length <= DECK_HISTORY_BYTES) try { localStorage.setItem(DECK_HISTORY_KEY, text); return true; } catch { /* Over the quota: trimmed below. */ }
+      const longest = Object.values(all.decks).sort((a, b) => (b?.versions?.length || 0) - (a?.versions?.length || 0))[0];
+      if (!longest || longest.versions.length <= 1) return false;
+      longest.versions.splice(0, Math.max(1, Math.ceil(longest.versions.length / 10)));
+    }
+    return false;
+  }
+  // The deck in the constructor (or DuelingBook's Load deck answer, whose lists are card objects): ids per list, names.
+  function historyLists(data) {
+    const lists = {}, names = {};
+    for (const [key, list] of HISTORY_LISTS) {
+      const cards = data ? (Array.isArray(data[key]) ? data[key] : []) : Array.isArray(window[list]) ? window[list] : [];
+      lists[key] = cards.map(card => {
+        const id = String((data ? card?.id : card?.data?.('id')) ?? ''), name = data ? card?.name : card?.data?.('name');
+        if (id && name) names[id] = name; return id;
+      }).filter(Boolean);
+    }
+    return { lists, names };
+  }
+  const historyVersionLists = v => Object.fromEntries(HISTORY_LISTS.map(([key]) => [key, historyDecode(v?.[key])]));
+  // Same cards in each of Main, Extra and Side, in any order (user, 2026-11-12: "if it's the same card in another order,
+  // it shouldn't be another version"). A card moved between Main and Side is still a change.
+  const historySorted = ids => [...ids].sort().join(',');
+  const historySame = (v, lists) => !!v && HISTORY_LISTS.every(([key]) => historySorted(historyDecode(v[key])) === historySorted(lists[key] || []));
+  // Adds a version when the cards differ from the deck's last version; true when added. kind 'load': the deck as
+  // DuelingBook sent it, 'seen' for a deck without history, 'outside' when it changed since its last version.
+  function recordDeckVersion(deckId, name, kind, { lists, names }, time = Date.now()) {
+    deckId = String(deckId ?? ''); if (!deckId || deckId === '0') return false;
+    const all = historyStore(), had = all.decks[deckId];
+    const entry = had && Array.isArray(had.versions) ? had : (all.decks[deckId] = { versions: [] });
+    const last = entry.versions[entry.versions.length - 1], renamed = !!name && entry.name !== String(name);
+    if (name) entry.name = String(name);
+    if (historySame(last, lists) || !last && kind === 'load' && !HISTORY_LISTS.some(([key]) => lists[key]?.length)) { if (renamed && had) writeHistory(all); else if (!had) delete all.decks[deckId]; return false; }
+    const version = { t: Math.max(time, (last?.t || 0) + 1), kind: kind === 'load' ? (last ? 'outside' : 'seen') : kind };
+    for (const [key] of HISTORY_LISTS) version[key] = historyEncode(lists[key] || []);
+    entry.versions.push(version);
+    if (entry.versions.length > DECK_HISTORY_LIMIT) entry.versions.splice(0, entry.versions.length - DECK_HISTORY_LIMIT);
+    Object.assign(all.names, names);
+    writeHistory(all); return true;
+  }
+  function copyDeckHistory(fromId, toId) {
+    const all = historyStore(), from = all.decks[String(fromId)];
+    if (!from?.versions?.length || all.decks[String(toId)]?.versions?.length) return;
+    all.decks[String(toId)] = { name: from.name, from: String(fromId), versions: from.versions.map(v => ({ ...v })) };
+    writeHistory(all);
+  }
+  function deleteDeckHistory(deckId) { const all = historyStore(); if (all.decks[String(deckId)]) { delete all.decks[String(deckId)]; writeHistory(all); } }
+  // What changed from one deck to the next, per card: copies added, removed, or moved between the Main, Extra and Side
+  // Deck (a copy that left one list for another is a move, not a removal and an addition).
+  function deckHistoryDiff(before, after, names = {}) {
+    const counts = lists => {
+      const map = new Map();
+      for (const [key] of HISTORY_LISTS) for (const id of lists?.[key] || []) { const c = map.get(id) || { main: 0, extra: 0, side: 0 }; c[key]++; map.set(id, c); }
+      return map;
+    };
+    const a = counts(before), b = counts(after), changes = [];
+    for (const id of new Set([...a.keys(), ...b.keys()])) {
+      const delta = HISTORY_LISTS.map(([key]) => [key, (b.get(id)?.[key] || 0) - (a.get(id)?.[key] || 0)]);
+      const gains = delta.filter(([, d]) => d > 0), losses = delta.filter(([, d]) => d < 0).map(([key, d]) => [key, -d]);
+      if (!gains.length && !losses.length) continue;
+      const name = names[id] || catalogCard(id)?.name || 'Card #' + id;
+      for (const gain of gains) for (const loss of losses) {
+        const n = Math.min(gain[1], loss[1]); if (n > 0) { changes.push({ kind: 'move', id, name, n, from: loss[0], to: gain[0] }); gain[1] -= n; loss[1] -= n; }
+      }
+      for (const [list, n] of gains) if (n > 0) changes.push({ kind: 'add', id, name, n, list });
+      for (const [list, n] of losses) if (n > 0) changes.push({ kind: 'remove', id, name, n, list });
+    }
+    const order = { add: 0, remove: 1, move: 2 }, at = key => HISTORY_LISTS.findIndex(([k]) => k === key);
+    changes.sort((x, y) => order[x.kind] - order[y.kind] || at(x.list ?? x.to) - at(y.list ?? y.to) || y.n - x.n || x.name.localeCompare(y.name));
+    const sum = kind => changes.filter(c => c.kind === kind).reduce((s, c) => s + c.n, 0);
+    return { changes, added: sum('add'), removed: sum('remove'), moved: sum('move') };
+  }
+  const historyChangeText = c => c.kind === 'move' ? '⇄ ' + c.n + ' ' + c.name + ' · ' + historyListName(c.from) + ' → ' + historyListName(c.to)
+    : (c.kind === 'add' ? '+ ' : '− ') + c.n + ' ' + c.name + (c.list === 'main' ? '' : ' · ' + historyListName(c.list));
+  const HISTORY_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function historyWhen(t, now = Date.now()) {
+    const d = new Date(t), today = new Date(now), pad = n => String(n).padStart(2, '0'), time = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(), days = Math.round((day(today) - day(d)) / 86400000);
+    if (days === 0) return 'Today ' + time;
+    if (days === 1) return 'Yesterday ' + time;
+    return d.getDate() + ' ' + HISTORY_MONTHS[d.getMonth()] + (d.getFullYear() !== today.getFullYear() ? ' ' + d.getFullYear() : '') + ' ' + time;
+  }
+  // Puts a version's cards in the constructor, unsaved; '' when done, or why not. The deck before goes on the Undo stack.
+  function loadDeckVersion(version) {
+    if (!undoReady()) return 'Open the deck in the deck constructor first.';
+    hookDeckChanges(); refreshUndo();
+    const lists = historyVersionLists(version), before = deckSnapshot();
+    const order = deckLists().map(([list]) => HISTORY_LISTS.find(([, l]) => l === list)[0]);
+    if (order.map(key => lists[key].join(',')).join('|') === before.signature) return 'The deck is already this version.';
+    const ocg = !!document.querySelector('#deck_constructor .ocg_limit_rb')?.checked, own = new Map();
+    for (const [, list] of HISTORY_LISTS) for (const card of window[list] || []) { const id = String(card?.data?.('id') ?? ''); if (id && !own.has(id)) own.set(id, card); }
+    const front = id => {
+      const copy = window.newCardFront(), card = own.get(id);
+      if (card) { copy.copyCard(card); return copy; }
+      const data = catalogCard(id); if (!data || typeof copy.initializeAndLimit !== 'function') return null;
+      copy.initializeAndLimit(data, ocg); return copy;
+    };
+    const next = order.map(key => lists[key].map(front));
+    if (next.some(list => list.some(card => !card))) return 'A card of this version is missing from DuelingBook\'s card list; the deck is unchanged.';
+    const want = order.map(key => lists[key].join(',')).join('|');
+    const rebuild = cards => {
+      undo.restoring = true;
+      try { window.clearDeck(true); window.loading_deck = true; deckLists().forEach(([, add], i) => { for (const card of cards[i]) window[add](card); }); }
+      finally { window.loading_deck = false; undo.restoring = false; }
+      window.initializeDeckCards?.(); window.countMain?.(); window.countSide?.(); window.countExtra?.(); window.countPoints?.();
+    };
+    rebuild(next);
+    if (deckSignature() !== want) { rebuild(before.lists); refreshUndo(); return 'DuelingBook refused a card; the deck is unchanged.'; }
+    window.setUnsavedChanges?.();
+    // DuelingBook's own Clear Deck → Undo must not bring back an older deck afterwards.
+    window.tempMainState = []; window.tempSideState = []; window.tempExtraState = [];
+    const clear = document.querySelector('#deck_constructor #clear_btn');
+    if (clear) window.jQuery ? window.jQuery(clear).val('Clear Deck') : clear.value = 'Clear Deck';
+    if (before.deck !== undo.deck) undo.stack.length = 0;
+    undo.stack.push(before); undo.deck = before.deck; undo.recorded = undo.gesture;
+    if (undo.stack.length > UNDO_LIMIT) undo.stack.shift();
+    refreshUndo(); return '';
+  }
+  // Rated record per version (user, 2026-11-12: "if a specific version of the deck was played in Rated, … having its
+  // win rate next to it"). DuelingBook's startDuel says whether a duel is Rated (data.rated); the deck is the one chosen
+  // in the duel room (window.deck, whose id the pool was joined with), and the version its last one here, after the
+  // cards DuelingBook keeps for it (deck.deckData, when the deck was opened or saved on this page) are recorded. Each
+  // game's end comes through duelResponse, which DuelingBook's message handler calls by its global name: Admit defeat
+  // (who admitted loses), Quit duel (the quitter loses the match), Game loss / Match loss / Loss (the player named
+  // loses), Accept draw. data.over: the game decided the match (a single is one game). Tag duels, Solo and replays are
+  // left out. Kept in this browser only, like the history: the last DECK_RESULTS_LIMIT games of each deck.
+  // Read from DuelingBook's client code (2026-11-12), not yet from a live Rated duel.
+  const DECK_RESULTS_KEY = 'dbetter-deck-results', DECK_RESULTS_LIMIT = 1000;
+  const RATED_PLAYS = { 'Admit defeat': 'loser', 'Quit duel': 'loser', 'Game loss': 'loser', 'Match loss': 'loser', 'Loss': 'loser', 'Accept draw': 'draw' };
+  const DUEL_LABELS = /^(?:rps_start|tp_start2?|duel_start[1-4]?|siding)$/;
+  let ratedDuel = null;
+  function deckResults() {
+    try { const all = JSON.parse(localStorage.getItem(DECK_RESULTS_KEY) || '{}'); return all && typeof all === 'object' && !Array.isArray(all) ? all : {}; } catch { return {}; }
+  }
+  function writeResults(all) { try { localStorage.setItem(DECK_RESULTS_KEY, JSON.stringify(all)); } catch { /* Kept for this page. */ } }
+  function noteRatedDuel(data) {
+    ratedDuel = null;
+    if (!data?.rated || data.tag_duel || data.format === 'so' || window.replay) return;
+    const deck = window.deck, id = String(deck?.id ?? ''); if (!id || id === '0') return;
+    const own = deck.deckData;
+    if (Array.isArray(own?.main) && own.main.length && own.main.every(c => c?.id != null) && (own.id == null || String(own.id) === id)) recordDeckVersion(id, deck.data, 'load', historyLists(own));
+    const versions = historyStore().decks[id]?.versions || [];
+    // ended: this game's result is in (until Begin next duel / Back to RPS); decided: the match's.
+    ratedDuel = { deck: id, version: versions[versions.length - 1]?.t || 0, duel: String(data.id ?? ''), ended: false, decided: false };
+  }
+  // The game's result for the player, or null when the play is not the end of a Rated game of theirs.
+  function ratedResult(data) {
+    const kind = RATED_PLAYS[data?.play];
+    if (!ratedDuel || !kind || !window.duelist || window.replay || window.solo || window.tag_duel || !DUEL_LABELS.test(window.currentLabel || '')) return null;
+    if (data.play === 'Quit duel' && !window.duel_active) return null;
+    if ((data.play === 'Game loss' || data.play === 'Match loss') && data.id && String(data.id) !== String(window.duelId)) return null;
+    const me = window.username, players = [window.player1?.username, window.player2?.username];
+    if (!me || !players.includes(me) || kind === 'loser' && !players.includes(data.username)) return null;
+    const over = data.play === 'Quit duel' || data.play === 'Match loss' || data.play === 'Loss' && data.type === 'match' || !!data.over;
+    // The same end again, or a game's end after its result: once only. A match decided after the game's result is the match alone.
+    if (ratedDuel.decided || ratedDuel.ended && !over) return null;
+    return { r: kind === 'draw' ? 'd' : data.username === me ? 'l' : 'w', o: over ? 1 : 0, g: ratedDuel.ended ? 0 : 1 };
+  }
+  function recordRatedResult(result, time = Date.now()) {
+    const all = deckResults(), list = Array.isArray(all[ratedDuel.deck]) ? all[ratedDuel.deck] : (all[ratedDuel.deck] = []);
+    list.push({ v: ratedDuel.version, d: ratedDuel.duel, r: result.r, o: result.o, ...(result.g ? {} : { g: 0 }), at: time });
+    ratedDuel.ended = true; if (result.o) ratedDuel.decided = true;
+    if (list.length > DECK_RESULTS_LIMIT) list.splice(0, list.length - DECK_RESULTS_LIMIT);
+    writeResults(all);
+  }
+  // Per version (its time; 0: before the deck's first version here): games and matches won, lost and drawn.
+  function ratedRecords(deckId) {
+    const out = new Map(), list = deckResults()[String(deckId)];
+    for (const e of Array.isArray(list) ? list : []) {
+      if (!['w', 'l', 'd'].includes(e?.r)) continue;
+      const key = Number(e.v) || 0;
+      if (!out.has(key)) out.set(key, { games: { w: 0, l: 0, d: 0 }, matches: { w: 0, l: 0, d: 0 } });
+      const rec = out.get(key); if (e.g !== 0) rec.games[e.r]++; if (e.o) rec.matches[e.r]++;
+    }
+    return out;
+  }
+  const ratedScore = c => c.w + '–' + c.l + (c.d ? '–' + c.d : '') + (c.w + c.l ? ' · ' + Math.round(100 * c.w / (c.w + c.l)) + '%' : '');
+  // "Rated 3–1 · 75%" (matches; games while the first match is not over), with games and matches in the tooltip.
+  function ratedText(rec) {
+    if (!rec) return null;
+    const m = rec.matches, g = rec.games, matches = m.w + m.l + m.d, games = g.w + g.l + g.d; if (!games) return null;
+    const title = 'Rated with this version: matches ' + ratedScore(m) + ' (won–lost' + (m.d ? '–drawn' : '') + '), games ' + ratedScore(g) + '. Counted in this browser only.';
+    return { text: 'Rated ' + (matches ? ratedScore(m) : 'games ' + ratedScore(g)), title };
+  }
+  // DuelingBook answers every save (Save, Save As, the save before Solo) with saveDeckResponse, a deck it opens with
+  // loadDeckResponse, a deletion with deleteDeckResponse; its message handler calls them by their global names.
+  function hookDeckHistory() {
+    const wrap = (name, make) => {
+      const original = window[name];
+      if (typeof original !== 'function' || original.dbliteDeckHistory) return;
+      const wrapped = make(original); wrapped.dbliteDeckHistory = true;
+      window.DBLiteRules?.markHook(wrapped, original); window[name] = wrapped;
+    };
+    wrap('saveDeckResponse', original => function (data, ...rest) {
+      const before = String(window.deck?.id ?? ''), lists = historyLists();
+      const result = original.call(this, data, ...rest);
+      try {
+        const id = String(data?.id ?? window.deck?.id ?? '');
+        if (before && before !== '0' && id && before !== id) copyDeckHistory(before, id);
+        recordDeckVersion(id, data?.name ?? window.deck?.data, 'save', lists); refreshHistory();
+      } catch { /* The save itself is DuelingBook's. */ }
+      return result;
+    });
+    wrap('loadDeckResponse', original => function (data, ...rest) {
+      const result = original.call(this, data, ...rest);
+      // After a lost connection DuelingBook puts the unsaved cards back the same way (return_to_deck): not a version.
+      try { if (data?.id && !window.DBETTERRebuilding && !window.return_to_deck) { recordDeckVersion(data.id, window.deck?.data, 'load', historyLists(data)); refreshHistory(); } } catch { /* Loading is DuelingBook's. */ }
+      return result;
+    });
+    wrap('deleteDeckResponse', original => function (data, ...rest) {
+      const result = original.call(this, data, ...rest);
+      try { if (data?.id) { deleteDeckHistory(data.id); const all = deckResults(); if (all[String(data.id)]) { delete all[String(data.id)]; writeResults(all); } } } catch { /* Deleting is DuelingBook's. */ }
+      return result;
+    });
+    wrap('startDuel', original => function (data, ...rest) {
+      try { noteRatedDuel(data); } catch { ratedDuel = null; }
+      return original.call(this, data, ...rest);
+    });
+    wrap('duelResponse', original => function (data, ...rest) {
+      let result = null;
+      try {
+        // The next game of the match, or a rematch (a new match in the same duel).
+        if (ratedDuel && (data?.play === 'Begin next duel' || data?.play === 'Back to RPS')) { ratedDuel.ended = false; if (data.play === 'Back to RPS') ratedDuel.decided = false; }
+        result = ratedResult(data);
+      } catch { /* The duel is DuelingBook's. */ }
+      const answer = original.call(this, data, ...rest);
+      if (result) try { recordRatedResult(result); } catch { /* Kept for this page. */ }
+      return answer;
+    });
+  }
+  hookDeckHistory();
+  let historyPanel = null, historyButton = null, historyWatch = 0, historyRender = null;
+  function closeHistory() { clearInterval(historyWatch); historyWatch = 0; historyPanel?.remove(); historyPanel = null; historyRender = null; historyButton?.setAttribute('aria-expanded', 'false'); }
+  function refreshHistory() { if (historyPanel?.isConnected) historyRender?.(); }
+  function showHistory() {
+    if (historyPanel) { closeHistory(); return; }
+    const deckId = String(window.deck?.id ?? ''), name = window.deck?.data || 'This deck';
+    closeSoloSettings(); closeDeckChat();
+    // A deck opened before Spellspeed was listening: its saved cards are the first version seen.
+    if (deckId && deckId !== '0' && !window.unsavedChanges && !historyStore().decks[deckId]?.versions?.length) recordDeckVersion(deckId, name, 'load', historyLists());
+    const panel = historyPanel = element('section', '', 'dblite-solo-settings dblite-history');
+    panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Deck history'); historyButton?.setAttribute('aria-expanded', 'true');
+    const header = element('header'), close = element('button', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close deck history'); close.onclick = () => { closeHistory(); historyButton?.focus(); };
+    header.append(element('strong', '🕘 Deck history · ' + name), close);
+    const tools = element('div', '', 'dblite-history-tools'), compareToggle = element('button', 'Compare two versions'); compareToggle.type = 'button';
+    const status = element('p', '', 'dblite-history-status'); status.setAttribute('role', 'status');
+    tools.append(compareToggle, status);
+    const compare = element('div', '', 'dblite-history-compare'); compare.hidden = true;
+    const fromSelect = element('select'), toSelect = element('select'), compareOut = element('div', '', 'dblite-history-compare-out');
+    fromSelect.setAttribute('aria-label', 'Compare from'); toSelect.setAttribute('aria-label', 'Compare to');
+    const pickers = element('div', '', 'dblite-history-pickers'); pickers.append(fromSelect, element('span', '→'), toSelect);
+    compare.append(pickers, compareOut);
+    const list = element('ol', '', 'dblite-history-list'), foot = element('p', '', 'dblite-history-foot');
+    panel.append(header, tools, compare, list, foot);
+    const expanded = new Set();
+    let entry = null, versions = [], names = {}, current = null, seenStore = null, seenDeck = null, seenResults = null, records = new Map();
+    const sizes = lists => HISTORY_LISTS.map(([key]) => (lists[key] || []).length).join(' · ');
+    const counts = diff => {
+      const box = element('span', '', 'dblite-history-counts');
+      if (diff.added) box.append(element('span', '+' + diff.added, 'dblite-history-add'));
+      if (diff.removed) box.append(element('span', '−' + diff.removed, 'dblite-history-remove'));
+      if (diff.moved) box.append(element('span', '⇄' + diff.moved, 'dblite-history-move'));
+      return box;
+    };
+    const changeList = (diff, limit = Infinity) => {
+      const ul = element('ul', '', 'dblite-history-changes');
+      for (const c of diff.changes.slice(0, limit)) ul.append(element('li', historyChangeText(c), 'dblite-history-' + c.kind));
+      if (diff.changes.length > limit) ul.append(element('li', '+' + (diff.changes.length - limit) + ' more', 'dblite-history-more'));
+      return ul;
+    };
+    // Versions by their place in the list ('now': the deck in the constructor).
+    const listsAt = key => key === 'now' ? current.lists : historyVersionLists(versions[Number(key)]);
+    const label = key => key === 'now' ? 'Now' + (latestSame() ? '' : ' (not saved)') : '#' + (Number(key) + 1) + ' · ' + historyWhen(versions[Number(key)].t);
+    const latestSame = () => historySame(versions[versions.length - 1], current.lists);
+    function renderCompare() {
+      compareOut.replaceChildren();
+      if (fromSelect.value === '' || toSelect.value === '') return;
+      const diff = deckHistoryDiff(listsAt(fromSelect.value), listsAt(toSelect.value), names);
+      const head = element('div', '', 'dblite-history-compare-head');
+      head.append(diff.changes.length ? counts(diff) : element('span', 'Same cards'), element('span', sizes(listsAt(fromSelect.value)) + ' → ' + sizes(listsAt(toSelect.value)), 'dblite-history-sizes'));
+      compareOut.append(head);
+      if (diff.changes.length) compareOut.append(changeList(diff));
+    }
+    function openCompare(from, to) {
+      compare.hidden = false; compareToggle.textContent = 'Hide compare'; fromSelect.value = from; toSelect.value = to; renderCompare(); list.scrollTop = 0;
+    }
+    compareToggle.onclick = () => {
+      if (!compare.hidden) { compare.hidden = true; compareToggle.textContent = 'Compare two versions'; return; }
+      // The last two versions; with unsaved changes, the last version and the deck now.
+      const last = versions.length - 1;
+      if (last < 0) return;
+      if (!latestSame()) openCompare(String(last), 'now'); else openCompare(String(Math.max(0, last - 1)), String(last));
+    };
+    fromSelect.onchange = toSelect.onchange = renderCompare;
+    function row(key, diff, note) {
+      const v = key === 'now' ? null : versions[Number(key)], li = element('li', '', 'dblite-history-version');
+      li.dataset.kind = v ? v.kind : 'now'; const open = expanded.has(key);
+      const head = element('button', '', 'dblite-history-head'); head.type = 'button'; head.setAttribute('aria-expanded', String(open));
+      head.append(element('span', '', 'dblite-history-dot'), element('span', key === 'now' ? 'Now · not saved' : historyWhen(v.t), 'dblite-history-when'));
+      if (diff?.changes.length) head.append(counts(diff));
+      const rated = v && ratedText(records.get(v.t));
+      if (rated) { const chip = element('span', rated.text, 'dblite-history-rated'); chip.title = rated.title; head.append(chip); }
+      head.append(element('span', sizes(listsAt(key)), 'dblite-history-sizes'));
+      head.onclick = () => { open ? expanded.delete(key) : expanded.add(key); render(); };
+      li.append(head);
+      if (note) li.append(element('p', note, 'dblite-history-note'));
+      if (diff?.changes.length) li.append(changeList(diff, open ? Infinity : 3));
+      if (open && key !== 'now') {
+        const actions = element('div', '', 'dblite-history-actions'), withNow = element('button', 'Compare with now'), load = element('button', 'Load this version');
+        withNow.type = load.type = 'button';
+        withNow.onclick = () => openCompare(key, 'now');
+        load.title = 'Put this version in the constructor, not saved: ↶ takes it back, Save keeps it';
+        load.disabled = historySame(v, current.lists);
+        load.onclick = () => {
+          if (String(window.deck?.id ?? '') !== deckId) { closeHistory(); return; }
+          const why = loadDeckVersion(v); status.textContent = why || 'Loaded the version of ' + historyWhen(v.t) + '. Not saved: ↶ takes it back.'; render(); };
+        actions.append(withNow, load); li.append(actions);
+      }
+      return li;
+    }
+    function render() {
+      if (historyPanel !== panel) return;
+      const all = historyStore(); seenStore = localStorage.getItem?.(DECK_HISTORY_KEY) ?? null; seenResults = localStorage.getItem?.(DECK_RESULTS_KEY) ?? null;
+      entry = all.decks[deckId] || null; versions = Array.isArray(entry?.versions) ? entry.versions : [];
+      current = historyLists(); seenDeck = deckSignature(); names = { ...all.names, ...current.names }; records = ratedRecords(deckId);
+      const scroll = list.scrollTop; list.replaceChildren();
+      for (const select of [fromSelect, toSelect]) {
+        const keep = select.value; select.replaceChildren();
+        for (const key of ['now', ...versions.map((_, i) => String(i)).reverse()]) { const o = element('option', label(key)); o.value = key; select.append(o); }
+        if ([...select.options].some(o => o.value === keep)) select.value = keep;
+      }
+      if (!compare.hidden) renderCompare();
+      if (!deckId || deckId === '0') list.append(element('li', 'Save this deck to start its history.', 'dblite-history-empty'));
+      else {
+        if (!versions.length || !latestSame()) {
+          const diff = versions.length ? deckHistoryDiff(historyVersionLists(versions[versions.length - 1]), current.lists, names) : null;
+          list.append(row('now', diff, versions.length ? '' : 'No version yet: each save that changes the cards adds one.'));
+        }
+        for (let i = versions.length - 1; i >= 0; i--) {
+          const v = versions[i], previous = versions[i - 1];
+          const diff = previous ? deckHistoryDiff(historyVersionLists(previous), historyVersionLists(v), names) : null;
+          const note = !previous ? (v.kind === 'seen' ? 'First version seen in this browser' : 'Oldest version kept')
+            : v.kind === 'outside' ? 'Changed outside this browser (another device or browser)' : diff.changes.length ? '' : 'Same cards in another order';
+          list.append(row(String(i), diff, note));
+        }
+      }
+      list.scrollTop = scroll;
+      const total = { games: { w: 0, l: 0, d: 0 }, matches: { w: 0, l: 0, d: 0 } };
+      for (const rec of records.values()) for (const part of ['games', 'matches']) for (const r of ['w', 'l', 'd']) total[part][r] += rec[part][r];
+      const rated = ratedText(total);
+      foot.textContent = versions.length + ' version' + (versions.length === 1 ? '' : 's') + (rated ? ' · ' + rated.text + ' in all' : '') + ' · kept in this browser only, never sent · the last ' + DECK_HISTORY_LIMIT + ' per deck';
+      compareToggle.disabled = !versions.length;
+    }
+    historyRender = render;
+    for (const type of ['keydown', 'keyup', 'mousedown', 'click']) panel.addEventListener(type, e => { e.stopPropagation(); if (type === 'keydown' && e.key === 'Escape') { e.preventDefault(); closeHistory(); historyButton?.focus(); } });
+    document.body.append(panel); render();
+    // Over the search panel, so the deck and ↶ (under the privacy button) stay in view; beside 🕘 when there is none.
+    const width = panel.offsetWidth || 420, search = document.querySelector('#deck_constructor .dblite-builder-search')?.getBoundingClientRect();
+    const r = search && search.width >= width && search.height >= 200 ? { right: search.left, top: search.top } : anchorRect(historyButton || panel);
+    panel.style.left = Math.max(8, Math.min(r.right, innerWidth - width - 8)) + 'px'; panel.style.top = Math.max(8, Math.min(r.top, innerHeight - panel.offsetHeight - 8)) + 'px';
+    historyWatch = setInterval(() => {
+      if (historyPanel !== panel) return;
+      if (!panel.isConnected || window.currentLabel !== 'deck_constructor' || String(window.deck?.id ?? '') !== deckId) { closeHistory(); return; }
+      if (deckSignature() !== seenDeck || (localStorage.getItem?.(DECK_HISTORY_KEY) ?? null) !== seenStore || (localStorage.getItem?.(DECK_RESULTS_KEY) ?? null) !== seenResults) render();
+    }, 700);
+  }
+  document.addEventListener('pointerdown', e => { if (historyPanel && !historyPanel.contains(e.target) && e.target !== historyButton) closeHistory(); });
   // Siding patterns (user, 2026-11-10): for each best-of-3 matchup, the cards to side in from the Side Deck and the
   // cards to take out of the Main and Extra Deck. A matchup is shown by a card the player picks for the opposing deck,
   // with a name. Kept per deck name in this browser, like the opening odds roles. Cards are matched by name; a planned
@@ -5875,6 +6390,184 @@
     if (undo.stack.length > UNDO_LIMIT) undo.stack.shift();
     refreshUndo(); return '';
   }
+
+  // Side plans between the games of a match (user, 2026-11-13): on DuelingBook's siding screen, a saved plan of this
+  // deck (Siding patterns) is played through DuelingBook's own siding, as the player would do it: its cards are clicked
+  // one by one (DuelingBook's sidingClick marks them), then Swap Cards sends the swap to the server. Done Siding stays the
+  // player's. DuelingBook's siding uses the constructor's lists (deck_filled_arr, side_filled_arr, extra_filled_arr, the
+  // fronts in deck_arr, side_arr, extra_arr) with currentLabel 'siding' (read in its client code, 2026-11-13).
+  const DUEL_SIDE_STEP_MS = 160, DUEL_SIDE_WAIT_MS = 6000;
+  // duelSideDone: the plan last played here and the deck it gave, so the same plan is not played twice.
+  // duelSideSeen: the deck the open panel was drawn for; a change (Reset Deck, a swap by hand) redraws it.
+  let duelSideButton = null, duelSidePanel = null, duelSideRun = 0, duelSideStatus = '', duelSideDone = null, duelSideSeen = '', duelSideBusy = false;
+  const duelSideSignature = () => ['deck_filled_arr', 'side_filled_arr', 'extra_filled_arr'].map(list => (window[list] || []).map(c => c?.data?.('name')).join(',')).join('|');
+  const nativeVisible = node => !!node && node.isConnected && getComputedStyle(node).display !== 'none' && getComputedStyle(node).visibility !== 'hidden' && !!node.offsetWidth;
+  function duelSideReady() {
+    return window.currentLabel === 'siding' && !!window.duelist && !window.replay && typeof window.swapCardsE === 'function' &&
+      Array.isArray(window.deck_filled_arr) && window.deck_filled_arr.length > 0 && nativeVisible(document.getElementById('done_siding_btn'));
+  }
+  const duelSideDeckName = () => window.deck?.data || 'This deck';
+  // The fronts to click for a plan: the Side Deck cards that go in and the Main/Extra Deck cards that go out, the same
+  // copies as Side in would move in the constructor (sidingChosen). Pairs, an out then an in, so it reads as swaps.
+  function duelSideTargets(plan) {
+    const nameOf = card => card?.data?.('name');
+    const main = [...window.deck_filled_arr || []], side = [...window.side_filled_arr || []], extra = [...window.extra_filled_arr || []];
+    const fromSide = [...sidingChosen(side, plan.in, plan.picks?.in, false, nameOf)].sort((a, b) => a - b).map(i => window.side_arr?.[i]);
+    const fromKept = [...sidingChosen([...main, ...extra], plan.out, plan.picks?.out, true, nameOf)].sort((a, b) => a - b)
+      .map(i => i < main.length ? window.deck_arr?.[i] : window.extra_arr?.[i - main.length]);
+    const out = [];
+    for (let i = 0; i < Math.max(fromSide.length, fromKept.length); i++) out.push(fromKept[i], fromSide[i]);
+    return out.filter(Boolean);
+  }
+  // The filled card behind a front, and whether DuelingBook has it marked.
+  function duelSideClicked() {
+    const marked = [];
+    for (const [fronts, filled] of [['deck_arr', 'deck_filled_arr'], ['side_arr', 'side_filled_arr'], ['extra_arr', 'extra_filled_arr']]) {
+      (window[filled] || []).forEach((card, i) => { if (card?.data?.('clicked') && window[fronts]?.[i]) marked.push(window[fronts][i]); });
+    }
+    return marked;
+  }
+  const duelSideClick = front => { if (typeof front?.trigger === 'function') front.trigger('click'); else front?.[0]?.click?.(); };
+  // What a plan would do now: '' when it can be played, else why not (the deck already sided for it included).
+  function duelSideProblem(plan, matchup = null, order = '') {
+    if (sidingPlanEmpty(plan)) return 'No plan yet';
+    if (duelSideDone && duelSideDone.signature === duelSideSignature()) {
+      if (matchup && duelSideDone.id === matchup.id && duelSideDone.order === order) return 'Sided ✓';
+      return 'Sided for ' + duelSideDone.name + ': Reset first';
+    }
+    const deck = sidingDeck(), check = sidingCheck(plan, deck);
+    if (check.ok) return '';
+    if (sidingCheck(plan, deck, true).ok) return 'Already sided';
+    return check.problems[0]?.text || 'Does not fit this deck';
+  }
+  function stopDuelSide() { duelSideRun++; }
+  async function playDuelSide(matchup, order) {
+    const plan = matchup[order], run = ++duelSideRun, title = sidingName(matchup) + ', ' + (order === 'first' ? 'going first' : 'going second');
+    const say = text => { duelSideStatus = text; renderDuelSide(); };
+    const alive = () => run === duelSideRun && duelSideReady();
+    const problem = duelSideProblem(plan, matchup, order); if (problem) { say(problem); return false; }
+    // Cards the player had marked are unmarked first, with DuelingBook's own click.
+    for (const front of duelSideClicked()) duelSideClick(front);
+    const targets = duelSideTargets(plan);
+    say('Siding ' + title + '…'); duelSideBusy = true;
+    try { return await sideCards(); } finally { duelSideBusy = false; renderDuelSide(); }
+    async function sideCards() {
+      for (const front of targets) {
+        if (!alive()) return false;
+        duelSideClick(front);
+        await new Promise(done => setTimeout(done, DUEL_SIDE_STEP_MS));
+      }
+      if (!alive()) return false;
+      const swap = document.getElementById('swap_btn');
+      if (!swap || swap.disabled || duelSideClicked().length !== targets.length) {
+        for (const front of duelSideClicked()) duelSideClick(front);
+        say('DuelingBook did not take these cards: nothing was swapped.'); return false;
+      }
+      swap.click();
+      // DuelingBook redraws the lists once the server has swapped them (its "Swap cards" answer).
+      const until = Date.now() + DUEL_SIDE_WAIT_MS;
+      while (Date.now() < until) {
+        await new Promise(done => setTimeout(done, 150));
+        if (run !== duelSideRun) return false;
+        if (sidingCheck(plan, sidingDeck(), true).ok && !duelSideClicked().length) {
+          duelSideDone = { id: matchup.id, order, name: sidingName(matchup), signature: duelSideSignature() };
+          say('✓ Sided: ' + title + '. Check it, then Done Siding.'); return true;
+        }
+      }
+      say('No answer from DuelingBook yet: check the deck before Done Siding.'); return false;
+    }
+  }
+  function closeDuelSide() {
+    duelSidePanel?.remove(); duelSidePanel = null; duelSideButton?.setAttribute('aria-expanded', 'false');
+  }
+  function renderDuelSide() {
+    const panel = duelSidePanel; if (!panel) return;
+    const name = duelSideDeckName(), matchups = sidingPatterns(name);
+    duelSideSeen = duelSideSignature(); panel.replaceChildren();
+    const header = element('header'), close = element('button', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close side plans');
+    close.onclick = () => { closeDuelSide(); duelSideButton?.focus(); };
+    header.append(element('strong', 'Side plans · ' + name), close);
+    panel.append(header);
+    if (!matchups.length) {
+      panel.append(element('p', 'No siding pattern for this deck yet. Make them in the Deck Constructor with ⇄ Siding patterns.', 'dblite-odds-note'));
+      return;
+    }
+    panel.append(element('p', 'Pick a plan: Spellspeed clicks its cards and presses Swap Cards. Done Siding stays yours.', 'dblite-odds-note'));
+    const list = element('div', '', 'dblite-duel-side-list');
+    for (const m of matchups) {
+      const row = element('div', '', 'dblite-duel-side-row'), box = element('span', '', 'dblite-siding-art');
+      const known = m.card && (catalogCard(m.card.id, m.card.name) || m.card);
+      const safe = known?.id != null ? window.DBLiteRules?.pageImage(imageUrl(known)) : null;
+      if (safe) { const img = element('img'); img.alt = ''; img.src = safe; img.onerror = () => img.remove(); box.append(img); } else box.textContent = '?';
+      const text = element('span', '', 'dblite-duel-side-text'), orders = element('span', '', 'dblite-duel-side-orders');
+      text.append(element('strong', sidingName(m)));
+      if (m.note) text.append(element('small', m.note));
+      for (const [key, label] of SIDING_ORDERS) {
+        const plan = m[key], problem = duelSideProblem(plan, m, key), go = element('button', '', 'dblite-duel-side-go'); go.type = 'button';
+        const check = sidingCheck(plan, sidingDeck());
+        go.append(element('b', label));
+        if (!problem) go.append(element('span', `+${check.inTotal} −${check.outTotal}`));
+        else go.append(element('small', problem));
+        go.disabled = !!problem;
+        const cards = [...Object.entries(plan.in).map(([n, k]) => `+${k} ${n}`), ...Object.entries(plan.out).map(([n, k]) => `−${k} ${n}`)].join('\n');
+        go.title = (problem ? problem + '\n' : '') + (cards || 'No plan yet');
+        go.onclick = () => playDuelSide(m, key);
+        orders.append(go);
+      }
+      text.append(orders); row.append(box, text); list.append(row);
+    }
+    panel.append(list);
+    if (duelSideStatus) panel.append(element('p', duelSideStatus, 'dblite-duel-side-status'));
+  }
+  function placeDuelSide() {
+    if (!duelSidePanel || !duelSideButton) return;
+    const r = duelSideButton.getBoundingClientRect(), w = duelSidePanel.offsetWidth || 340, h = duelSidePanel.offsetHeight || 200;
+    duelSidePanel.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px';
+    duelSidePanel.style.top = Math.max(8, Math.min(r.top - h - 8 < 8 ? r.bottom + 8 : r.top - h - 8, innerHeight - h - 8)) + 'px';
+  }
+  function showDuelSide() {
+    if (duelSidePanel) { closeDuelSide(); return; }
+    duelSideStatus = '';
+    const panel = duelSidePanel = element('section', '', 'dblite-solo-settings dblite-duel-side');
+    panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Side plans'); duelSideButton?.setAttribute('aria-expanded', 'true');
+    document.body.append(panel); renderDuelSide(); placeDuelSide();
+  }
+  // The ⇄ Side plan button, above DuelingBook's Swap Cards and with its look, while the player is siding. z-index 1: over
+  // the Watchers box and the avatar beside it (z auto, seen live 2026-11-13), under DuelingBook's dim and dialogs (40, 45).
+  // Above Swap Cards, moved up past whatever is there: the Watchers box, the Mathematician (DuelingBook's sort button, a
+  // button of its own: user, 2026-11-13) and the avatar. Obstacles: visible elements laid out in the same box as Swap
+  // Cards, smaller than a panel, that the button would overlap.
+  function duelSideTop(swap) {
+    const parent = swap.offsetParent, w = swap.offsetWidth, h = swap.offsetHeight, left = swap.offsetLeft, gap = 6;
+    const boxes = parent ? [...parent.querySelectorAll('*')].filter(n => n !== duelSideButton && n !== swap && n.offsetParent === parent && n.offsetWidth && n.offsetHeight &&
+      n.offsetWidth < 400 && n.offsetHeight < 400 && !n.contains(swap) && getComputedStyle(n).visibility !== 'hidden' && getComputedStyle(n).pointerEvents !== 'none' &&
+      n.offsetLeft < left + w && n.offsetLeft + n.offsetWidth > left && n.offsetTop < swap.offsetTop) : [];
+    let top = swap.offsetTop - h - gap;
+    for (let i = 0; i < 12; i++) {
+      const hit = boxes.find(n => n.offsetTop < top + h && n.offsetTop + n.offsetHeight > top);
+      if (!hit) break;
+      top = hit.offsetTop - h - gap;
+    }
+    return Math.max(0, top);
+  }
+  function duelSideControls() {
+    const swap = document.getElementById('swap_btn');
+    if (!duelSideReady() || !nativeVisible(swap)) {
+      stopDuelSide(); closeDuelSide(); duelSideButton?.remove(); duelSideButton = null; duelSideStatus = ''; return;
+    }
+    if (!duelSideButton || !duelSideButton.isConnected || duelSideButton.previousElementSibling !== swap) {
+      duelSideButton?.remove();
+      const b = duelSideButton = element('button', '⇄ Side plan', 'dblite-duel-side-button'); b.type = 'button';
+      b.title = 'Side in one of your saved siding patterns for this deck'; b.setAttribute('aria-haspopup', 'dialog'); b.setAttribute('aria-expanded', 'false');
+      b.onclick = showDuelSide; swap.after(b);
+    }
+    const b = duelSideButton, css = getComputedStyle(swap);
+    for (const prop of ['font-family', 'font-size', 'font-weight', 'color', 'background-color', 'background-image', 'border', 'border-radius', 'box-shadow', 'text-shadow'])
+      b.style.setProperty(prop, css.getPropertyValue(prop));
+    Object.assign(b.style, { position: 'absolute', left: swap.offsetLeft + 'px', top: duelSideTop(swap) + 'px', width: swap.offsetWidth + 'px', height: swap.offsetHeight + 'px', zIndex: '1' });
+    if (duelSidePanel) { if (!duelSideBusy && duelSideSignature() !== duelSideSeen) { duelSideStatus = ''; renderDuelSide(); } placeDuelSide(); }
+  }
+  document.addEventListener('pointerdown', e => { if (duelSidePanel && !duelSidePanel.contains(e.target) && e.target !== duelSideButton && !e.target.closest?.('#siding')) closeDuelSide(); });
 
   // Export (user, 2026-11-10): a page to print or save as PDF with the browser's own dialog. First the deck as in game 1
   // (Main, Extra and Side Deck, with the card pictures), then a page per matchup: its card, name and note, and for going
@@ -6475,6 +7168,8 @@
     if (window.DBETTERRebuilding) return;
     navigation();
     advancePractice();
+    hookDeckHistory();
+    duelSideControls();
     document.documentElement.classList.toggle('dblite-in-constructor', window.currentLabel === 'deck_constructor');
     // Here the chat buttons' own tooltips would cover the deck controls (night.css): a title by the cursor instead.
     for (const [id, title] of [['chat_btn', 'Public Chat'], ['private_btn', 'Private Chat'], ['online_btn', 'Online Users']]) {
@@ -6501,7 +7196,7 @@
     // A card's names for a name search, normalized: its own and the names it is always treated as ("Power Patron" for Theorealized Medius).
     names: card => card?.name ? indexedText(card).name : [], textMatch, inRange, matches, effectCategories: card => [...categoriesOf(card)], statMatch, searchWidth: currentWidth,
     searchFor, searchFetchers, catalogCard, archetypesOf, fetches, fetchRank: relatedRank, fetchClauses, fitsPhrase, phraseRequest, materialRecipe,
-    searchSupport, searchNeed, searchLabWay, openingOdds, handChances, oddsClasses, suggestOddsRoles, showOdds, undoDeck, sidingCheck, sidingLists, sidingState, sidingPatterns, showSiding, applySiding, sidingStability, sidingOddsMarks, sidingStates, sidingPrintHtml, sidingDeckSnapshot, openSidingExport, sidingPdf, downloadSidingPdf,
+    searchSupport, searchNeed, searchLabWay, openingOdds, handChances, oddsClasses, suggestOddsRoles, showOdds, undoDeck, historyEncode, historyDecode, historyStore, recordDeckVersion, deckHistoryDiff, historyChangeText, historyWhen, loadDeckVersion, showHistory, hookDeckHistory, ratedRecords, ratedText, sidingCheck, sidingLists, sidingState, sidingPatterns, showSiding, applySiding, sidingStability, sidingOddsMarks, sidingStates, sidingPrintHtml, sidingDeckSnapshot, openSidingExport, sidingPdf, downloadSidingPdf,
     // Describe search: the query read, a card's rank against it, and why a result of the current search matched ([{ label, text }]).
     describeRead: raw => describeRead(String(raw ?? '')), describeRank: (card, raw) => describeRank(card, describeRead(String(raw ?? ''))),
     describeWhy: card => query?.described?.active && card ? environmentCache?.describeWhy?.get(card) || null : null,
